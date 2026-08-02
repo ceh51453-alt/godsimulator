@@ -337,6 +337,10 @@ export function giaiMacro(text: string, ctx: NguCanhMacro): KetQuaGiai {
       }
 
       default:
+        // Comment macro — {{//text}} → xóa âm thầm, không lãng phí token.
+        // Preset SillyTavern dùng {{//...}} như chú thích cho người viết preset.
+        if (n.ten.startsWith('//')) return '';
+
         chuaGiai.add(n.ten);
         issues.push({
           code: 'MACRO_CAN_ADAPTER',

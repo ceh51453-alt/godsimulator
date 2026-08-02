@@ -22,6 +22,7 @@ import type { WorldState, EventLog } from '../core/engine/state.js';
 import { SceneSchema } from '../core/contracts/core.js';
 import type { Scene } from '../core/contracts/core.js';
 import { bienSoanLuot } from '../core/preset/hopNhat.js';
+import { parseChoice } from '../core/ai/choice.js';
 import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
 import { packDangBat, usePreset } from './preset.js';
 import { taoState, taoEventLog, hashState } from '../core/engine/state.js';
@@ -165,6 +166,8 @@ export type TrangThaiGame = {
    * có quyền biết điều đó thay vì chỉ được đưa cho một chuỗi đã sạch.
    */
   vetVeSinh: readonly string[];
+  /** Lựa chọn hành động từ `<choice>` block trong output AI. Rỗng = không có. */
+  luaChon: readonly string[];
   /** Đang chờ Narrator viết xong. UI khóa ô nhập trong lúc này. */
   dangKe: boolean;
   /**
@@ -789,7 +792,28 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       moTaPersona: get().persona?.publicDescription ?? '',
       hoTroPrefill: useAi.getState().cfg.narrator.probe.xuatCoCauTruc,
     });
-    const prompt = hopNhat.prompt;
+
+    /*
+     * Prompt-transform regex — chạy regex `promptOnly` trên phần người dùng
+     * của prompt TRƯỚC khi gửi AI.
+     *
+     * Ví dụ: preset "aether opus" bọc input bằng `<interactive_input>` và thêm
+     * `<additional_settings>`. Transform chạy sandboxed (timeout, chặn pattern
+     * nguy hiểm), và transform hỏng → giữ prompt gốc.
+     */
+    let nguoiDungFinal = usePreset.getState().transformPrompt(hopNhat.prompt.nguoiDung);
+
+    /*
+     * Adapter merge — in-prompt `<regex>` blocks + tag replace.
+     *
+     * Chạy SAU prompt-transform để regex `<interactive_input>` bao bọc đúng
+     * trước khi in-prompt regex chạy.
+     */
+    nguoiDungFinal = usePreset.getState().apAdapter(nguoiDungFinal);
+
+    const prompt: typeof hopNhat.prompt = nguoiDungFinal !== hopNhat.prompt.nguoiDung
+      ? Object.freeze({ ...hopNhat.prompt, nguoiDung: nguoiDungFinal })
+      : hopNhat.prompt;
 
     set({
       vetCatToken: prompt.vetCat.map((v) => ({ tang: v.tang, ten: v.ten, vi: v.vi })),
@@ -871,8 +895,19 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * nào chạm được vào Event, Patch hay `WorldState`. Đây là toàn bộ chỗ regex
      * của preset được phép có mặt trong đường chơi.
      */
-    themDong('ket_qua', usePreset.getState().hienThi(kq.loiKe));
-    set({ patchBiTuChoi: kq.biTuChoi });
+    /*
+     * Parse `<choice>` block trước khi hiển thị.
+     *
+     * Block `<choice>` bị xóa khỏi lời kể; các lựa chọn đi vào state `luaChon`
+     * để UI render thành buttons. Khi user chọn hoặc gõ input mới, `luaChon`
+     * được xóa sạch ở `keLuot()` đầu lượt sau.
+     */
+    const { loiKe: loiKeSach, luaChon: dsLuaChon } = parseChoice(kq.loiKe);
+    themDong('ket_qua', usePreset.getState().hienThi(loiKeSach));
+    set({ patchBiTuChoi: kq.biTuChoi, luaChon: dsLuaChon });
+
+    // Capture data from output for adapter merge (kemini_noass)
+    usePreset.getState().captureOutput(kq.loiKe);
 
     /*
      * Biến pack — 66.6, tương thích thẻ bài MVU.
@@ -1256,6 +1291,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     patchBiTuChoi: [],
     vetVeSinh: [],
     dangKe: false,
+    luaChon: [],
     luotChuaKe: null,
     danhSachVan: [],
     dangLuu: false,
@@ -1374,6 +1410,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       const view = get().view;
       if (!s || !log || !view) return;
 
+      // Xóa lựa chọn cũ — lượt mới, choices cũ không còn ý nghĩa.
+      set({ luaChon: [] });
       themDong('nguoi_choi', cau);
       demIntent++;
       const intent = parseIntent(cau, {

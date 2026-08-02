@@ -226,5 +226,30 @@ export function apTransform(input: {
     daApDung.push(t.id);
   }
 
+
   return { text: ra, daApDung, daBoQua, issues, quaCham };
+}
+
+/**
+ * Áp regex `promptOnly` lên **chuỗi prompt** trước khi gửi AI.
+ *
+ * Cùng bộ bảo vệ sandbox (timeout, chặn pattern, max ký tự) nhưng target là
+ * prompt thay vì output hiển thị. Chỉ chạy transform có `promptOnlyNguon: true`.
+ *
+ * [BB] Ranh giới vẫn giữ: transform chỉ chạy trên chuỗi văn bản đã phẳng hóa,
+ * KHÔNG chạy trên WorldView, PatchOp hay cấu trúc dữ liệu engine.
+ */
+export function apPromptTransform(input: {
+  readonly text: string;
+  readonly transforms: readonly TransformDef[];
+  readonly maxRegexMs: number;
+  readonly daTat?: ReadonlySet<string>;
+  readonly dongHo?: () => number;
+}): KetQuaTransform {
+  // Lọc chỉ lấy transform promptOnly
+  const promptOnly = input.transforms.filter((t) => t.promptOnlyNguon);
+  if (promptOnly.length === 0) {
+    return { text: input.text, daApDung: [], daBoQua: [], issues: [], quaCham: [] };
+  }
+  return apTransform({ ...input, transforms: promptOnly });
 }

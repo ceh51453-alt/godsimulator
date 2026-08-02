@@ -31,7 +31,9 @@ import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/prese
 import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
-import { apTransform } from '../core/preset/sandbox.js';
+import { apTransform, apPromptTransform } from '../core/preset/sandbox.js';
+import { apInPromptRegex, captureFromOutput, replaceTagsInPrompt } from '../core/preset/adapterMerge.js';
+import type { CaptureRule, CapturedData } from '../core/preset/adapterMerge.js';
 import type { ImportIssue } from '../core/contracts/primitives.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import {
@@ -66,6 +68,8 @@ export type TrangThaiPreset = {
   baoCao: BaoCaoNhap | null;
   /** Lỗi lint của lần bấm "Bật" gần nhất — hiện tại chỗ, không nuốt. */
   loiBat: readonly ImportIssue[];
+  /** Dữ liệu đã capture từ output AI bởi adapter kemini_noass. */
+  capturedData: CapturedData;
   branchId: string;
   daNap: boolean;
 
@@ -94,6 +98,12 @@ export type TrangThaiPreset = {
   transformDangBat(): readonly TransformDef[];
   /** Áp transform lên một dòng văn để hiển thị. Không đụng dữ liệu gốc. */
   hienThi(vanBan: string): string;
+  /** Áp regex promptOnly lên chuỗi prompt trước khi gửi AI. */
+  transformPrompt(vanBan: string): string;
+  /** Áp adapter merge: in-prompt regex + tag replace. */
+  apAdapter(vanBan: string): string;
+  /** Bắt dữ liệu từ output AI theo capture rules của preset. */
+  captureOutput(output: string): void;
   /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
   apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<void>;
 };
@@ -151,6 +161,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   wizard: wizardMoi(),
   baoCao: null,
   loiBat: [],
+  capturedData: {},
   branchId: '',
   daNap: false,
 
@@ -455,6 +466,57 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       dongHo: () => performance.now(),
     });
     return kq.text;
+  },
+
+  transformPrompt(vanBan) {
+    const ds = get().transformDangBat().filter((t) => t.promptOnlyNguon);
+    if (ds.length === 0) return vanBan;
+    const kq = apPromptTransform({
+      text: vanBan,
+      transforms: ds,
+      maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+      dongHo: () => performance.now(),
+    });
+    return kq.text;
+  },
+
+  apAdapter(vanBan) {
+    // 1. Tag replace — thêm dữ liệu đã capture vào prompt
+    let kq = replaceTagsInPrompt(vanBan, get().capturedData);
+    // 2. In-prompt regex — parse và chạy `<regex>` blocks bên trong prompt
+    const regex = apInPromptRegex(kq);
+    kq = regex.text;
+    return kq;
+  },
+
+  captureOutput(output) {
+    // Lấy capture rules từ biến pack
+    const bien = get().bien;
+    const rules: CaptureRule[] = [];
+    for (const packBien of Object.values(bien)) {
+      const captureRules = packBien['capture_rules'];
+      if (Array.isArray(captureRules)) {
+        for (const r of captureRules) {
+          if (r && typeof r === 'object' && 'regex' in r && 'tag' in r) {
+            rules.push(r as CaptureRule);
+          }
+        }
+      }
+    }
+    if (rules.length === 0) return;
+
+    // Kiểm tra công tắc toàn cục
+    let globalEnabled = true;
+    for (const packBien of Object.values(bien)) {
+      if (packBien['capture_enabled'] === false) {
+        globalEnabled = false;
+        break;
+      }
+    }
+    if (!globalEnabled) return;
+
+    const { data, changed } = captureFromOutput(output, rules, get().capturedData);
+    if (changed) set({ capturedData: data });
   },
 
   async apBienPack(thayDoi, tick) {

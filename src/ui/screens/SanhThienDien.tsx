@@ -36,6 +36,7 @@ import { BangThongTin } from './BangThongTin.js';
 import type { DivineIdentity, DomainState } from '../../core/schema/aspect/thanVi.js';
 import type { Venerable } from '../../core/schema/aspect/divine.js';
 import { CACH_DAP_DI_HOA } from '../../core/schema/aspect/thanVi.js';
+import LuaChon from '../components/LuaChon.js';
 
 const TEN_TANG: Record<ViewMode, string> = {
   sang_the: 'Sáng Thế Thần',
@@ -114,6 +115,7 @@ export function SanhThienDien(): JSX.Element | null {
   const roiVan = useGame((s) => s.roiVan);
   const luotChuaKe = useGame((s) => s.luotChuaKe);
   const keLai = useGame((s) => s.keLai);
+  const luaChon = useGame((s) => s.luaChon);
 
   const machDangChieu = useMemo(() => {
     if (ongKinh.dangChieu.loai !== 'mach') return null;
@@ -651,6 +653,18 @@ export function SanhThienDien(): JSX.Element | null {
                 {goiY.slice(0, 4).map((a) => (
                   <ChipHanhDong key={a.id} nhan={a.nhan} icon="quy_ket" onChon={() => setCau(a.nhan)} />
                 ))}
+              </div>
+            )}
+            {luaChon.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <LuaChon
+                  luaChon={luaChon}
+                  dangKe={dangKe}
+                  onChon={(text) => {
+                    setCau(text);
+                    void gui(text);
+                  }}
+                />
               </div>
             )}
             <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
