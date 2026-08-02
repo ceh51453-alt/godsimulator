@@ -1,0 +1,323 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Hệ thống thiết kế — Phần 36 [BB].
+ *
+ * Bốn luật cấm của 36.1:
+ *   1. CẤM TUYỆT ĐỐI EMOJI — không ở UI, placeholder, toast, log, dữ liệu mẫu.
+ *   2. Mọi icon là SVG vẽ tay, inline, `currentColor`. Không icon font.
+ *   3. Kính mờ: nền bán trong, `backdrop-filter`, viền sáng mảnh.
+ *   4. Màu ít bão hòa, tương phản thấp. Không neon, không màu nguyên chất.
+ *
+ * [BB] 36.2 — file này là NGUỒN CHÂN LÝ DUY NHẤT về màu. Không hardcode hex ở
+ * bất kỳ chỗ nào khác. Tương phản `--sang` / `--muc` cố ý giữ quanh 9:1, không
+ * đẩy lên 21:1; không dùng #FFFFFF hay #000000 ở đâu cả.
+ */
+:root {
+  /* Nền — mực sâu, không bao giờ đen tuyền */
+  --muc: #0a0c11;
+  --thach: #141821;
+  --suong: #1e2430;
+
+  /* Chữ — không bao giờ trắng tinh */
+  --sang: #dadee7;
+  --tro: #878fa0;
+  --mo: #5a6272;
+
+  /* Ba accent, bão hòa < 25% */
+  --dong: #9b8a6b; /* đồng cổ — thần quyền, hành động chính */
+  --ngoc: #6f8e85; /* ngọc mờ — luật, trật tự, xác nhận */
+  --van: #7e7593; /* tử vân — khái niệm, tiềm năng, chưa định hình */
+
+  /* Trạng thái */
+  --hoi: #8c6f6f; /* nguy hiểm, mâu thuẫn, sẹo */
+  --lam: #6b7e96; /* thông tin, đang xử lý */
+
+  /* Kính */
+  --kinh-nen: rgba(180, 195, 225, 0.045);
+  --kinh-nen-2: rgba(180, 195, 225, 0.075);
+  --kinh-vien: rgba(190, 205, 235, 0.1);
+  --kinh-sang: rgba(220, 230, 250, 0.16);
+  --kinh-blur: blur(22px) saturate(115%);
+
+  /* Gradient nền — delta màu cực nhỏ */
+  --nen-vu-tru:
+    radial-gradient(1200px 800px at 18% 8%, rgba(126, 117, 147, 0.14), transparent 62%),
+    radial-gradient(1000px 700px at 85% 92%, rgba(111, 142, 133, 0.1), transparent 58%),
+    radial-gradient(900px 600px at 55% 45%, rgba(155, 138, 107, 0.06), transparent 60%),
+    linear-gradient(168deg, #0a0c11 0%, #10131b 55%, #0c0e14 100%);
+
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --khoang: 8px;
+
+  /*
+   * 36.3 — bốn vai trò chữ. Cả bốn PHẢI có bộ dấu tiếng Việt đầy đủ; đó là ràng
+   * buộc cứng chứ không phải sở thích, vì nhiều font serif sang trọng vỡ chữ ở
+   * "ữ", "ằ", "ợ". Bản dựng hiện tại dùng fallback hệ thống để `vite preview`
+   * chạy được offline (cổng Phase 3); nhúng font thật là việc của Phase 11.
+   */
+  --chu-hien: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --chu-than: 'Be Vietnam Pro', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --chu-so: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --chu-ke: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+
+  --thoi-luong: 260ms;
+  --duong-cong: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /*
+   * Sáu màu của `KindDef.mau`, ánh xạ vào ba accent + trạng thái ở trên.
+   * Giữ tên cũ để component có sẵn không phải sửa, nhưng GIÁ TRỊ nay lấy từ
+   * bảng 36.2 — bản trước bão hòa quá mức luật cấm số 4.
+   */
+  --mau-dong: var(--dong);
+  --mau-ngoc: var(--ngoc);
+  --mau-van: var(--van);
+  --mau-hoi: var(--hoi);
+  --mau-lam: var(--lam);
+  --mau-tro: var(--tro);
+
+  --nen-0: var(--muc);
+  --nen-1: var(--thach);
+  --nen-2: var(--suong);
+  --vien: var(--kinh-vien);
+  --chu-1: var(--sang);
+  --chu-2: var(--tro);
+  --chu-3: var(--mo);
+  --ban-kinh: var(--r-md);
+}
+
+/* [BB] Phần 78.2 — accessibility có hiệu lực TRƯỚC màn Sảnh. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --thoi-luong: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--muc);
+  background-image: var(--nen-vu-tru);
+  background-attachment: fixed;
+  color: var(--sang);
+  font-family: var(--chu-than);
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 1px solid var(--dong);
+  outline-offset: 2px;
+}
+
+/*
+ * 36.4 — kính.
+ * [BB] Panel kính KHÔNG lồng quá 2 cấp. Ba lớp trở lên thành đục và mất cảm
+ * giác cao cấp; đó là lý do chỉ có `.kinh` và `.kinh--cap2`, không có cấp ba.
+ */
+.kinh {
+  background: var(--kinh-nen);
+  backdrop-filter: var(--kinh-blur);
+  -webkit-backdrop-filter: var(--kinh-blur);
+  border: 1px solid var(--kinh-vien);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 0 0 var(--kinh-sang) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.55);
+}
+
+.kinh--cap2 {
+  background: var(--kinh-nen-2);
+  border-radius: var(--r-md);
+}
+
+/* 36.3 — tên riêng dùng small-caps, KHÔNG in đậm. */
+.ten-rieng {
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+}
+
+.chu-hien {
+  font-family: var(--chu-hien);
+  font-weight: 300;
+  letter-spacing: 0.02em;
+}
+
+.chu-so {
+  font-family: var(--chu-so);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ── Phase 11: responsive và bàn phím ──
+ *
+ * Cổng Phase 11: "mobile và bàn phím dùng được". Ba biến dưới đây là chỗ duy
+ * nhất bố cục ba cột của 37.3 co lại, nên không component nào phải tự đoán.
+ */
+:root {
+  --cot-phai: 340px;
+  --rail: 60px;
+}
+
+/* Khung hẹp: cột phải thành ngăn kéo dưới, rail thành thanh ngang. */
+@media (max-width: 900px) {
+  :root {
+    --cot-phai: 100%;
+    --rail: 100%;
+  }
+}
+
+.khung-sanh {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.khung-sanh__rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--kinh-vien);
+}
+
+.khung-sanh__phai {
+  flex: 0 0 var(--cot-phai);
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  border-left: 1px solid var(--kinh-vien);
+}
+
+@media (max-width: 900px) {
+  .khung-sanh {
+    flex-direction: column;
+  }
+
+  .khung-sanh__rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--kinh-vien);
+    padding: 8px 10px;
+  }
+
+  .khung-sanh__phai {
+    border-left: none;
+    border-top: 1px solid var(--kinh-vien);
+    /* Bảng trạng thái vẫn đọc được, chỉ là nằm dưới khung kể. */
+    max-height: 45vh;
+  }
+}
+
+/*
+ * Lớp phủ đọc — [BB] 55.1: KHÔNG chặn tương tác, KHÔNG dừng thời gian.
+ *
+ * Nó phủ lên vùng giữa và phải, và thanh điều hướng trái vẫn còn để người chơi
+ * biết mình đang ở đâu (58.2). Không dùng `position: fixed` phủ toàn màn hình vì
+ * thế sẽ biến nó thành một modal, tức là đúng thứ đặc tả cấm.
+ */
+.lop-phu {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  background: rgba(10, 12, 17, 0.86);
+  backdrop-filter: var(--kinh-blur);
+  -webkit-backdrop-filter: var(--kinh-blur);
+}
+
+/* Bảng là MỘT lớp kính duy nhất — [BB] 55.6 quy tắc 3, không lồng hộp con. */
+.vung-bang + .vung-bang {
+  border-top: 1px solid var(--kinh-vien);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.luoi-doi {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+@media (max-width: 720px) {
+  .luoi-doi {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Bảng rộng phải tự cuộn ngang; thân trang thì không bao giờ. */
+.cuon-ngang {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* 36.7 — panel mở: scale 0.985 → 1 + fade. */
+@keyframes hien-panel {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.hien-panel {
+  animation: hien-panel var(--thoi-luong) var(--duong-cong) both;
+}
+
+/* Mở rộng phần thông số sinh — nhẹ nhàng, không gây xao nhãng. */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Slider range — bỏ giao diện mặc định trình duyệt, dùng thumb nhỏ gọn. */
+input[type='range'] { -webkit-appearance: none; appearance: none; background: transparent; }
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--dong);
+  border: 2px solid var(--kinh-nen-2);
+  cursor: pointer;
+  margin-top: -5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.12s ease;
+}
+input[type='range']::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type='range']:disabled::-webkit-slider-thumb { background: var(--mo); cursor: not-allowed; }
+input[type='range']::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--dong);
+  border: 2px solid var(--kinh-nen-2);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+input[type='range']:disabled::-moz-range-thumb { background: var(--mo); cursor: not-allowed; }

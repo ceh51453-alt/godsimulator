@@ -1,0 +1,10 @@
+dist
+node_modules
+.tsbuild
+coverage
+src/test/fixtures/preset/*.json
+
+# [BB] Hai file đặc tả là NGUỒN CHÂN LÝ và chưa từng bị sửa kể từ Phase 0.
+# Chạy formatter lên chúng sẽ đổi nội dung nguồn — không được phép.
+THIEN_DIEN_HOP_NHAT_v3.1.md
+PROMPT_IDE_DUNG_THIEN_DIEN_v3.1.md
