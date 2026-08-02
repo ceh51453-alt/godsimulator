@@ -17,7 +17,7 @@
  * nó có là cột "đích native" của 66.6: người dùng cần biết app làm thay việc gì,
  * nếu không họ sẽ đi tìm cách bật script bằng được.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { usePreset } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
@@ -71,6 +71,16 @@ export function XuongPreset(): JSX.Element {
 
   const oFile = useRef<HTMLInputElement>(null);
   const [dangDoc, setDangDoc] = useState(false);
+  const [moRong, setMoRong] = useState<Set<string>>(new Set());
+
+  const toggleChiTiet = useCallback((key: string) => {
+    setMoRong((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const chonFile = async (f: File | undefined): Promise<void> => {
     if (f === undefined) return;
@@ -200,20 +210,85 @@ export function XuongPreset(): JSX.Element {
               <div key={`${row.packId}:${nhom.khoa}`} className="kinh--cap2" style={{ padding: 12 }}>
                 <div style={so}>{nhom.khoa}</div>
                 <div style={{ ...phu, marginBottom: 8 }}>{nhom.moTa}</div>
-                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                <div style={{ display: 'grid', gap: 6 }}>
                   {nhom.moduleIds.map((id) => {
                     const m = row.pack.modules.find((x) => x.id === id);
                     const dangChon = xungDot[row.packId]?.[nhom.khoa] === id;
+                    const chiTietKey = `${row.packId}:${nhom.khoa}:${id}`;
+                    const dangMo = moRong.has(chiTietKey);
                     return (
-                      <button
-                        key={id}
-                        type="button"
-                        style={nut(dangChon)}
-                        aria-pressed={dangChon}
-                        onClick={() => giaiXungDot(row.packId, nhom.khoa, id)}
-                      >
-                        {m?.name ?? id}
-                      </button>
+                      <div key={id}>
+                        <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            style={nut(dangChon)}
+                            aria-pressed={dangChon}
+                            onClick={() => giaiXungDot(row.packId, nhom.khoa, id)}
+                          >
+                            {m?.name ?? id}
+                          </button>
+                          <button
+                            type="button"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: dangMo ? 'var(--dong)' : 'var(--mo)',
+                              font: 'inherit',
+                              fontSize: 11,
+                              cursor: 'pointer',
+                              padding: '4px 6px',
+                              textDecoration: 'underline',
+                              textUnderlineOffset: '2px',
+                            }}
+                            onClick={() => toggleChiTiet(chiTietKey)}
+                            aria-expanded={dangMo}
+                          >
+                            {dangMo ? 'ẩn' : 'xem chi tiết'}
+                          </button>
+                        </div>
+                        {dangMo && m !== undefined && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              marginLeft: 8,
+                              padding: '8px 10px',
+                              borderLeft: '2px solid var(--kinh-vien)',
+                              background: 'rgba(0,0,0,0.15)',
+                              borderRadius: 'var(--r-sm)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+                              <span style={phu}>
+                                Loại: <strong style={{ color: 'var(--tro)' }}>{m.kind}</strong>
+                              </span>
+                              <span style={phu}>
+                                Lane: <strong style={{ color: 'var(--tro)' }}>{m.lane}</strong>
+                              </span>
+                              <span style={phu}>
+                                Role: <strong style={{ color: 'var(--tro)' }}>{m.role}</strong>
+                              </span>
+                            </div>
+                            <pre
+                              className="chu-so"
+                              style={{
+                                margin: 0,
+                                ...phu,
+                                color: 'var(--tro)',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: 240,
+                                overflow: 'auto',
+                                fontSize: 12,
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              {m.content.length > 2000
+                                ? m.content.slice(0, 2000) + '\n…(cắt bớt, còn ' + (m.content.length - 2000) + ' ký tự)'
+                                : m.content}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

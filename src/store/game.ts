@@ -1224,6 +1224,20 @@ export const useGame = create<TrangThaiGame>((set, get) => {
   ): Promise<void> => {
     if (!doiCong()) return;
 
+    /*
+     * Lưu ván đang chơi TRƯỚC khi ghi đè — sửa lỗi "bắt đầu ván mới = mất ván cũ".
+     *
+     * `khoiTao()` sắp thay thế `state` và `log` bằng thế giới hư vô mới. Nếu
+     * ván hiện tại chưa từng xuống đĩa hoặc có thay đổi từ lần lưu cuối, nó sẽ
+     * mất vĩnh viễn. `await` ở đây là cố ý: ván cũ phải xuống đĩa TRƯỚC khi
+     * state bị ghi đè — fire-and-forget sẽ tạo race với `set({ state })` bên
+     * dưới và người chơi sẽ mất ván y hệt khi `luuVan()` đọc state mới thay
+     * vì state cũ.
+     */
+    if (get().state && coIndexedDb()) {
+      await get().luuVan();
+    }
+
     const ct = KhoiTaoWorldSchema.parse({
       cua,
       seed: SEED_MAC_DINH,
@@ -1631,6 +1645,15 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      */
     async tiepTucVan(branchId) {
       if (!coIndexedDb()) return false;
+
+      /*
+       * Lưu ván đang chơi TRƯỚC khi nạp ván khác — cùng lẽ với `khoiTao()`.
+       *
+       * Kịch bản: đang chơi ván A, mở Bản Đồ Nhánh, bấm "Tiếp tục" ván B.
+       * Không lưu ở đây thì mọi thay đổi từ lần autosave cuối bị mất.
+       */
+      if (get().state) await get().luuVan();
+
       const db = layDb();
       const kho = new KhoDexie(db);
       const r = await napState(kho, branchId);
@@ -1720,6 +1743,16 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     },
 
     async nhapVanTuChuoi(noiDung) {
+      /*
+       * Lưu ván đang chơi TRƯỚC khi nhập file — cùng lẽ với `khoiTao()`.
+       *
+       * Kịch bản: đang chơi ván A, nhập file save từ máy khác. Không lưu ở
+       * đây thì ván A mất thay đổi chưa lưu, và lỗi ấy đặc biệt khó phát hiện
+       * vì nhập file không đi qua `roiVan()` — người chơi thấy ván mới hiện ra
+       * và không nghĩ rằng ván cũ vừa bị xóa khỏi bộ nhớ.
+       */
+      if (get().state && coIndexedDb()) await get().luuVan();
+
       let tho: unknown;
       try {
         tho = JSON.parse(noiDung);
