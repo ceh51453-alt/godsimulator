@@ -734,13 +734,35 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * lý do preset nhập vào rồi nằm im: pipeline nhập chạy đúng, còn kết quả của
      * nó không có đường nào tới model.
      */
+    /**
+     * Tóm tắt phiên — dựng từ scene history dài hơn `canhGanDay`.
+     *
+     * Khi không có mạch truyện đang chiếu, đây là nguồn duy nhất giúp model
+     * nối mạch tự sự. Nối 20 dòng gần nhất thành một đoạn có nhãn vai trò;
+     * `bienSoan` chỉ dùng nó khi tầng 4 không có mạch nào.
+     */
+    const sceneGanDay = get().scene.slice(-20);
+    const tomTatPhien =
+      sceneGanDay.length > 3
+        ? sceneGanDay
+            .filter((d) => d.loai !== 'he_thong')
+            .map((d) =>
+              d.loai === 'nguoi_choi'
+                ? `[Ngươi] ${d.noiDung.slice(0, 150)}`
+                : d.noiDung.slice(0, 200),
+            )
+            .join('\n')
+            .slice(0, 1800)
+        : undefined;
+
     const nguLieu = {
       view,
       banTin: get().banTin,
       loiCau: loiCauCho(s, s.world.playerState.chuTheId, s.world.tick),
       canhGanDay: get()
-        .scene.slice(-6)
+        .scene.slice(-12)
         .map((d) => ({ loai: d.loai, noiDung: d.noiDung })),
+      tomTatPhien,
       cauNguoiChoi,
       ketQuaEngine,
       tenNguoiChoi: get().persona?.displayName ?? 'Người Chơi',

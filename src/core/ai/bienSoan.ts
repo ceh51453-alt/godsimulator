@@ -85,6 +85,12 @@ export type NguLieuKe = {
   readonly loiCau: readonly Prayer[];
   /** Vài dòng cảnh gần nhất, cũ trước mới sau. */
   readonly canhGanDay: readonly { loai: string; noiDung: string }[];
+  /**
+   * Tóm tắt diễn biến phiên chơi gần đây — dựng từ scene history dài hơn
+   * `canhGanDay`. Khi không có mạch truyện đang chiếu, đây là nguồn duy nhất
+   * giúp model nối mạch tự sự giữa các lượt.
+   */
+  readonly tomTatPhien?: string;
   /** Câu người chơi vừa gõ; rỗng khi đây là lượt thời gian trôi. */
   readonly cauNguoiChoi: string;
   /**
@@ -149,6 +155,11 @@ function tang1(mode: ViewMode): string {
     '',
     'ENGINE GIỮ SỔ:',
     so,
+    '',
+    'LIÊN KẾT TỰ SỰ:',
+    '- Mỗi cảnh phải nối mạch từ cảnh trước: nhắc lại ít nhất một chi tiết, nhân vật hoặc sự kiện đã xảy ra trong phần VÀI NHỊP TRƯỚC.',
+    '- Khi người chơi hành động ([Ngươi]), phản hồi phải có hậu quả trực tiếp trong cảnh — không bỏ qua, không diễn đạt lại ý người chơi bằng giọng bình luận.',
+    '- Nhân vật phải phản ứng với những gì đã xảy ra, không kể một cảnh hoàn toàn mới như chưa có gì trước đó.',
     '',
     `Ống kính lượt này đặt ở tầng ${NHAN_TANG[mode]}.`,
     mode === 'sang_the'
@@ -235,7 +246,12 @@ function tang3(view: WorldView, tenNguoiChoi: string): string {
  * `kyUcMach`, nút thắt chưa gỡ, vai trò nhân vật. Đây là tầng làm nên truyện
  * dài — nó nhớ DIỄN TIẾN, không nhớ trạng thái (30.1).
  */
-function tang4(view: WorldView, mach: ProjectedStoryline | null, oChoNguoiChoi: boolean): string {
+function tang4(
+  view: WorldView,
+  mach: ProjectedStoryline | null,
+  oChoNguoiChoi: boolean,
+  tomTatPhien?: string,
+): string {
   const dong: string[] = [];
 
   if (mach) {
@@ -254,6 +270,15 @@ function tang4(view: WorldView, mach: ProjectedStoryline | null, oChoNguoiChoi: 
           'Đây là chuyện của những người trên.',
       );
     }
+    dong.push('');
+  } else if (tomTatPhien && tomTatPhien.trim() !== '') {
+    /**
+     * Tóm tắt phiên — khi không có mạch truyện đang chiếu, đây là nguồn duy
+     * nhất giúp model nối mạch tự sự. Không có nó thì mỗi lượt là một cảnh
+     * rời, và "nhập vai" trở thành "diễn đạt".
+     */
+    dong.push('DIỄN BIẾN GẦN ĐÂY (tóm tắt từ các cảnh đã kể — dùng để nối mạch, đừng lặp nguyên văn):');
+    dong.push(tomTatPhien.trim());
     dong.push('');
   }
 
@@ -316,7 +341,10 @@ function tang6(ng: NguLieuKe): string {
 
   if (ng.canhGanDay.length > 0) {
     dong.push('VÀI NHỊP TRƯỚC:');
-    for (const c of ng.canhGanDay.slice(-6)) dong.push(`- ${c.noiDung}`);
+    for (const c of ng.canhGanDay.slice(-10)) {
+      const nhan = c.loai === 'nguoi_choi' ? '[Ngươi] ' : c.loai === 'ket_qua' ? '[Kể] ' : '';
+      dong.push(`- ${nhan}${c.noiDung}`);
+    }
     dong.push('');
   }
 
@@ -386,7 +414,7 @@ export function bienSoanPromptKe(ng: NguLieuKe): PromptGoi {
       so: 4,
       ten: 'Mạch truyện và tầm mắt',
       onDinh: false,
-      noiDung: tang4(ng.view, ng.machDangChieu ?? null, oChoNguoiChoi),
+      noiDung: tang4(ng.view, ng.machDangChieu ?? null, oChoNguoiChoi, ng.tomTatPhien),
     },
     {
       so: 5,
