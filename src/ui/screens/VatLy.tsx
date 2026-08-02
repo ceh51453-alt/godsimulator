@@ -80,7 +80,7 @@ function TrucNenDong({ truc }: { truc: TrucNen }): JSX.Element {
         </span>
         <span style={{ flex: 1 }} />
         {coTen && ln?.tickDatTen !== null && ln !== undefined && (
-          <span style={{ ...nhanNho, textTransform: 'none' }}>đặt tên ở lượt {ln.tickDatTen}</span>
+          <span style={{ ...nhanNho, textTransform: 'none' }}>đặt tên ở nhịp {ln.tickDatTen}</span>
         )}
       </div>
 

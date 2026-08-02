@@ -111,7 +111,7 @@ const NET: Readonly<Record<TenIcon, JSX.Element>> = {
   ),
   // Tam giác có gạch — [BB] 36.7: lỗi nói rõ chuyện gì, không xin lỗi.
   canh_bao: <path d="M12 4 2.5 20h19L12 4Zm0 6v5m0 2.5v.5" />,
-  // Đồng hồ mặt trời — lượt thời gian.
+  // Đồng hồ mặt trời — nhịp thời gian.
   nhip: (
     <>
       <circle cx="12" cy="12" r="8.5" />

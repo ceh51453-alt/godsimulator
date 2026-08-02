@@ -99,7 +99,7 @@ function DongVan({
 
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: 'var(--tro)' }}>
         <span>
-          Lượt <b style={{ fontFamily: 'var(--chu-so)' }}>{muc.tick}</b>
+          Nhịp <b style={{ fontFamily: 'var(--chu-so)' }}>{muc.tick}</b>
         </span>
         <span>
           Năm <b style={{ fontFamily: 'var(--chu-so)' }}>{muc.nam}</b>
@@ -196,7 +196,7 @@ export function ManChinh({ onBatDau }: { onBatDau: () => void }): JSX.Element {
             <span style={{ display: 'block', color: 'var(--mo)', fontSize: 13 }}>
               {ganNhat === null
                 ? 'Chưa có ván nào trên máy này.'
-                : `${ganNhat.ten} — lượt ${ganNhat.tick}, ${ganNhat.soEntity} thực thể.`}
+                : `${ganNhat.ten} — nhịp ${ganNhat.tick}, ${ganNhat.soEntity} thực thể.`}
             </span>
           </span>
         </button>
@@ -276,7 +276,7 @@ export function ManChinh({ onBatDau }: { onBatDau: () => void }): JSX.Element {
 
           {ds.length === 0 ? (
             <p style={{ color: 'var(--mo)', fontSize: 13, margin: 0 }}>
-              Chưa có ván nào được lưu. Ván tự lưu sau mỗi lượt được kể.
+              Chưa có ván nào được lưu. Ván tự lưu sau mỗi nhịp được kể.
             </p>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>

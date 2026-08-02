@@ -655,10 +655,10 @@ export function SanhThienDien(): JSX.Element | null {
             )}
             <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
               <button style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => void tick(1)}>
-                <Icon ten="nhip" co={14} /> Trôi 1 lượt
+                <Icon ten="nhip" co={14} /> Trôi 1 nhịp
               </button>
               <button style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => void tick(30)}>
-                <Icon ten="ban_do" co={14} /> Trôi 30 lượt
+                <Icon ten="ban_do" co={14} /> Trôi 30 nhịp
               </button>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -911,7 +911,7 @@ tỉ lệ hỏng   ${Math.round(tyLeHongAi * 100)}%`}
               ? 'Tích Tắc Đầu Tiên'
               : mode === 'pham_nhan'
                 ? `năm ${state.world.year}`
-                : `lượt ${state.world.tick} · năm ${state.world.year}`}
+                : `nhịp ${state.world.tick} · năm ${state.world.year}`}
           </span>
           {/*
            * Trạng thái AI luôn hiện. [BB] luật bất biến #9 — không chỉ dựa vào
@@ -945,7 +945,7 @@ tỉ lệ hỏng   ${Math.round(tyLeHongAi * 100)}%`}
            *
            * `roiVan()` lưu TRƯỚC khi rời và không hỏi lại: hỏi "bạn có muốn lưu
            * không" chỉ có nghĩa khi có lý do để trả lời không, và ở đây không có
-           * lý do nào cả. Ván đã tự lưu sau mỗi lượt rồi.
+           * lý do nào cả. Ván đã tự lưu sau mỗi nhịp rồi.
            */}
           <button style={nut(false)} title="Lưu rồi về Sảnh Vào" onClick={() => void roiVan()}>
             Rời ván

@@ -72,7 +72,7 @@ const CHE_DO = [
 type CheDo = (typeof CHE_DO)[number]['id'];
 
 const CUA: { id: CuaVao; ten: string; moTa: string }[] = [
-  { id: 'hu_vo', ten: 'Hư Vô', moTa: 'Không nói gì. Lượt đầu tiên diễn ra trong cái chưa có tên.' },
+  { id: 'hu_vo', ten: 'Hư Vô', moTa: 'Không nói gì. Nhịp đầu tiên diễn ra trong cái chưa có tên.' },
   { id: 'mot_cau', ten: 'Một Câu', moTa: 'Viết một câu. Nó là toàn bộ tiền đề, và thế giới lớn lên từ đó.' },
   {
     id: 'day_du',

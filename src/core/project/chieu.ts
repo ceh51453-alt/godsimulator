@@ -711,7 +711,7 @@ function chieuThoiCuoc(nc: NgocCanh): ProjectedThoiCuoc {
     tenKyNguyen,
     tick: w.tick,
     year: w.year,
-    moTaThoiDiem: (tenKyNguyen === '' ? '' : `${tenKyNguyen} · `) + `năm ${w.year} · lượt ${w.tick}`,
+    moTaThoiDiem: (tenKyNguyen === '' ? '' : `${tenKyNguyen} · `) + `năm ${w.year} · nhịp ${w.tick}`,
     nhip,
   });
 }

@@ -64,7 +64,7 @@ export function TheCauNguyen({
           {tenNguoiCau}
         </span>
         <span style={{ ...nhan, color: gap ? 'var(--hoi)' : 'var(--mo)', whiteSpace: 'nowrap' }}>
-          {conLai === null ? 'không hạn' : conLai <= 0 ? 'đã quá hạn' : `còn ${conLai} lượt`}
+          {conLai === null ? 'không hạn' : conLai <= 0 ? 'đã quá hạn' : `còn ${conLai} nhịp`}
         </span>
       </div>
 

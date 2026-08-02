@@ -114,7 +114,7 @@ export function XuongWorkflow(): JSX.Element {
 
       <Khoi
         ten="Đường ống tác vụ"
-        phu="Mỗi tác vụ có model, lượt và ngữ cảnh riêng — gộp hết vào một call là chọn model tệ nhất cho việc khó nhất."
+        phu="Mỗi tác vụ có model, nhịp và ngữ cảnh riêng — gộp hết vào một call là chọn model tệ nhất cho việc khó nhất."
       >
         <label style={{ display: 'grid', gap: 5, maxWidth: 360 }}>
           <span style={nhanNho}>PRESET</span>
@@ -174,7 +174,7 @@ export function XuongWorkflow(): JSX.Element {
 
       <Khoi
         ten="Diễn Hóa"
-        phu="Tua thế giới nhiều lượt liền, và dừng khi có chuyện đáng xem chứ không khi hết lượt."
+        phu="Tua thế giới nhiều nhịp liền, và dừng khi có chuyện đáng xem chứ không khi hết lượt."
       >
         {state === null ? (
           <p style={{ color: 'var(--mo)', fontSize: 13, margin: 0 }}>
@@ -186,7 +186,7 @@ export function XuongWorkflow(): JSX.Element {
               style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}
             >
               <label style={{ display: 'grid', gap: 5 }}>
-                <span style={nhanNho}>TICK MỖI LƯỢT</span>
+                <span style={nhanNho}>NHỊP MỖI LƯỢT</span>
                 <select style={oNhap} value={nhip} onChange={(e) => setNhip(e.target.value as NhipDienHoa)}>
                   {NHIP_DIEN_HOA.map((n) => (
                     <option key={n} value={n}>
@@ -237,8 +237,8 @@ export function XuongWorkflow(): JSX.Element {
                 {!cong.choPhepChoi
                   ? 'Cổng AI chưa mở — Diễn Hóa cần model AI để kể chuyện.'
                   : !workflowBat
-                    ? `Từ lượt ${state.world.tick}. Endpoint Diễn Hóa chưa bật — lượt tua sẽ chạy bằng engine mặc định, không gọi model.`
-                    : `Từ lượt ${state.world.tick}, chạy đường ống "${preset?.ten ?? ''}" sau mỗi lượt.`}
+                    ? `Từ nhịp ${state.world.tick}. Endpoint Diễn Hóa chưa bật — lượt tua sẽ chạy bằng engine mặc định, không gọi model.`
+                    : `Từ nhịp ${state.world.tick}, chạy đường ống "${preset?.ten ?? ''}" sau mỗi lượt.`}
               </span>
             </div>
 

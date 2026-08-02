@@ -84,7 +84,7 @@ function DongNhanh({
           <strong style={{ fontFamily: 'var(--chu-hien)', fontSize: 17 }}>{m.ten}</strong>
           {/* Trạng thái bằng chữ, không bằng màu. */}
           <span style={nhanNho}>
-            {dangMo ? 'ĐANG CHƠI' : m.gocId === null ? 'GỐC' : `TÁCH Ở LƯỢT ${m.tick}`}
+            {dangMo ? 'ĐANG CHƠI' : m.gocId === null ? 'GỐC' : `TÁCH Ở NHỊP ${m.tick}`}
           </span>
         </div>
         {m.lyDoTach.trim() !== '' && (
@@ -92,7 +92,7 @@ function DongNhanh({
         )}
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: 'var(--tro)' }}>
           <span>
-            lượt <b style={{ fontFamily: 'var(--chu-so)' }}>{m.tick}</b>
+            nhịp <b style={{ fontFamily: 'var(--chu-so)' }}>{m.tick}</b>
           </span>
           <span>
             năm <b style={{ fontFamily: 'var(--chu-so)' }}>{m.nam}</b>
@@ -172,7 +172,7 @@ export function BanDoNhanh(): JSX.Element {
 
       {hienTai !== '' && (
         <section style={{ ...the, display: 'grid', gap: 10 }}>
-          <h2 style={{ ...nhanNho, margin: 0 }}>TÁCH NHÁNH TỪ LƯỢT {tickHienTai}</h2>
+          <h2 style={{ ...nhanNho, margin: 0 }}>TÁCH NHÁNH TỪ NHỊP {tickHienTai}</h2>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
             <label style={{ display: 'grid', gap: 5 }}>
               <span style={nhanNho}>TÊN NHÁNH</span>

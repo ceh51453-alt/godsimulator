@@ -186,7 +186,7 @@ export function ChanDoan(): JSX.Element {
 visibility   ${view?.visibilityHash ?? '—'}
 nhánh        ${state?.world.branchId ?? '—'}
 seed         ${state?.world.seed ?? '—'}
-lượt         ${state?.world.tick ?? 0}
+nhịp         ${state?.world.tick ?? 0}
 entity       ${state?.entities.size ?? 0} · thấy ${view?.entities.size ?? 0}
 tri thức     ${state?.knowledge.size ?? 0}
 mạch truyện  ${state?.storylines.size ?? 0}
