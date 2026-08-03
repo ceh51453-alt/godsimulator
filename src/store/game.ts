@@ -110,6 +110,7 @@ import { KhoDexie, napState } from '../db/repo.js';
 import { danhSachSave, ghiVan, ghiVanNhe, xoaVan, doiTenVan, nhanMacDinh } from '../db/quanLySave.js';
 import type { MucSave } from '../db/quanLySave.js';
 import { xuatSave, nhapSave } from '../db/save.js';
+import { docUiState, ghiUiState } from '../db/preset.js';
 import { veSinh, coVet, moTaVet } from '../core/anToan/veSinh.js';
 import { datTenTruc, luatNenMacDinh } from '../core/vatly/luatNen.js';
 import { quetCoChe } from '../core/vatly/coChe.js';
@@ -390,6 +391,33 @@ let demQuetCoChe = 0;
  * component render lại mỗi lần một lượt ghi bắt đầu hoặc kết thúc.
  */
 let hangDoiLuu: Promise<void> = Promise.resolve();
+
+/**
+ * Ghi scene (lịch sử chat) xuống bảng `uiState` — fire-and-forget.
+ *
+ * Scene không phải dữ liệu thế giới nên KHÔNG vào `WorldState`/`stateHash`.
+ * Nó nằm cùng bảng với tab, mục ghim, ảnh chụp Bảng: cùng khóa
+ * `[saveId+branchId]`, cùng ranh giới "trạng thái giao diện theo save".
+ */
+function luuScene(saveId: string, branchId: string, scene: readonly DongScene[]): void {
+  if (!coIndexedDb() || saveId === '') return;
+  const db = layDb();
+  void docUiState(db, saveId, branchId)
+    .then((cu) => {
+      const hang = cu ?? {
+        saveId,
+        branchId,
+        anhBang: null,
+        tabThongTin: 'tong_quan',
+        theoDoiMachIds: [],
+        ghimTongQuan: [],
+      };
+      return ghiUiState(db, { ...hang, scene: [...scene] });
+    })
+    .catch(() => {
+      // Cùng lẽ với `luuVan()`: ghi hỏng không được giết lượt kể.
+    });
+}
 
 const SEED_MAC_DINH = 'thien-dien-0001';
 
@@ -1618,6 +1646,9 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             ten ?? nhanMacDinh(s.world.tick, s.world.playerState.mode),
           );
           set({ tickDaLuu: s.world.tick });
+          // Ghi scene (lịch sử chat) cùng lúc — fire-and-forget bên trong
+          // hàng đợi ghi đĩa, nên nó nối sau `ghiVan` đã thành công.
+          luuScene(s.world.id, s.world.branchId, get().scene);
         } catch (e) {
           set({
             loi: [
@@ -1669,11 +1700,24 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       const evLuat = eventGieoLuatNen(state);
       if (evLuat) apDungEvent(state, evLuat, log);
 
+      // ── Phục hồi scene (lịch sử chat) từ đĩa ──
+      let sceneCu: DongScene[] = [];
+      try {
+        const ui = await docUiState(db, state.world.id, state.world.branchId);
+        if (ui?.scene && Array.isArray(ui.scene)) {
+          sceneCu = (ui.scene as DongScene[]).filter(
+            (d) => d && typeof d.noiDung === 'string' && typeof d.loai === 'string',
+          );
+        }
+      } catch {
+        // Không đọc được scene cũ thì bắt đầu trắng — phiền, không chết.
+      }
+
       set({
         state,
         log,
         hoSo: get().hoSo ?? hoSoToiThieu('pf_local', 0),
-        scene: [],
+        scene: sceneCu,
         loi: [],
         projects: [],
         choXacNhan: null,
