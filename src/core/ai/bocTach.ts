@@ -23,6 +23,7 @@ import { EVENT_DUOC_SUA_CORESELF } from '../schema/aspect/thanVi.js';
 import { chuanHoaBanGhiMoi } from './chuanHoaBanGhi.js';
 import { bieuThucKhoi, bieuThucCatKhoi, docKhoiCapNhat } from './mvu.js';
 import type { BienPackDoi } from './mvu.js';
+import { catSuyLuanNoiBo } from './suyLuan.js';
 
 export type PatchBiTuChoi = {
   readonly ma:
@@ -115,17 +116,15 @@ const KHOI_CHUA_CHUNG = /<Unverified>([\s\S]*?)<\/Unverified>/i;
  * đang muốn ta nhìn thấy ở chỗ khác.
  */
 function catKhoi(raw: string): string {
-  return (
+  return catSuyLuanNoiBo(
     raw
       .replace(bieuThucCatKhoi(), '')
       .replace(/<Foreshadow>[\s\S]*?<\/Foreshadow>/gi, '')
       .replace(/<Unverified>[\s\S]*?<\/Unverified>/gi, '')
       .replace(/<(?:CapNhat|UpdateVariable|Foreshadow|Unverified)>[\s\S]*$/i, '')
-      // [BB] 63.6 + luật bất biến — chuỗi suy luận không hiển thị và không lưu.
-      .replace(/<(thinking|think|reasoning)>[\s\S]*?<\/\1>/gi, '')
       .replace(/```[a-z]*\n?/gi, '')
       .replace(/\n{3,}/g, '\n\n')
-      .trim()
+      .trim(),
   );
 }
 

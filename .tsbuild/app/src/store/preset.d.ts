@@ -14,15 +14,6 @@ export type TrangThaiPreset = {
     /** Biến của từng pack trên nhánh hiện tại. */
     bien: Readonly<Record<string, Record<string, unknown>>>;
     wizard: TrangThaiWizard;
-    /**
-     * Lựa chọn xung đột theo PACK, không theo phiên wizard.
-     *
-     * [BB] 65.2 — pack chưa giải xung đột thì không kích hoạt. Nếu lựa chọn chỉ
-     * sống trong wizard thì mở lại app là mất, và một pack đã nằm trong thư viện
-     * sẽ vĩnh viễn không bật được vì không còn màn nào để giải. Đây là lỗi thật đã
-     * gặp khi nhập fixture A: hai module cùng khai `history.wrapper`.
-     */
-    xungDot: Readonly<Record<string, Record<string, unknown>>>;
     /** Báo cáo sau nhập (66.2) của lần nhập gần nhất. */
     baoCao: BaoCaoNhap | null;
     /** Lỗi lint của lần bấm "Bật" gần nhất — hiện tại chỗ, không nuốt. */
@@ -31,6 +22,8 @@ export type TrangThaiPreset = {
     capturedData: CapturedData;
     /** Regex nguồn đã vượt trần trong phiên; không chạy lại cho tới khi nạp lại. */
     regexDaTat: readonly string[];
+    /** Preset sẽ tự bật trước lời kể đầu tiên của một ván mới. */
+    chonChoVanMoi: readonly string[];
     branchId: string;
     daNap: boolean;
     napTuDia(branchId: string): Promise<void>;
@@ -39,8 +32,6 @@ export type TrangThaiPreset = {
     doThu(ten: string, noiDung: string, tick: number): void;
     diManWizard(man: ManWizard): void;
     chonModule(ids: readonly string[]): void;
-    /** Giải một nhóm xung đột cho một pack cụ thể — sống lâu hơn phiên wizard. */
-    giaiXungDot(packId: string, khoa: string, chon: unknown): void;
     /** Ghi kết quả wizard vào thư viện. Vẫn CHƯA bật. */
     nhapVaoThuVien(): Promise<void>;
     dongWizard(): void;
@@ -49,6 +40,9 @@ export type TrangThaiPreset = {
     /** Hoàn tác về activation trước — 65.4, chỉ đổi con trỏ. */
     luiMotBuoc(packId: string): Promise<void>;
     xoaKhoiThuVien(packId: string): Promise<void>;
+    datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
+    /** Bật/tắt module, regex hoặc adapter script trong cấu hình của đúng pack/nhánh. */
+    datTinhNang(packId: string, loai: 'module' | 'regex' | 'script', id: string, bat: boolean, tick: number): Promise<void>;
     /** Pack đang bật, dạng `bienSoanLuot()` nhận. */
     packChoLuot(): readonly PackDangBat[];
     /** Transform hiển thị của các pack đang bật — 64.3, chạy trên BẢN SAO. */
@@ -77,6 +71,14 @@ export type TrangThaiPreset = {
     /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
     apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<void>;
 };
+declare const KHOA_TINH_NANG: Readonly<{
+    readonly module: "__module_enabled";
+    readonly regex: "__transform_enabled";
+    readonly script: "__adapter_enabled";
+}>;
+/** Trạng thái cấu hình theo nhánh; vắng override thì giữ đúng cờ của file nguồn. */
+export declare function tinhNangPresetDangBat(bienPack: Readonly<Record<string, unknown>> | undefined, loai: keyof typeof KHOA_TINH_NANG, id: string, macDinh: boolean): boolean;
 export declare const usePreset: import("zustand").UseBoundStore<import("zustand").StoreApi<TrangThaiPreset>>;
 /** Đọc pack đang bật ngoài React — `useGame` dùng cái này, không dùng hook. */
 export declare function packDangBat(): readonly PackDangBat[];
+export {};

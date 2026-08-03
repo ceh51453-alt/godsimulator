@@ -1,30 +1,14 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 /**
- * Xưởng Preset — Phần 66.1 (wizard bảy màn) và 66.2 (báo cáo sau nhập).
+ * Quản lý Preset.
  *
- * ── Màn này phải trả lời một câu rất cụ thể ──
- *
- * *"Preset của tôi có đang thật sự chạy không, và phần nào của nó không chạy?"*
- *
- * Trước Phase 11 câu ấy không trả lời được: pack nhập vào rồi biến mất khỏi tầm
- * mắt. Nên màn này có bốn khối, và ba trong số đó tồn tại chỉ để trả lời câu ấy:
- *
- *   Thư viện          pack nào đã nhập, bản nào đang bật
- *   Báo cáo sáu dòng  [BB] 66.2 — KHÔNG dùng một dấu check xanh cho cả file
- *   Đã dùng lượt qua  module nào tới được model, module nào bị cắt
- *   Bị cách ly        script không chạy, VÀ app đã làm thay việc đó bằng gì
- *
- * [BB] 64.2 — khối cuối không có nút bật. Script ngoài không chạy, chấm hết. Thứ
- * nó có là cột "đích native" của 66.6: người dùng cần biết app làm thay việc gì,
- * nếu không họ sẽ đi tìm cách bật script bằng được.
+ * File được nhập thẳng vào thư viện, xung đột nội bộ tự giữ theo prompt_order.
+ * Mỗi pack có một bảng cấu hình thống nhất cho prompt, regex, adapter script,
+ * thông số sinh và biến — không còn wizard hay một khu script tách rời.
  */
-import { useRef, useState, useCallback } from 'react';
-import { usePreset } from '../../store/preset.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
-import { TEN_MAN, issueCuaMan } from '../../core/preset/wizard.js';
-import { nhomXungDot } from '../../core/preset/xungDot.js';
-import { DUONG_PORT_TINH_NANG } from '../../core/preset/hopNhat.js';
-import { Icon } from '../design/Icon.js';
 const nhan = {
     color: 'var(--mo)',
     fontSize: 11,
@@ -32,145 +16,199 @@ const nhan = {
     textTransform: 'uppercase',
 };
 const so = { fontSize: 13, color: 'var(--tro)' };
-const phu = { fontSize: 11, color: 'var(--mo)' };
-function nut(chinh = false) {
+const phu = { fontSize: 12, color: 'var(--mo)' };
+function nut(chinh = false, tat = false) {
     return {
         background: 'transparent',
-        color: chinh ? 'var(--dong)' : 'var(--tro)',
-        border: `1px solid ${chinh ? 'var(--dong)' : 'var(--kinh-vien)'}`,
+        color: tat ? 'var(--mo)' : chinh ? 'var(--dong)' : 'var(--tro)',
+        border: `1px solid ${chinh && !tat ? 'var(--dong)' : 'var(--kinh-vien)'}`,
         borderRadius: 'var(--r-sm)',
-        padding: '6px 13px',
+        padding: '7px 13px',
         font: 'inherit',
         fontSize: 13,
-        cursor: 'pointer',
+        cursor: tat ? 'not-allowed' : 'pointer',
+        opacity: tat ? 0.55 : 1,
     };
+}
+function Khoi({ ten, phuDe, children }) {
+    return (_jsxs("section", { style: { display: 'grid', gap: 9 }, children: [_jsxs("header", { children: [_jsx("h3", { style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 17, fontWeight: 500 }, children: ten }), phuDe !== undefined && _jsx("p", { style: { ...phu, margin: '2px 0 0' }, children: phuDe })] }), children] }));
+}
+function CongTac({ checked, disabled = false, nhanChu, onChange, }) {
+    return (_jsxs("label", { style: { display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12, color: 'var(--tro)' }, children: [_jsx("input", { type: "checkbox", checked: checked, disabled: disabled, onChange: (e) => onChange(e.currentTarget.checked) }), nhanChu] }));
+}
+const KHONG_CHAY_DUOC = new Set(['quarantined', 'needs_adapter', 'disabled']);
+function moduleMacDinh(m) {
+    return m.enabled && !KHONG_CHAY_DUOC.has(m.activation);
+}
+function nhanAdapter(kind) {
+    if (kind === 'cot_cleanup')
+        return 'Dọn nội dung suy luận';
+    if (kind === 'prompt_merge')
+        return 'Ghép prompt và lịch sử';
+    if (kind === 'scene_switch')
+        return 'Điều khiển cảnh/module';
+    return 'Giao diện lựa chọn';
+}
+function giaTri(v) {
+    if (typeof v === 'number')
+        return Number.isInteger(v) ? v.toLocaleString('vi-VN') : v.toFixed(2);
+    if (Array.isArray(v))
+        return v.join(' · ');
+    return String(v);
 }
 export function XuongPreset() {
     const thuVien = usePreset((s) => s.thuVien);
     const dangBat = usePreset((s) => s.dangBat);
     const bien = usePreset((s) => s.bien);
-    const xungDot = usePreset((s) => s.xungDot);
+    const chonChoVanMoi = usePreset((s) => s.chonChoVanMoi);
+    const daNap = usePreset((s) => s.daNap);
     const wizard = usePreset((s) => s.wizard);
-    const baoCao = usePreset((s) => s.baoCao);
     const loiBat = usePreset((s) => s.loiBat);
+    const napTuDia = usePreset((s) => s.napTuDia);
     const doThu = usePreset((s) => s.doThu);
     const nhapVaoThuVien = usePreset((s) => s.nhapVaoThuVien);
-    const dongWizard = usePreset((s) => s.dongWizard);
-    const giaiXungDot = usePreset((s) => s.giaiXungDot);
     const bat = usePreset((s) => s.bat);
     const tat = usePreset((s) => s.tat);
     const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
+    const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
+    const datTinhNang = usePreset((s) => s.datTinhNang);
     const state = useGame((s) => s.state);
     const presetTrace = useGame((s) => s.presetTrace);
+    const branchId = state?.world.branchId ?? '';
     const tick = state?.world.tick ?? 0;
-    const saveId = state?.world.id ?? 'save';
+    const saveId = state?.world.id ?? '';
     const oFile = useRef(null);
     const [dangDoc, setDangDoc] = useState(false);
+    const [tin, setTin] = useState('');
     const [moRong, setMoRong] = useState(new Set());
-    const toggleChiTiet = useCallback((key) => {
-        setMoRong((prev) => {
-            const next = new Set(prev);
-            if (next.has(key))
-                next.delete(key);
-            else
-                next.add(key);
-            return next;
+    useEffect(() => {
+        if (!daNap)
+            void napTuDia(branchId);
+    }, [branchId, daNap, napTuDia]);
+    const packs = useMemo(() => {
+        const daCo = new Set();
+        return thuVien.filter((row) => {
+            if (daCo.has(row.packId))
+                return false;
+            daCo.add(row.packId);
+            return true;
         });
-    }, []);
-    const chonFile = async (f) => {
-        if (f === undefined)
+    }, [thuVien]);
+    const chonFile = async (file) => {
+        if (file === undefined)
             return;
         setDangDoc(true);
+        setTin('');
         try {
-            // [BB] Luật bất biến #10 — không fetch URL, không chạy helper. Chỉ đọc bytes.
-            const noiDung = await f.text();
-            doThu(f.name, noiDung, tick);
+            const noiDung = await file.text();
+            doThu(file.name, noiDung, tick);
+            const kq = usePreset.getState().wizard.ketQua;
+            if (!kq?.ok || kq.row === null) {
+                setTin(`Không nhập được “${file.name}”. Mở phần lỗi bên dưới để xem chi tiết.`);
+                return;
+            }
+            await nhapVaoThuVien();
+            setTin(`Đã nhập “${file.name}”: ${kq.row.pack.modules.length} module, ` +
+                `${kq.row.transformDefs.length} regex, ${kq.row.scriptAdapters.length} chức năng script đã tích hợp.`);
         }
         finally {
             setDangDoc(false);
         }
     };
-    const kq = wizard.ketQua;
-    /*
-     * Nhóm xung đột tính từ THƯ VIỆN, không từ wizard.
-     *
-     * Wizard là một phiên; thư viện thì sống qua lần đóng tab. Đọc từ wizard sẽ
-     * làm một pack đã nhập vĩnh viễn không bật được sau khi mở lại app — vì lint
-     * vẫn đòi lựa chọn, mà không còn màn nào để chọn.
-     */
-    const canChon = thuVien
-        .filter((r) => dangBat[r.packId] === undefined)
-        .flatMap((r) => nhomXungDot(r.pack.modules.filter((m) => m.enabled))
-        .filter((n) => n.canNguoiChon)
-        .map((n) => ({ row: r, nhom: n })));
-    return (_jsxs("main", { style: { padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto' }, children: [_jsx("h1", { className: "chu-hien", style: { margin: '0 0 4px', fontSize: 26 }, children: "X\u01B0\u1EDFng Preset" }), _jsx("p", { style: { ...phu, margin: '0 0 22px', maxWidth: 620 }, children: "Nh\u1EADp kh\u00F4ng ph\u1EA3i l\u00E0 k\u00EDch ho\u1EA1t. L\u01B0u \u0111\u01B0\u1EE3c to\u00E0n b\u1ED9 kh\u00F4ng c\u00F3 ngh\u0129a l\u00E0 \u0111\u01B0\u1EE3c ph\u00E9p ch\u1EA1y to\u00E0n b\u1ED9." }), _jsxs("section", { className: "kinh", style: { padding: 18, marginBottom: 18 }, children: [_jsx("h2", { style: { ...nhan, margin: '0 0 12px' }, children: "Nh\u1EADp m\u1ED9t file" }), _jsx("input", { ref: oFile, type: "file", accept: ".json,application/json", style: { position: 'absolute', left: -9999 }, id: "fileP", onChange: (e) => void chonFile(e.target.files?.[0]) }), _jsxs("div", { style: { display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }, children: [_jsx("button", { type: "button", style: nut(true), onClick: () => oFile.current?.click(), children: dangDoc ? 'Đang đọc…' : 'Chọn file preset' }), kq !== null && (_jsxs(_Fragment, { children: [_jsxs("span", { style: phu, children: ["Wizard \u0111ang \u1EDF m\u00E0n ", _jsx("strong", { style: { color: 'var(--tro)' }, children: TEN_MAN[wizard.man] })] }), _jsx("button", { type: "button", style: nut(), onClick: dongWizard, children: "B\u1ECF b\u1EA3n nh\u00E1p" })] }))] }), kq !== null && baoCao !== null && (_jsxs("div", { style: { marginTop: 16 }, children: [_jsx("div", { style: { display: 'grid', gap: 5, maxWidth: 560 }, children: baoCao.dong.map(([ten, gia]) => (_jsxs("div", { style: { display: 'flex', gap: 12, alignItems: 'baseline' }, children: [_jsx("span", { style: { ...nhan, minWidth: 104 }, children: ten }), _jsx("span", { style: so, children: gia })] }, ten))) }), issueCuaMan(kq, wizard.man).length > 0 && (_jsx("ul", { style: { margin: '14px 0 0', paddingLeft: 18, ...phu }, children: issueCuaMan(kq, wizard.man)
-                                    .slice(0, 8)
-                                    .map((i, n) => (_jsx("li", { style: { color: i.severity === 'error' ? 'var(--hoi)' : 'var(--mo)' }, children: i.message }, n))) })), kq.ok && !wizard.daNhapThuVien && (_jsx("button", { type: "button", style: { ...nut(true), marginTop: 14 }, onClick: () => void nhapVaoThuVien(), children: "Nh\u1EADp v\u00E0o th\u01B0 vi\u1EC7n" })), wizard.daNhapThuVien && (_jsxs("p", { style: { ...phu, marginTop: 14 }, children: ["\u0110\u00E3 v\u00E0o th\u01B0 vi\u1EC7n. N\u00F3 v\u1EABn ", _jsx("strong", { style: { color: 'var(--tro)' }, children: "ch\u01B0a ch\u1EA1y" }), " \u2014 b\u1EADt \u1EDF d\u01B0\u1EDBi."] }))] }))] }), canChon.length > 0 && (_jsxs("section", { className: "kinh", style: { padding: 18, marginBottom: 18 }, children: [_jsx("h2", { style: { ...nhan, margin: '0 0 6px' }, children: "Xung \u0111\u1ED9t c\u1EA7n ng\u01B0\u1EDDi ch\u1ECDn" }), _jsx("p", { style: { ...phu, margin: '0 0 14px', maxWidth: 620 }, children: "Engine gi\u1EA3i \u0111\u01B0\u1EE3c ph\u1EA7n l\u1EDBn xung \u0111\u1ED9t. Nh\u1EEFng nh\u00F3m d\u01B0\u1EDBi \u0111\u00E2y th\u00EC kh\u00F4ng: ch\u00FAng lo\u1EA1i tr\u1EEB nhau, v\u00E0 ch\u1ECDn h\u1ED9 b\u1EA1n l\u00E0 ch\u1ECDn thay \u00FD \u0111\u1ED3 c\u1EE7a ng\u01B0\u1EDDi vi\u1EBFt preset." }), _jsx("div", { style: { display: 'grid', gap: 14 }, children: canChon.map(({ row, nhom }) => (_jsxs("div", { className: "kinh--cap2", style: { padding: 12 }, children: [_jsx("div", { style: so, children: nhom.khoa }), _jsx("div", { style: { ...phu, marginBottom: 8 }, children: nhom.moTa }), _jsx("div", { style: { display: 'grid', gap: 6 }, children: nhom.moduleIds.map((id) => {
-                                        const m = row.pack.modules.find((x) => x.id === id);
-                                        const dangChon = xungDot[row.packId]?.[nhom.khoa] === id;
-                                        const chiTietKey = `${row.packId}:${nhom.khoa}:${id}`;
-                                        const dangMo = moRong.has(chiTietKey);
-                                        return (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', gap: 7, alignItems: 'center' }, children: [_jsx("button", { type: "button", style: nut(dangChon), "aria-pressed": dangChon, onClick: () => giaiXungDot(row.packId, nhom.khoa, id), children: m?.name ?? id }), _jsx("button", { type: "button", style: {
-                                                                background: 'transparent',
-                                                                border: 'none',
-                                                                color: dangMo ? 'var(--dong)' : 'var(--mo)',
-                                                                font: 'inherit',
-                                                                fontSize: 11,
-                                                                cursor: 'pointer',
-                                                                padding: '4px 6px',
-                                                                textDecoration: 'underline',
-                                                                textUnderlineOffset: '2px',
-                                                            }, onClick: () => toggleChiTiet(chiTietKey), "aria-expanded": dangMo, children: dangMo ? 'ẩn' : 'xem chi tiết' })] }), dangMo && m !== undefined && (_jsxs("div", { style: {
-                                                        marginTop: 6,
-                                                        marginLeft: 8,
-                                                        padding: '8px 10px',
-                                                        borderLeft: '2px solid var(--kinh-vien)',
-                                                        background: 'rgba(0,0,0,0.15)',
-                                                        borderRadius: 'var(--r-sm)',
-                                                    }, children: [_jsxs("div", { style: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }, children: [_jsxs("span", { style: phu, children: ["Lo\u1EA1i: ", _jsx("strong", { style: { color: 'var(--tro)' }, children: m.kind })] }), _jsxs("span", { style: phu, children: ["Lane: ", _jsx("strong", { style: { color: 'var(--tro)' }, children: m.lane })] }), _jsxs("span", { style: phu, children: ["Role: ", _jsx("strong", { style: { color: 'var(--tro)' }, children: m.role })] })] }), _jsx("pre", { className: "chu-so", style: {
-                                                                margin: 0,
-                                                                ...phu,
-                                                                color: 'var(--tro)',
-                                                                whiteSpace: 'pre-wrap',
-                                                                wordBreak: 'break-word',
-                                                                maxHeight: 240,
-                                                                overflow: 'auto',
-                                                                fontSize: 12,
-                                                                lineHeight: 1.45,
-                                                            }, children: m.content.length > 2000
-                                                                ? m.content.slice(0, 2000) +
-                                                                    '\n…(cắt bớt, còn ' +
-                                                                    (m.content.length - 2000) +
-                                                                    ' ký tự)'
-                                                                : m.content })] }))] }, id));
-                                    }) })] }, `${row.packId}:${nhom.khoa}`))) })] })), _jsxs("section", { className: "kinh", style: { padding: 18, marginBottom: 18 }, children: [_jsx("h2", { style: { ...nhan, margin: '0 0 12px' }, children: "Th\u01B0 vi\u1EC7n" }), thuVien.length === 0 ? (_jsx("p", { style: phu, children: "Ch\u01B0a c\u00F3 pack n\u00E0o. Th\u1EBF gi\u1EDBi \u0111ang ch\u1EA1y b\u1EB1ng prompt native c\u1EE7a engine." })) : (_jsx("div", { style: { display: 'grid', gap: 10 }, children: thuVien.map((r) => {
-                            const act = dangBat[r.packId];
-                            const daBat = act !== undefined && act.packVersion === r.version;
-                            return (_jsxs("div", { className: "kinh--cap2", style: { padding: 12, display: 'grid', gap: 6 }, children: [_jsxs("div", { style: { display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }, children: [_jsx("span", { className: "ten-rieng", style: { ...so, flex: 1, minWidth: 160 }, children: r.pack.envelope.sourceName }), _jsxs("span", { style: phu, children: ["b\u1EA3n ", r.version] }), _jsxs("span", { style: phu, children: [r.pack.modules.length, " module"] }), _jsx("span", { style: { ...phu, color: daBat ? 'var(--ngoc)' : 'var(--mo)' }, children: daBat ? 'đang bật' : 'chưa bật' })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [daBat ? (_jsx("button", { type: "button", style: nut(), onClick: () => void tat(r.packId), children: "T\u1EAFt \u2014 tr\u1EA3 v\u1EC1 prompt native" })) : (_jsx("button", { type: "button", style: nut(true), onClick: () => void bat(r.packId, saveId, tick), children: "B\u1EADt cho nh\u00E1nh n\u00E0y" })), _jsx("button", { type: "button", style: nut(), onClick: () => void xoaKhoiThuVien(r.packId), children: "X\u00F3a kh\u1ECFi th\u01B0 vi\u1EC7n" })] }), Object.keys(bien[r.packId] ?? {}).length > 0 && (_jsxs("div", { style: { marginTop: 4 }, children: [_jsx("div", { style: nhan, children: "Bi\u1EBFn c\u1EE7a pack tr\u00EAn nh\u00E1nh n\u00E0y" }), _jsx("pre", { className: "chu-so", style: {
-                                                    margin: '4px 0 0',
+    const doiMoRong = (packId) => {
+        setMoRong((cu) => {
+            const moi = new Set(cu);
+            if (moi.has(packId))
+                moi.delete(packId);
+            else
+                moi.add(packId);
+            return moi;
+        });
+    };
+    const loiNhap = wizard.ketQua?.issues.filter((i) => i.severity === 'error') ?? [];
+    return (_jsxs("main", { style: { padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 18 }, children: [_jsxs("header", { children: [_jsx("p", { style: { ...nhan, margin: 0 }, children: "C\u1EA5u h\u00ECnh \u00B7 Preset" }), _jsx("h1", { className: "chu-hien", style: { margin: '4px 0 5px', fontSize: 28, fontWeight: 500 }, children: "Qu\u1EA3n l\u00FD Preset" }), _jsx("p", { style: { ...phu, margin: 0, maxWidth: 720 }, children: "Preset \u0111\u01B0\u1EE3c nh\u1EADp th\u1EB3ng v\u00E0o th\u01B0 vi\u1EC7n. C\u00E1c ph\u1EA7n c\u00F9ng t\u00E1c \u0111\u1ED9ng \u0111\u01B0\u1EE3c gh\u00E9p theo th\u1EE9 t\u1EF1 c\u1EE7a ch\u00EDnh file; b\u1EA1n kh\u00F4ng c\u00F2n ph\u1EA3i ch\u1ECDn th\u1EE7 c\u00F4ng m\u1ED9t b\u00EAn xung \u0111\u1ED9t." })] }), _jsxs("section", { className: "kinh", style: { padding: 18, display: 'grid', gap: 10 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }, children: [_jsx("button", { type: "button", style: nut(true, dangDoc), disabled: dangDoc, onClick: () => oFile.current?.click(), children: dangDoc ? 'Đang nhập…' : 'Nhập preset (.json)' }), _jsx("input", { ref: oFile, type: "file", accept: ".json,application/json", style: { position: 'absolute', left: -9999 }, onChange: (e) => {
+                                    const file = e.currentTarget.files?.[0];
+                                    e.currentTarget.value = '';
+                                    void chonFile(file);
+                                } }), _jsx("span", { style: phu, children: "H\u1ED7 tr\u1EE3 preset SillyTavern v\u00E0 \u0111\u1ECBnh d\u1EA1ng Thi\u00EAn Di\u1EC5n." })] }), tin !== '' && (_jsx("p", { role: "status", style: { ...so, margin: 0 }, children: tin })), loiNhap.length > 0 && (_jsx("div", { role: "alert", style: { display: 'grid', gap: 3 }, children: loiNhap.slice(0, 8).map((i, n) => (_jsx("span", { style: { ...phu, color: 'var(--hoi)' }, children: i.message }, `${i.code}:${n}`))) }))] }), _jsxs("section", { style: { display: 'grid', gap: 10 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }, children: [_jsx("h2", { style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }, children: "Preset \u0111\u00E3 nh\u1EADp" }), _jsxs("span", { style: phu, children: [packs.length, " preset tr\u00EAn m\u00E1y"] })] }), !daNap ? (_jsx("p", { style: phu, children: "\u0110ang \u0111\u1ECDc th\u01B0 vi\u1EC7n preset\u2026" })) : packs.length === 0 ? (_jsx("div", { className: "kinh", style: { padding: 18 }, children: _jsx("p", { style: { ...phu, margin: 0 }, children: "Ch\u01B0a c\u00F3 preset. Tr\u00F2 ch\u01A1i \u0111ang d\u00F9ng c\u1EA5u h\u00ECnh v\u00E0 prompt m\u1EB7c \u0111\u1ECBnh." }) })) : (packs.map((row) => {
+                        const act = dangBat[row.packId];
+                        const daBat = act?.packVersion === row.version;
+                        const dangMo = moRong.has(row.packId);
+                        const bienPack = bien[row.packId] ?? {};
+                        const daChonChoVanMoi = chonChoVanMoi.includes(row.packId);
+                        const soBan = thuVien.filter((x) => x.packId === row.packId).length;
+                        return (_jsxs("article", { className: "kinh", style: { padding: 16, display: 'grid', gap: 12 }, children: [_jsxs("header", { style: { display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }, children: [_jsxs("div", { style: { flex: 1, minWidth: 210 }, children: [_jsx("h2", { className: "ten-rieng", style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 19 }, children: row.pack.envelope.sourceName }), _jsxs("div", { style: { ...phu, marginTop: 3 }, children: ["b\u1EA3n ", row.version, soBan > 1 ? ` · ${soBan} phiên bản` : '', " \u00B7 ", row.pack.modules.length, " module \u00B7", ' ', row.transformDefs.length, " regex \u00B7 ", row.quarantined.length, " script ngu\u1ED3n"] })] }), _jsx("span", { style: {
+                                                ...so,
+                                                color: daBat || (state === null && daChonChoVanMoi) ? 'var(--ngoc)' : 'var(--mo)',
+                                            }, children: state === null
+                                                ? daChonChoVanMoi
+                                                    ? 'Sẽ bật trong ván mới'
+                                                    : 'Chưa chọn cho ván mới'
+                                                : daBat
+                                                    ? 'Đang dùng trong ván'
+                                                    : act
+                                                        ? `Đang dùng bản ${act.packVersion}`
+                                                        : 'Đang tắt' })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [state === null ? (_jsx("button", { type: "button", style: nut(!daChonChoVanMoi), onClick: () => void datChonChoVanMoi(row.packId, !daChonChoVanMoi), children: daChonChoVanMoi ? 'Bỏ khỏi ván mới' : 'Bật sẵn cho ván mới' })) : daBat ? (_jsx("button", { type: "button", style: nut(), onClick: () => void tat(row.packId), children: "T\u1EAFt preset" })) : (_jsx("button", { type: "button", style: nut(true), onClick: () => void bat(row.packId, saveId, tick), children: act ? 'Dùng bản mới nhất' : 'Bật cho ván này' })), _jsx("button", { type: "button", style: nut(), onClick: () => doiMoRong(row.packId), "aria-expanded": dangMo, children: dangMo ? 'Thu gọn cấu hình' : 'Mở cấu hình' }), _jsx("button", { type: "button", style: { ...nut(), color: 'var(--hoi)' }, onClick: () => {
+                                                if (window.confirm(`Xóa “${row.pack.envelope.sourceName}” và mọi phiên bản khỏi thư viện?`)) {
+                                                    void xoaKhoiThuVien(row.packId);
+                                                }
+                                            }, children: "X\u00F3a" })] }), state === null && (_jsx("p", { style: { ...phu, margin: 0 }, children: "Preset \u0111\u00E3 ch\u1ECDn s\u1EBD t\u1EF1 b\u1EADt tr\u01B0\u1EDBc l\u1EDDi k\u1EC3 \u0111\u1EA7u ti\u00EAn. C\u00F4ng t\u1EAFc module, regex v\u00E0 script v\u1EABn \u0111\u01B0\u1EE3c gi\u1EEF ri\u00EAng cho t\u1EEBng v\u00E1n." })), dangMo && (_jsxs("div", { style: {
+                                        borderTop: '1px solid var(--kinh-vien)',
+                                        paddingTop: 14,
+                                        display: 'grid',
+                                        gap: 20,
+                                    }, children: [_jsx(ThongSo, { row: row }), _jsx(Khoi, { ten: "Prompt v\u00E0 module", phuDe: "B\u1EADt/t\u1EAFt t\u1EEBng ph\u1EA7n; th\u1EE9 t\u1EF1 trong file lu\u00F4n \u0111\u01B0\u1EE3c gi\u1EEF nguy\u00EAn.", children: _jsx("div", { style: { display: 'grid', gap: 6, maxHeight: 360, overflow: 'auto', paddingRight: 4 }, children: row.pack.modules.map((m) => {
+                                                    const duocChay = !KHONG_CHAY_DUOC.has(m.activation);
+                                                    const checked = tinhNangPresetDangBat(bienPack, 'module', m.sourceIdentifier, moduleMacDinh(m));
+                                                    return (_jsxs("div", { className: "kinh--cap2", style: {
+                                                            padding: '9px 11px',
+                                                            display: 'flex',
+                                                            gap: 10,
+                                                            alignItems: 'center',
+                                                            flexWrap: 'wrap',
+                                                        }, children: [_jsx(CongTac, { checked: checked && duocChay, disabled: state === null || !duocChay, nhanChu: m.name, onChange: (v) => void datTinhNang(row.packId, 'module', m.sourceIdentifier, v, tick) }), _jsxs("span", { style: { ...phu, marginLeft: 'auto' }, children: [m.role, " \u00B7 ", m.lane, " \u00B7 #", m.order] }), !duocChay && (_jsxs("span", { style: { ...phu, color: 'var(--hoi)' }, children: ["kh\u00F4ng t\u01B0\u01A1ng th\u00EDch: ", m.activation] }))] }, m.id));
+                                                }) }) }), _jsx(Khoi, { ten: "Regex v\u00E0 script", phuDe: "\u0110\u01B0\u1EE3c qu\u1EA3n l\u00FD c\u00F9ng preset v\u00E0 ch\u1EA1y qua b\u1ED9 t\u01B0\u01A1ng th\u00EDch c\u1EE7a \u1EE9ng d\u1EE5ng.", children: _jsxs("div", { style: { display: 'grid', gap: 8 }, children: [row.transformDefs.map((t) => (_jsx(RegexDong, { row: row, transform: t, bienPack: bienPack, coVan: state !== null, tick: tick, datTinhNang: datTinhNang }, t.id))), row.scriptAdapters.map((a) => {
+                                                        const checked = tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon);
+                                                        return (_jsxs("div", { className: "kinh--cap2", style: {
+                                                                padding: '9px 11px',
+                                                                display: 'flex',
+                                                                gap: 10,
+                                                                alignItems: 'center',
+                                                                flexWrap: 'wrap',
+                                                            }, children: [_jsx(CongTac, { checked: checked, disabled: state === null, nhanChu: a.ten, onChange: (v) => void datTinhNang(row.packId, 'script', a.id, v, tick) }), _jsxs("span", { style: { ...phu, marginLeft: 'auto', color: 'var(--ngoc)' }, children: [nhanAdapter(a.kind), " \u00B7 \u0111\u00E3 t\u00EDch h\u1EE3p"] })] }, a.id));
+                                                    }), row.transformDefs.length === 0 && row.scriptAdapters.length === 0 && (_jsx("p", { style: { ...phu, margin: 0 }, children: "Preset n\u00E0y kh\u00F4ng khai regex ho\u1EB7c ch\u1EE9c n\u0103ng script t\u01B0\u01A1ng th\u00EDch." })), row.quarantined.length > row.scriptAdapters.length && (_jsxs("p", { style: { ...phu, margin: 0 }, children: ["\u0110\u00E3 gi\u1EEF nguy\u00EAn ", row.quarantined.length, " script ngu\u1ED3n; ", row.scriptAdapters.length, ' ', "ch\u1EE9c n\u0103ng \u0111\u00E3 nh\u1EADn di\u1EC7n v\u00E0 n\u1ED1i v\u00E0o \u1EE9ng d\u1EE5ng."] }))] }) }), Object.keys(bienPack).filter((k) => !k.startsWith('__')).length > 0 && (_jsx(Khoi, { ten: "Bi\u1EBFn preset", phuDe: "D\u1EEF li\u1EC7u ri\u00EAng c\u1EE7a preset tr\u00EAn nh\u00E1nh hi\u1EC7n t\u1EA1i.", children: _jsx("pre", { className: "chu-so", style: {
                                                     ...phu,
+                                                    margin: 0,
                                                     whiteSpace: 'pre-wrap',
-                                                    maxHeight: 160,
+                                                    maxHeight: 220,
                                                     overflow: 'auto',
-                                                }, children: JSON.stringify(bien[r.packId], null, 2) })] })), r.quarantined.length > 0 && (_jsxs("div", { style: { marginTop: 4 }, children: [_jsxs("div", { style: { ...nhan, color: 'var(--hoi)' }, children: [r.quarantined.length, " script b\u1ECB c\u00E1ch ly \u2014 kh\u00F4ng ch\u1EA1y"] }), r.quarantined.map((q) => (_jsxs("div", { style: phu, children: [q.ten, " \u00B7 ", q.soKyTu, " k\u00FD t\u1EF1", q.batONguon ? ' · nguồn khai là đang bật' : ''] }, q.hash)))] })), r.pack.generation !== undefined && (_jsxs("div", { style: { marginTop: 4 }, children: [_jsx("div", { style: nhan, children: "Th\u00F4ng s\u1ED1 sinh trong preset" }), _jsx("div", { style: {
-                                                    display: 'flex',
-                                                    gap: '6px 16px',
-                                                    flexWrap: 'wrap',
-                                                    marginTop: 4,
-                                                }, children: [
-                                                    ['Temperature', r.pack.generation.temperature],
-                                                    ['Top P', r.pack.generation.topP],
-                                                    ['Top K', r.pack.generation.topK],
-                                                    ['Max Output', r.pack.generation.maxOutputTokens],
-                                                    ['Context', r.pack.generation.maxContext],
-                                                    ['Presence', r.pack.generation.presencePenalty],
-                                                    ['Frequency', r.pack.generation.frequencyPenalty],
-                                                ]
-                                                    .filter(([, v]) => v !== undefined)
-                                                    .map(([ten, v]) => (_jsxs("span", { style: phu, children: [ten, ":", ' ', _jsx("strong", { style: { color: 'var(--tro)' }, children: typeof v === 'number'
-                                                                ? Number.isInteger(v)
-                                                                    ? v.toLocaleString()
-                                                                    : v.toFixed(2)
-                                                                : String(v) })] }, ten))) }), daBat && (_jsx("div", { style: { ...phu, marginTop: 4, color: 'var(--ngoc)' }, children: "\u0110\u00E3 \u00E1p th\u00F4ng s\u1ED1 n\u00E0y v\u00E0o endpoint T\u01B0\u1EDDng Thu\u1EADt." }))] }))] }, `${r.packId}:${r.version}`));
-                        }) })), loiBat.length > 0 && (_jsx("div", { role: "alert", style: { marginTop: 12 }, children: loiBat.map((i, n) => (_jsx("div", { style: { ...phu, color: 'var(--hoi)' }, children: i.message }, n))) }))] }), _jsxs("section", { className: "kinh", style: { padding: 18, marginBottom: 18 }, children: [_jsx("h2", { style: { ...nhan, margin: '0 0 12px' }, children: "L\u01B0\u1EE3t k\u1EC3 g\u1EA7n nh\u1EA5t \u0111\u00E3 d\u00F9ng g\u00EC" }), presetTrace.packDaDung.length === 0 ? (_jsx("p", { style: phu, children: "L\u01B0\u1EE3t g\u1EA7n nh\u1EA5t ch\u1EA1y b\u1EB1ng prompt native. Kh\u00F4ng module ngo\u00E0i n\u00E0o c\u00F3 m\u1EB7t trong n\u00F3." })) : (_jsxs("div", { style: { display: 'grid', gap: 6 }, children: [_jsxs("div", { style: so, children: ["Pack g\u00F3p m\u1EB7t: ", presetTrace.packDaDung.join(', ')] }), presetTrace.moduleBiBo.length > 0 && (_jsxs("div", { style: phu, children: [presetTrace.moduleBiBo.length, " module kh\u00F4ng v\u00E0o prompt:", ' ', presetTrace.moduleBiBo.slice(0, 12).join(', ')] })), presetTrace.macroChuaGiai.length > 0 && (_jsxs("div", { style: { ...phu, color: 'var(--hoi)' }, children: ["Macro ch\u01B0a c\u00F3 \u00E1nh x\u1EA1: ", presetTrace.macroChuaGiai.join(', ')] })), presetTrace.issues.map((i, n) => (_jsx("div", { style: phu, children: i }, n)))] }))] }), _jsxs("section", { className: "kinh", style: { padding: 18 }, children: [_jsx("h2", { style: { ...nhan, margin: '0 0 6px' }, children: "\u00DD \u0111\u1ED3 preset v\u00E0 \u0111\u00EDch native t\u01B0\u01A1ng \u1EE9ng" }), _jsxs("p", { style: { ...phu, margin: '0 0 12px', maxWidth: 620 }, children: [_jsx(Icon, { ten: "canh_bao", co: 12, style: { color: 'var(--dong)', verticalAlign: '-1px' } }), " Script v\u00E0 extension kh\u00F4ng ch\u1EA1y. B\u1EA3ng n\u00E0y n\u00F3i app \u0111\u00E3 l\u00E0m thay t\u1EEBng vi\u1EC7c b\u1EB1ng g\u00EC."] }), _jsx("div", { className: "cuon-ngang", children: _jsxs("table", { style: { borderCollapse: 'collapse', width: '100%', minWidth: 560 }, children: [_jsx("thead", { children: _jsx("tr", { children: ['Ý đồ trong preset', 'Đích native', 'Không được làm'].map((c) => (_jsx("th", { style: { ...nhan, textAlign: 'left', padding: '6px 14px 6px 0', fontWeight: 400 }, children: c }, c))) }) }), _jsx("tbody", { children: DUONG_PORT_TINH_NANG.map((d) => (_jsxs("tr", { style: { borderTop: '1px solid var(--kinh-vien)' }, children: [_jsx("td", { style: { ...so, padding: '6px 14px 6px 0' }, children: d.yDo }), _jsx("td", { style: { ...so, padding: '6px 14px 6px 0', color: 'var(--ngoc)' }, children: d.dichNative }), _jsx("td", { style: { ...phu, padding: '6px 14px 6px 0' }, children: d.khongDuocLam })] }, d.yDo))) })] }) })] })] }));
+                                                }, children: JSON.stringify(Object.fromEntries(Object.entries(bienPack).filter(([k]) => !k.startsWith('__'))), null, 2) }) }))] }))] }, row.packId));
+                    }))] }), loiBat.length > 0 && (_jsxs("section", { className: "kinh", role: "alert", style: { padding: 16, display: 'grid', gap: 4 }, children: [_jsx("h2", { style: { ...nhan, margin: 0, color: 'var(--hoi)' }, children: "C\u1EA7n ch\u00FA \u00FD" }), loiBat.slice(-12).map((i, n) => (_jsx("span", { style: { ...phu, color: i.severity === 'error' ? 'var(--hoi)' : 'var(--tro)' }, children: i.message }, `${i.code}:${n}`)))] })), _jsxs("section", { className: "kinh", style: { padding: 16, display: 'grid', gap: 7 }, children: [_jsx("h2", { style: { ...nhan, margin: 0 }, children: "L\u01B0\u1EE3t k\u1EC3 g\u1EA7n nh\u1EA5t" }), presetTrace.packDaDung.length === 0 ? (_jsx("span", { style: phu, children: "\u0110ang d\u00F9ng prompt m\u1EB7c \u0111\u1ECBnh; ch\u01B0a c\u00F3 preset g\u00F3p m\u1EB7t." })) : (_jsxs(_Fragment, { children: [_jsxs("span", { style: so, children: ["Preset \u0111\u00E3 d\u00F9ng: ", presetTrace.packDaDung.join(', ')] }), presetTrace.moduleBiBo.length > 0 && (_jsxs("span", { style: phu, children: [presetTrace.moduleBiBo.length, " module b\u1ECB b\u1ECF v\u00EC ng\u00E2n s\u00E1ch ho\u1EB7c kh\u00F4ng t\u01B0\u01A1ng th\u00EDch."] })), presetTrace.macroChuaGiai.length > 0 && (_jsxs("span", { style: { ...phu, color: 'var(--hoi)' }, children: ["Macro ch\u01B0a \u00E1nh x\u1EA1: ", presetTrace.macroChuaGiai.join(', ')] }))] }))] })] }));
+}
+function ThongSo({ row }) {
+    const gen = row.pack.generation;
+    const tatCa = gen === undefined
+        ? []
+        : [
+            ['Temperature', gen.temperature],
+            ['Top P', gen.topP],
+            ['Top K', gen.topK],
+            ['Min P', gen.minP],
+            ['Max Output', gen.maxOutputTokens],
+            ['Context', gen.maxContext],
+            ['Presence', gen.presencePenalty],
+            ['Frequency', gen.frequencyPenalty],
+            ['Stop', gen.stopSequences],
+        ];
+    const ds = tatCa.filter(([, v]) => v !== undefined);
+    return (_jsx(Khoi, { ten: "Th\u00F4ng s\u1ED1 sinh", phuDe: "C\u00E1c gi\u00E1 tr\u1ECB \u0111\u01B0\u1EE3c \u00E1p v\u00E0o model T\u01B0\u1EDDng Thu\u1EADt khi preset \u0111ang b\u1EADt.", children: ds.length === 0 ? (_jsx("p", { style: { ...phu, margin: 0 }, children: "Preset kh\u00F4ng ghi \u0111\u00E8 th\u00F4ng s\u1ED1 sinh." })) : (_jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 7 }, children: ds.map(([ten, v]) => (_jsxs("div", { className: "kinh--cap2", style: { padding: '8px 10px' }, children: [_jsx("div", { style: nhan, children: ten }), _jsx("div", { className: "chu-so", style: so, children: giaTri(v) })] }, ten))) })) }));
+}
+function RegexDong({ row, transform, bienPack, coVan, tick, datTinhNang, }) {
+    const tuongThich = transform.activation === 'sandboxed' || transform.activation === 'disabled';
+    const checked = tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon);
+    return (_jsxs("div", { className: "kinh--cap2", style: { padding: '9px 11px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }, children: [_jsx(CongTac, { checked: checked && tuongThich, disabled: !coVan || !tuongThich, nhanChu: transform.ten, onChange: (v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick) }), _jsxs("span", { style: { ...phu, marginLeft: 'auto' }, children: [transform.promptOnlyNguon
+                        ? 'prompt'
+                        : transform.markdownOnlyNguon
+                            ? 'hiển thị markdown'
+                            : 'prompt/hiển thị', ' ', "\u00B7 v\u1ECB tr\u00ED ", transform.placement.join(', ')] }), !tuongThich && _jsx("span", { style: { ...phu, color: 'var(--hoi)' }, children: "c\u00FA ph\u00E1p regex ch\u01B0a t\u01B0\u01A1ng th\u00EDch" })] }));
 }

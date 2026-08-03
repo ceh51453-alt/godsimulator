@@ -1,30 +1,20 @@
 /**
- * Xưởng Preset — Phần 66.1 (wizard bảy màn) và 66.2 (báo cáo sau nhập).
+ * Quản lý Preset.
  *
- * ── Màn này phải trả lời một câu rất cụ thể ──
- *
- * *"Preset của tôi có đang thật sự chạy không, và phần nào của nó không chạy?"*
- *
- * Trước Phase 11 câu ấy không trả lời được: pack nhập vào rồi biến mất khỏi tầm
- * mắt. Nên màn này có bốn khối, và ba trong số đó tồn tại chỉ để trả lời câu ấy:
- *
- *   Thư viện          pack nào đã nhập, bản nào đang bật
- *   Báo cáo sáu dòng  [BB] 66.2 — KHÔNG dùng một dấu check xanh cho cả file
- *   Đã dùng lượt qua  module nào tới được model, module nào bị cắt
- *   Bị cách ly        script không chạy, VÀ app đã làm thay việc đó bằng gì
- *
- * [BB] 64.2 — khối cuối không có nút bật. Script ngoài không chạy, chấm hết. Thứ
- * nó có là cột "đích native" của 66.6: người dùng cần biết app làm thay việc gì,
- * nếu không họ sẽ đi tìm cách bật script bằng được.
+ * File được nhập thẳng vào thư viện, xung đột nội bộ tự giữ theo prompt_order.
+ * Mỗi pack có một bảng cấu hình thống nhất cho prompt, regex, adapter script,
+ * thông số sinh và biến — không còn wizard hay một khu script tách rời.
  */
-import { useRef, useState, useCallback } from 'react';
-import type { CSSProperties } from 'react';
-import { usePreset } from '../../store/preset.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
-import { TEN_MAN, issueCuaMan } from '../../core/preset/wizard.js';
-import { nhomXungDot } from '../../core/preset/xungDot.js';
-import { DUONG_PORT_TINH_NANG } from '../../core/preset/hopNhat.js';
-import { Icon } from '../design/Icon.js';
+import type {
+  PresetPackRow,
+  PromptModule,
+  ScriptAdapterDef,
+  TransformDef,
+} from '../../core/preset/schema.js';
 
 const nhan: CSSProperties = {
   color: 'var(--mo)',
@@ -33,474 +23,570 @@ const nhan: CSSProperties = {
   textTransform: 'uppercase',
 };
 const so: CSSProperties = { fontSize: 13, color: 'var(--tro)' };
-const phu: CSSProperties = { fontSize: 11, color: 'var(--mo)' };
+const phu: CSSProperties = { fontSize: 12, color: 'var(--mo)' };
 
-function nut(chinh = false): CSSProperties {
+function nut(chinh = false, tat = false): CSSProperties {
   return {
     background: 'transparent',
-    color: chinh ? 'var(--dong)' : 'var(--tro)',
-    border: `1px solid ${chinh ? 'var(--dong)' : 'var(--kinh-vien)'}`,
+    color: tat ? 'var(--mo)' : chinh ? 'var(--dong)' : 'var(--tro)',
+    border: `1px solid ${chinh && !tat ? 'var(--dong)' : 'var(--kinh-vien)'}`,
     borderRadius: 'var(--r-sm)',
-    padding: '6px 13px',
+    padding: '7px 13px',
     font: 'inherit',
     fontSize: 13,
-    cursor: 'pointer',
+    cursor: tat ? 'not-allowed' : 'pointer',
+    opacity: tat ? 0.55 : 1,
   };
+}
+
+function Khoi({ ten, phuDe, children }: { ten: string; phuDe?: string; children: ReactNode }): JSX.Element {
+  return (
+    <section style={{ display: 'grid', gap: 9 }}>
+      <header>
+        <h3 style={{ margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 17, fontWeight: 500 }}>{ten}</h3>
+        {phuDe !== undefined && <p style={{ ...phu, margin: '2px 0 0' }}>{phuDe}</p>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function CongTac({
+  checked,
+  disabled = false,
+  nhanChu,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  nhanChu: string;
+  onChange(checked: boolean): void;
+}): JSX.Element {
+  return (
+    <label
+      style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12, color: 'var(--tro)' }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.currentTarget.checked)}
+      />
+      {nhanChu}
+    </label>
+  );
+}
+
+const KHONG_CHAY_DUOC = new Set(['quarantined', 'needs_adapter', 'disabled']);
+
+function moduleMacDinh(m: PromptModule): boolean {
+  return m.enabled && !KHONG_CHAY_DUOC.has(m.activation);
+}
+
+function nhanAdapter(kind: ScriptAdapterDef['kind']): string {
+  if (kind === 'cot_cleanup') return 'Dọn nội dung suy luận';
+  if (kind === 'prompt_merge') return 'Ghép prompt và lịch sử';
+  if (kind === 'scene_switch') return 'Điều khiển cảnh/module';
+  return 'Giao diện lựa chọn';
+}
+
+function giaTri(v: unknown): string {
+  if (typeof v === 'number') return Number.isInteger(v) ? v.toLocaleString('vi-VN') : v.toFixed(2);
+  if (Array.isArray(v)) return v.join(' · ');
+  return String(v);
 }
 
 export function XuongPreset(): JSX.Element {
   const thuVien = usePreset((s) => s.thuVien);
   const dangBat = usePreset((s) => s.dangBat);
   const bien = usePreset((s) => s.bien);
-  const xungDot = usePreset((s) => s.xungDot);
+  const chonChoVanMoi = usePreset((s) => s.chonChoVanMoi);
+  const daNap = usePreset((s) => s.daNap);
   const wizard = usePreset((s) => s.wizard);
-  const baoCao = usePreset((s) => s.baoCao);
   const loiBat = usePreset((s) => s.loiBat);
+  const napTuDia = usePreset((s) => s.napTuDia);
   const doThu = usePreset((s) => s.doThu);
   const nhapVaoThuVien = usePreset((s) => s.nhapVaoThuVien);
-  const dongWizard = usePreset((s) => s.dongWizard);
-  const giaiXungDot = usePreset((s) => s.giaiXungDot);
   const bat = usePreset((s) => s.bat);
   const tat = usePreset((s) => s.tat);
   const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
+  const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
+  const datTinhNang = usePreset((s) => s.datTinhNang);
 
   const state = useGame((s) => s.state);
   const presetTrace = useGame((s) => s.presetTrace);
+  const branchId = state?.world.branchId ?? '';
   const tick = state?.world.tick ?? 0;
-  const saveId = state?.world.id ?? 'save';
+  const saveId = state?.world.id ?? '';
 
   const oFile = useRef<HTMLInputElement>(null);
   const [dangDoc, setDangDoc] = useState(false);
+  const [tin, setTin] = useState('');
   const [moRong, setMoRong] = useState<Set<string>>(new Set());
 
-  const toggleChiTiet = useCallback((key: string) => {
-    setMoRong((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (!daNap) void napTuDia(branchId);
+  }, [branchId, daNap, napTuDia]);
 
-  const chonFile = async (f: File | undefined): Promise<void> => {
-    if (f === undefined) return;
+  const packs = useMemo(() => {
+    const daCo = new Set<string>();
+    return thuVien.filter((row) => {
+      if (daCo.has(row.packId)) return false;
+      daCo.add(row.packId);
+      return true;
+    });
+  }, [thuVien]);
+
+  const chonFile = async (file: File | undefined): Promise<void> => {
+    if (file === undefined) return;
     setDangDoc(true);
+    setTin('');
     try {
-      // [BB] Luật bất biến #10 — không fetch URL, không chạy helper. Chỉ đọc bytes.
-      const noiDung = await f.text();
-      doThu(f.name, noiDung, tick);
+      const noiDung = await file.text();
+      doThu(file.name, noiDung, tick);
+      const kq = usePreset.getState().wizard.ketQua;
+      if (!kq?.ok || kq.row === null) {
+        setTin(`Không nhập được “${file.name}”. Mở phần lỗi bên dưới để xem chi tiết.`);
+        return;
+      }
+      await nhapVaoThuVien();
+      setTin(
+        `Đã nhập “${file.name}”: ${kq.row.pack.modules.length} module, ` +
+          `${kq.row.transformDefs.length} regex, ${kq.row.scriptAdapters.length} chức năng script đã tích hợp.`,
+      );
     } finally {
       setDangDoc(false);
     }
   };
 
-  const kq = wizard.ketQua;
+  const doiMoRong = (packId: string): void => {
+    setMoRong((cu) => {
+      const moi = new Set(cu);
+      if (moi.has(packId)) moi.delete(packId);
+      else moi.add(packId);
+      return moi;
+    });
+  };
 
-  /*
-   * Nhóm xung đột tính từ THƯ VIỆN, không từ wizard.
-   *
-   * Wizard là một phiên; thư viện thì sống qua lần đóng tab. Đọc từ wizard sẽ
-   * làm một pack đã nhập vĩnh viễn không bật được sau khi mở lại app — vì lint
-   * vẫn đòi lựa chọn, mà không còn màn nào để chọn.
-   */
-  const canChon = thuVien
-    .filter((r) => dangBat[r.packId] === undefined)
-    .flatMap((r) =>
-      nhomXungDot(r.pack.modules.filter((m) => m.enabled))
-        .filter((n) => n.canNguoiChon)
-        .map((n) => ({ row: r, nhom: n })),
-    );
+  const loiNhap = wizard.ketQua?.issues.filter((i) => i.severity === 'error') ?? [];
 
   return (
-    <main style={{ padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto' }}>
-      <h1 className="chu-hien" style={{ margin: '0 0 4px', fontSize: 26 }}>
-        Xưởng Preset
-      </h1>
-      <p style={{ ...phu, margin: '0 0 22px', maxWidth: 620 }}>
-        Nhập không phải là kích hoạt. Lưu được toàn bộ không có nghĩa là được phép chạy toàn bộ.
-      </p>
+    <main style={{ padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 18 }}>
+      <header>
+        <p style={{ ...nhan, margin: 0 }}>Cấu hình · Preset</p>
+        <h1 className="chu-hien" style={{ margin: '4px 0 5px', fontSize: 28, fontWeight: 500 }}>
+          Quản lý Preset
+        </h1>
+        <p style={{ ...phu, margin: 0, maxWidth: 720 }}>
+          Preset được nhập thẳng vào thư viện. Các phần cùng tác động được ghép theo thứ tự của chính file;
+          bạn không còn phải chọn thủ công một bên xung đột.
+        </p>
+      </header>
 
-      {/* ── nhập ── */}
-      <section className="kinh" style={{ padding: 18, marginBottom: 18 }}>
-        <h2 style={{ ...nhan, margin: '0 0 12px' }}>Nhập một file</h2>
-        <input
-          ref={oFile}
-          type="file"
-          accept=".json,application/json"
-          style={{ position: 'absolute', left: -9999 }}
-          id="fileP"
-          onChange={(e) => void chonFile(e.target.files?.[0])}
-        />
-        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button type="button" style={nut(true)} onClick={() => oFile.current?.click()}>
-            {dangDoc ? 'Đang đọc…' : 'Chọn file preset'}
+      <section className="kinh" style={{ padding: 18, display: 'grid', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            style={nut(true, dangDoc)}
+            disabled={dangDoc}
+            onClick={() => oFile.current?.click()}
+          >
+            {dangDoc ? 'Đang nhập…' : 'Nhập preset (.json)'}
           </button>
-          {kq !== null && (
-            <>
-              <span style={phu}>
-                Wizard đang ở màn <strong style={{ color: 'var(--tro)' }}>{TEN_MAN[wizard.man]}</strong>
-              </span>
-              <button type="button" style={nut()} onClick={dongWizard}>
-                Bỏ bản nháp
-              </button>
-            </>
-          )}
+          <input
+            ref={oFile}
+            type="file"
+            accept=".json,application/json"
+            style={{ position: 'absolute', left: -9999 }}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = '';
+              void chonFile(file);
+            }}
+          />
+          <span style={phu}>Hỗ trợ preset SillyTavern và định dạng Thiên Diễn.</span>
         </div>
-
-        {kq !== null && baoCao !== null && (
-          <div style={{ marginTop: 16 }}>
-            {/* [BB] 66.2 — sáu dòng số, không phải một dấu check. */}
-            <div style={{ display: 'grid', gap: 5, maxWidth: 560 }}>
-              {baoCao.dong.map(([ten, gia]) => (
-                <div key={ten} style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
-                  <span style={{ ...nhan, minWidth: 104 }}>{ten}</span>
-                  <span style={so}>{gia}</span>
-                </div>
-              ))}
-            </div>
-
-            {issueCuaMan(kq, wizard.man).length > 0 && (
-              <ul style={{ margin: '14px 0 0', paddingLeft: 18, ...phu }}>
-                {issueCuaMan(kq, wizard.man)
-                  .slice(0, 8)
-                  .map((i, n) => (
-                    <li key={n} style={{ color: i.severity === 'error' ? 'var(--hoi)' : 'var(--mo)' }}>
-                      {i.message}
-                    </li>
-                  ))}
-              </ul>
-            )}
-
-            {kq.ok && !wizard.daNhapThuVien && (
-              <button
-                type="button"
-                style={{ ...nut(true), marginTop: 14 }}
-                onClick={() => void nhapVaoThuVien()}
-              >
-                Nhập vào thư viện
-              </button>
-            )}
-            {wizard.daNhapThuVien && (
-              <p style={{ ...phu, marginTop: 14 }}>
-                Đã vào thư viện. Nó vẫn <strong style={{ color: 'var(--tro)' }}>chưa chạy</strong> — bật ở
-                dưới.
-              </p>
-            )}
+        {tin !== '' && (
+          <p role="status" style={{ ...so, margin: 0 }}>
+            {tin}
+          </p>
+        )}
+        {loiNhap.length > 0 && (
+          <div role="alert" style={{ display: 'grid', gap: 3 }}>
+            {loiNhap.slice(0, 8).map((i, n) => (
+              <span key={`${i.code}:${n}`} style={{ ...phu, color: 'var(--hoi)' }}>
+                {i.message}
+              </span>
+            ))}
           </div>
         )}
       </section>
 
-      {/*
-       * ── xung đột (66.1 màn 5) ──
-       *
-       * [BB] 65.2 — pack chưa giải xung đột thì KHÔNG kích hoạt. Khối này là chỗ
-       * người dùng giải nó. Thiếu nó thì `lintTruocKhiBat()` từ chối mãi mãi và
-       * pack không bao giờ bật được — lỗi đã bắt gặp khi nhập fixture A thật, nơi
-       * hai module cùng khai `history.wrapper`.
-       */}
-      {canChon.length > 0 && (
-        <section className="kinh" style={{ padding: 18, marginBottom: 18 }}>
-          <h2 style={{ ...nhan, margin: '0 0 6px' }}>Xung đột cần người chọn</h2>
-          <p style={{ ...phu, margin: '0 0 14px', maxWidth: 620 }}>
-            Engine giải được phần lớn xung đột. Những nhóm dưới đây thì không: chúng loại trừ nhau, và chọn hộ
-            bạn là chọn thay ý đồ của người viết preset.
-          </p>
-          <div style={{ display: 'grid', gap: 14 }}>
-            {canChon.map(({ row, nhom }) => (
-              <div key={`${row.packId}:${nhom.khoa}`} className="kinh--cap2" style={{ padding: 12 }}>
-                <div style={so}>{nhom.khoa}</div>
-                <div style={{ ...phu, marginBottom: 8 }}>{nhom.moTa}</div>
-                <div style={{ display: 'grid', gap: 6 }}>
-                  {nhom.moduleIds.map((id) => {
-                    const m = row.pack.modules.find((x) => x.id === id);
-                    const dangChon = xungDot[row.packId]?.[nhom.khoa] === id;
-                    const chiTietKey = `${row.packId}:${nhom.khoa}:${id}`;
-                    const dangMo = moRong.has(chiTietKey);
-                    return (
-                      <div key={id}>
-                        <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                          <button
-                            type="button"
-                            style={nut(dangChon)}
-                            aria-pressed={dangChon}
-                            onClick={() => giaiXungDot(row.packId, nhom.khoa, id)}
-                          >
-                            {m?.name ?? id}
-                          </button>
-                          <button
-                            type="button"
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: dangMo ? 'var(--dong)' : 'var(--mo)',
-                              font: 'inherit',
-                              fontSize: 11,
-                              cursor: 'pointer',
-                              padding: '4px 6px',
-                              textDecoration: 'underline',
-                              textUnderlineOffset: '2px',
-                            }}
-                            onClick={() => toggleChiTiet(chiTietKey)}
-                            aria-expanded={dangMo}
-                          >
-                            {dangMo ? 'ẩn' : 'xem chi tiết'}
-                          </button>
-                        </div>
-                        {dangMo && m !== undefined && (
-                          <div
-                            style={{
-                              marginTop: 6,
-                              marginLeft: 8,
-                              padding: '8px 10px',
-                              borderLeft: '2px solid var(--kinh-vien)',
-                              background: 'rgba(0,0,0,0.15)',
-                              borderRadius: 'var(--r-sm)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
-                              <span style={phu}>
-                                Loại: <strong style={{ color: 'var(--tro)' }}>{m.kind}</strong>
-                              </span>
-                              <span style={phu}>
-                                Lane: <strong style={{ color: 'var(--tro)' }}>{m.lane}</strong>
-                              </span>
-                              <span style={phu}>
-                                Role: <strong style={{ color: 'var(--tro)' }}>{m.role}</strong>
-                              </span>
-                            </div>
-                            <pre
-                              className="chu-so"
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }}>Preset đã nhập</h2>
+          <span style={phu}>{packs.length} preset trên máy</span>
+        </div>
+
+        {!daNap ? (
+          <p style={phu}>Đang đọc thư viện preset…</p>
+        ) : packs.length === 0 ? (
+          <div className="kinh" style={{ padding: 18 }}>
+            <p style={{ ...phu, margin: 0 }}>
+              Chưa có preset. Trò chơi đang dùng cấu hình và prompt mặc định.
+            </p>
+          </div>
+        ) : (
+          packs.map((row) => {
+            const act = dangBat[row.packId];
+            const daBat = act?.packVersion === row.version;
+            const dangMo = moRong.has(row.packId);
+            const bienPack = bien[row.packId] ?? {};
+            const daChonChoVanMoi = chonChoVanMoi.includes(row.packId);
+            const soBan = thuVien.filter((x) => x.packId === row.packId).length;
+            return (
+              <article key={row.packId} className="kinh" style={{ padding: 16, display: 'grid', gap: 12 }}>
+                <header style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 210 }}>
+                    <h2
+                      className="ten-rieng"
+                      style={{ margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 19 }}
+                    >
+                      {row.pack.envelope.sourceName}
+                    </h2>
+                    <div style={{ ...phu, marginTop: 3 }}>
+                      bản {row.version}
+                      {soBan > 1 ? ` · ${soBan} phiên bản` : ''} · {row.pack.modules.length} module ·{' '}
+                      {row.transformDefs.length} regex · {row.quarantined.length} script nguồn
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      ...so,
+                      color: daBat || (state === null && daChonChoVanMoi) ? 'var(--ngoc)' : 'var(--mo)',
+                    }}
+                  >
+                    {state === null
+                      ? daChonChoVanMoi
+                        ? 'Sẽ bật trong ván mới'
+                        : 'Chưa chọn cho ván mới'
+                      : daBat
+                        ? 'Đang dùng trong ván'
+                        : act
+                          ? `Đang dùng bản ${act.packVersion}`
+                          : 'Đang tắt'}
+                  </span>
+                </header>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {state === null ? (
+                    <button
+                      type="button"
+                      style={nut(!daChonChoVanMoi)}
+                      onClick={() => void datChonChoVanMoi(row.packId, !daChonChoVanMoi)}
+                    >
+                      {daChonChoVanMoi ? 'Bỏ khỏi ván mới' : 'Bật sẵn cho ván mới'}
+                    </button>
+                  ) : daBat ? (
+                    <button type="button" style={nut()} onClick={() => void tat(row.packId)}>
+                      Tắt preset
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      style={nut(true)}
+                      onClick={() => void bat(row.packId, saveId, tick)}
+                    >
+                      {act ? 'Dùng bản mới nhất' : 'Bật cho ván này'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    style={nut()}
+                    onClick={() => doiMoRong(row.packId)}
+                    aria-expanded={dangMo}
+                  >
+                    {dangMo ? 'Thu gọn cấu hình' : 'Mở cấu hình'}
+                  </button>
+                  <button
+                    type="button"
+                    style={{ ...nut(), color: 'var(--hoi)' }}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Xóa “${row.pack.envelope.sourceName}” và mọi phiên bản khỏi thư viện?`,
+                        )
+                      ) {
+                        void xoaKhoiThuVien(row.packId);
+                      }
+                    }}
+                  >
+                    Xóa
+                  </button>
+                </div>
+
+                {state === null && (
+                  <p style={{ ...phu, margin: 0 }}>
+                    Preset đã chọn sẽ tự bật trước lời kể đầu tiên. Công tắc module, regex và script vẫn được
+                    giữ riêng cho từng ván.
+                  </p>
+                )}
+
+                {dangMo && (
+                  <div
+                    style={{
+                      borderTop: '1px solid var(--kinh-vien)',
+                      paddingTop: 14,
+                      display: 'grid',
+                      gap: 20,
+                    }}
+                  >
+                    <ThongSo row={row} />
+                    <Khoi
+                      ten="Prompt và module"
+                      phuDe="Bật/tắt từng phần; thứ tự trong file luôn được giữ nguyên."
+                    >
+                      <div
+                        style={{ display: 'grid', gap: 6, maxHeight: 360, overflow: 'auto', paddingRight: 4 }}
+                      >
+                        {row.pack.modules.map((m) => {
+                          const duocChay = !KHONG_CHAY_DUOC.has(m.activation);
+                          const checked = tinhNangPresetDangBat(
+                            bienPack,
+                            'module',
+                            m.sourceIdentifier,
+                            moduleMacDinh(m),
+                          );
+                          return (
+                            <div
+                              key={m.id}
+                              className="kinh--cap2"
                               style={{
-                                margin: 0,
-                                ...phu,
-                                color: 'var(--tro)',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word',
-                                maxHeight: 240,
-                                overflow: 'auto',
-                                fontSize: 12,
-                                lineHeight: 1.45,
+                                padding: '9px 11px',
+                                display: 'flex',
+                                gap: 10,
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
                               }}
                             >
-                              {m.content.length > 2000
-                                ? m.content.slice(0, 2000) +
-                                  '\n…(cắt bớt, còn ' +
-                                  (m.content.length - 2000) +
-                                  ' ký tự)'
-                                : m.content}
-                            </pre>
-                          </div>
+                              <CongTac
+                                checked={checked && duocChay}
+                                disabled={state === null || !duocChay}
+                                nhanChu={m.name}
+                                onChange={(v) =>
+                                  void datTinhNang(row.packId, 'module', m.sourceIdentifier, v, tick)
+                                }
+                              />
+                              <span style={{ ...phu, marginLeft: 'auto' }}>
+                                {m.role} · {m.lane} · #{m.order}
+                              </span>
+                              {!duocChay && (
+                                <span style={{ ...phu, color: 'var(--hoi)' }}>
+                                  không tương thích: {m.activation}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Khoi>
+
+                    <Khoi
+                      ten="Regex và script"
+                      phuDe="Được quản lý cùng preset và chạy qua bộ tương thích của ứng dụng."
+                    >
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {row.transformDefs.map((t) => (
+                          <RegexDong
+                            key={t.id}
+                            row={row}
+                            transform={t}
+                            bienPack={bienPack}
+                            coVan={state !== null}
+                            tick={tick}
+                            datTinhNang={datTinhNang}
+                          />
+                        ))}
+                        {row.scriptAdapters.map((a) => {
+                          const checked = tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon);
+                          return (
+                            <div
+                              key={a.id}
+                              className="kinh--cap2"
+                              style={{
+                                padding: '9px 11px',
+                                display: 'flex',
+                                gap: 10,
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <CongTac
+                                checked={checked}
+                                disabled={state === null}
+                                nhanChu={a.ten}
+                                onChange={(v) => void datTinhNang(row.packId, 'script', a.id, v, tick)}
+                              />
+                              <span style={{ ...phu, marginLeft: 'auto', color: 'var(--ngoc)' }}>
+                                {nhanAdapter(a.kind)} · đã tích hợp
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {row.transformDefs.length === 0 && row.scriptAdapters.length === 0 && (
+                          <p style={{ ...phu, margin: 0 }}>
+                            Preset này không khai regex hoặc chức năng script tương thích.
+                          </p>
+                        )}
+                        {row.quarantined.length > row.scriptAdapters.length && (
+                          <p style={{ ...phu, margin: 0 }}>
+                            Đã giữ nguyên {row.quarantined.length} script nguồn; {row.scriptAdapters.length}{' '}
+                            chức năng đã nhận diện và nối vào ứng dụng.
+                          </p>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+                    </Khoi>
+
+                    {Object.keys(bienPack).filter((k) => !k.startsWith('__')).length > 0 && (
+                      <Khoi ten="Biến preset" phuDe="Dữ liệu riêng của preset trên nhánh hiện tại.">
+                        <pre
+                          className="chu-so"
+                          style={{
+                            ...phu,
+                            margin: 0,
+                            whiteSpace: 'pre-wrap',
+                            maxHeight: 220,
+                            overflow: 'auto',
+                          }}
+                        >
+                          {JSON.stringify(
+                            Object.fromEntries(Object.entries(bienPack).filter(([k]) => !k.startsWith('__'))),
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </Khoi>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })
+        )}
+      </section>
+
+      {loiBat.length > 0 && (
+        <section className="kinh" role="alert" style={{ padding: 16, display: 'grid', gap: 4 }}>
+          <h2 style={{ ...nhan, margin: 0, color: 'var(--hoi)' }}>Cần chú ý</h2>
+          {loiBat.slice(-12).map((i, n) => (
+            <span
+              key={`${i.code}:${n}`}
+              style={{ ...phu, color: i.severity === 'error' ? 'var(--hoi)' : 'var(--tro)' }}
+            >
+              {i.message}
+            </span>
+          ))}
         </section>
       )}
 
-      {/* ── thư viện ── */}
-      <section className="kinh" style={{ padding: 18, marginBottom: 18 }}>
-        <h2 style={{ ...nhan, margin: '0 0 12px' }}>Thư viện</h2>
-        {thuVien.length === 0 ? (
-          <p style={phu}>Chưa có pack nào. Thế giới đang chạy bằng prompt native của engine.</p>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {thuVien.map((r) => {
-              const act = dangBat[r.packId];
-              const daBat = act !== undefined && act.packVersion === r.version;
-              return (
-                <div
-                  key={`${r.packId}:${r.version}`}
-                  className="kinh--cap2"
-                  style={{ padding: 12, display: 'grid', gap: 6 }}
-                >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span className="ten-rieng" style={{ ...so, flex: 1, minWidth: 160 }}>
-                      {r.pack.envelope.sourceName}
-                    </span>
-                    <span style={phu}>bản {r.version}</span>
-                    <span style={phu}>{r.pack.modules.length} module</span>
-                    <span style={{ ...phu, color: daBat ? 'var(--ngoc)' : 'var(--mo)' }}>
-                      {daBat ? 'đang bật' : 'chưa bật'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {daBat ? (
-                      <button type="button" style={nut()} onClick={() => void tat(r.packId)}>
-                        Tắt — trả về prompt native
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        style={nut(true)}
-                        onClick={() => void bat(r.packId, saveId, tick)}
-                      >
-                        Bật cho nhánh này
-                      </button>
-                    )}
-                    <button type="button" style={nut()} onClick={() => void xoaKhoiThuVien(r.packId)}>
-                      Xóa khỏi thư viện
-                    </button>
-                  </div>
-
-                  {/* Biến của pack — 66.6, namespace riêng, không chạm World. */}
-                  {Object.keys(bien[r.packId] ?? {}).length > 0 && (
-                    <div style={{ marginTop: 4 }}>
-                      <div style={nhan}>Biến của pack trên nhánh này</div>
-                      <pre
-                        className="chu-so"
-                        style={{
-                          margin: '4px 0 0',
-                          ...phu,
-                          whiteSpace: 'pre-wrap',
-                          maxHeight: 160,
-                          overflow: 'auto',
-                        }}
-                      >
-                        {JSON.stringify(bien[r.packId], null, 2)}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* [BB] 64.2 — script bị cách ly. Hiện ra, KHÔNG có nút bật. */}
-                  {r.quarantined.length > 0 && (
-                    <div style={{ marginTop: 4 }}>
-                      <div style={{ ...nhan, color: 'var(--hoi)' }}>
-                        {r.quarantined.length} script bị cách ly — không chạy
-                      </div>
-                      {r.quarantined.map((q) => (
-                        <div key={q.hash} style={phu}>
-                          {q.ten} · {q.soKyTu} ký tự{q.batONguon ? ' · nguồn khai là đang bật' : ''}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Thông số sinh từ preset — hiện để người dùng biết trước khi bật. */}
-                  {r.pack.generation !== undefined && (
-                    <div style={{ marginTop: 4 }}>
-                      <div style={nhan}>Thông số sinh trong preset</div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: '6px 16px',
-                          flexWrap: 'wrap',
-                          marginTop: 4,
-                        }}
-                      >
-                        {(
-                          [
-                            ['Temperature', r.pack.generation.temperature],
-                            ['Top P', r.pack.generation.topP],
-                            ['Top K', r.pack.generation.topK],
-                            ['Max Output', r.pack.generation.maxOutputTokens],
-                            ['Context', r.pack.generation.maxContext],
-                            ['Presence', r.pack.generation.presencePenalty],
-                            ['Frequency', r.pack.generation.frequencyPenalty],
-                          ] as [string, unknown][]
-                        )
-                          .filter(([, v]) => v !== undefined)
-                          .map(([ten, v]) => (
-                            <span key={ten} style={phu}>
-                              {ten}:{' '}
-                              <strong style={{ color: 'var(--tro)' }}>
-                                {typeof v === 'number'
-                                  ? Number.isInteger(v)
-                                    ? v.toLocaleString()
-                                    : (v as number).toFixed(2)
-                                  : String(v)}
-                              </strong>
-                            </span>
-                          ))}
-                      </div>
-                      {daBat && (
-                        <div style={{ ...phu, marginTop: 4, color: 'var(--ngoc)' }}>
-                          Đã áp thông số này vào endpoint Tường Thuật.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {loiBat.length > 0 && (
-          <div role="alert" style={{ marginTop: 12 }}>
-            {loiBat.map((i, n) => (
-              <div key={n} style={{ ...phu, color: 'var(--hoi)' }}>
-                {i.message}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── lượt vừa rồi thật sự dùng gì ── */}
-      <section className="kinh" style={{ padding: 18, marginBottom: 18 }}>
-        <h2 style={{ ...nhan, margin: '0 0 12px' }}>Lượt kể gần nhất đã dùng gì</h2>
+      <section className="kinh" style={{ padding: 16, display: 'grid', gap: 7 }}>
+        <h2 style={{ ...nhan, margin: 0 }}>Lượt kể gần nhất</h2>
         {presetTrace.packDaDung.length === 0 ? (
-          <p style={phu}>Lượt gần nhất chạy bằng prompt native. Không module ngoài nào có mặt trong nó.</p>
+          <span style={phu}>Đang dùng prompt mặc định; chưa có preset góp mặt.</span>
         ) : (
-          <div style={{ display: 'grid', gap: 6 }}>
-            <div style={so}>Pack góp mặt: {presetTrace.packDaDung.join(', ')}</div>
+          <>
+            <span style={so}>Preset đã dùng: {presetTrace.packDaDung.join(', ')}</span>
             {presetTrace.moduleBiBo.length > 0 && (
-              <div style={phu}>
-                {presetTrace.moduleBiBo.length} module không vào prompt:{' '}
-                {presetTrace.moduleBiBo.slice(0, 12).join(', ')}
-              </div>
+              <span style={phu}>
+                {presetTrace.moduleBiBo.length} module bị bỏ vì ngân sách hoặc không tương thích.
+              </span>
             )}
             {presetTrace.macroChuaGiai.length > 0 && (
-              <div style={{ ...phu, color: 'var(--hoi)' }}>
-                Macro chưa có ánh xạ: {presetTrace.macroChuaGiai.join(', ')}
-              </div>
+              <span style={{ ...phu, color: 'var(--hoi)' }}>
+                Macro chưa ánh xạ: {presetTrace.macroChuaGiai.join(', ')}
+              </span>
             )}
-            {presetTrace.issues.map((i, n) => (
-              <div key={n} style={phu}>
-                {i}
-              </div>
-            ))}
-          </div>
+          </>
         )}
       </section>
-
-      {/* ── 66.6 — app đã làm thay việc gì ── */}
-      <section className="kinh" style={{ padding: 18 }}>
-        <h2 style={{ ...nhan, margin: '0 0 6px' }}>Ý đồ preset và đích native tương ứng</h2>
-        <p style={{ ...phu, margin: '0 0 12px', maxWidth: 620 }}>
-          <Icon ten="canh_bao" co={12} style={{ color: 'var(--dong)', verticalAlign: '-1px' }} /> Script và
-          extension không chạy. Bảng này nói app đã làm thay từng việc bằng gì.
-        </p>
-        <div className="cuon-ngang">
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 560 }}>
-            <thead>
-              <tr>
-                {['Ý đồ trong preset', 'Đích native', 'Không được làm'].map((c) => (
-                  <th
-                    key={c}
-                    style={{ ...nhan, textAlign: 'left', padding: '6px 14px 6px 0', fontWeight: 400 }}
-                  >
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {DUONG_PORT_TINH_NANG.map((d) => (
-                <tr key={d.yDo} style={{ borderTop: '1px solid var(--kinh-vien)' }}>
-                  <td style={{ ...so, padding: '6px 14px 6px 0' }}>{d.yDo}</td>
-                  <td style={{ ...so, padding: '6px 14px 6px 0', color: 'var(--ngoc)' }}>{d.dichNative}</td>
-                  <td style={{ ...phu, padding: '6px 14px 6px 0' }}>{d.khongDuocLam}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </main>
+  );
+}
+
+function ThongSo({ row }: { row: PresetPackRow }): JSX.Element {
+  const gen = row.pack.generation;
+  const tatCa: [string, unknown][] =
+    gen === undefined
+      ? []
+      : [
+          ['Temperature', gen.temperature],
+          ['Top P', gen.topP],
+          ['Top K', gen.topK],
+          ['Min P', gen.minP],
+          ['Max Output', gen.maxOutputTokens],
+          ['Context', gen.maxContext],
+          ['Presence', gen.presencePenalty],
+          ['Frequency', gen.frequencyPenalty],
+          ['Stop', gen.stopSequences],
+        ];
+  const ds = tatCa.filter(([, v]) => v !== undefined);
+  return (
+    <Khoi ten="Thông số sinh" phuDe="Các giá trị được áp vào model Tường Thuật khi preset đang bật.">
+      {ds.length === 0 ? (
+        <p style={{ ...phu, margin: 0 }}>Preset không ghi đè thông số sinh.</p>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 7 }}>
+          {ds.map(([ten, v]) => (
+            <div key={ten} className="kinh--cap2" style={{ padding: '8px 10px' }}>
+              <div style={nhan}>{ten}</div>
+              <div className="chu-so" style={so}>
+                {giaTri(v)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Khoi>
+  );
+}
+
+function RegexDong({
+  row,
+  transform,
+  bienPack,
+  coVan,
+  tick,
+  datTinhNang,
+}: {
+  row: PresetPackRow;
+  transform: TransformDef;
+  bienPack: Readonly<Record<string, unknown>>;
+  coVan: boolean;
+  tick: number;
+  datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
+}): JSX.Element {
+  const tuongThich = transform.activation === 'sandboxed' || transform.activation === 'disabled';
+  const checked = tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon);
+  return (
+    <div
+      className="kinh--cap2"
+      style={{ padding: '9px 11px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}
+    >
+      <CongTac
+        checked={checked && tuongThich}
+        disabled={!coVan || !tuongThich}
+        nhanChu={transform.ten}
+        onChange={(v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick)}
+      />
+      <span style={{ ...phu, marginLeft: 'auto' }}>
+        {transform.promptOnlyNguon
+          ? 'prompt'
+          : transform.markdownOnlyNguon
+            ? 'hiển thị markdown'
+            : 'prompt/hiển thị'}{' '}
+        · vị trí {transform.placement.join(', ')}
+      </span>
+      {!tuongThich && <span style={{ ...phu, color: 'var(--hoi)' }}>cú pháp regex chưa tương thích</span>}
+    </div>
   );
 }

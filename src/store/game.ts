@@ -79,6 +79,7 @@ import type { LuaChonTiepTuc } from '../core/pham/caiChet.js';
 import { noiOCua } from '../core/pham/lich.js';
 import { bocTach } from '../core/ai/bocTach.js';
 import type { PatchBiTuChoi } from '../core/ai/bocTach.js';
+import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
 import { bienSoanPromptCapNhat } from '../core/ai/capNhat.js';
 import { nganSachInput, uocLuong } from '../core/ai/nganSach.js';
 import { napBatBienTangTruyen } from '../core/world/batBienTruyen.js';
@@ -585,14 +586,25 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     noiDung: string,
     meta: Pick<DongScene, 'noiDungGoc' | 'dinhDang'> = {},
   ): void => {
-    const sach = veSinh(noiDung, meta.dinhDang === 'html' ? 200_000 : undefined);
+    const noiDungAnToan = loai === 'ket_qua' ? catSuyLuanNoiBo(noiDung) : noiDung;
+    const metaAnToan =
+      loai === 'ket_qua' && typeof meta.noiDungGoc === 'string'
+        ? { ...meta, noiDungGoc: catSuyLuanNoiBo(meta.noiDungGoc) }
+        : meta;
+    const sach = veSinh(noiDungAnToan, metaAnToan.dinhDang === 'html' ? 200_000 : undefined);
     if (sach.text.trim() === '') return;
     if (coVet(sach.vet)) {
       set({ vetVeSinh: [...get().vetVeSinh, moTaVet(sach.vet)].slice(-20) });
     }
     const s = get().state;
     const scene = [...get().scene];
-    scene.push({ id: `d${scene.length}`, tick: s?.world.tick ?? 0, loai, noiDung: sach.text, ...meta });
+    scene.push({
+      id: `d${scene.length}`,
+      tick: s?.world.tick ?? 0,
+      loai,
+      noiDung: sach.text,
+      ...metaAnToan,
+    });
     set({ scene: scene.slice(-200) });
   };
 
@@ -1439,6 +1451,13 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       if (lb) get().batLorebook(lb.id, true);
     }
 
+    // Preset được chọn ở Sảnh phải tác động ngay lời kể đầu tiên của ván mới.
+    // Chỉ activation được tạo theo nhánh; thư viện và lựa chọn vẫn thuộc máy.
+    await usePreset.getState().napTuDia(state.world.branchId);
+    for (const packId of usePreset.getState().chonChoVanMoi) {
+      await usePreset.getState().bat(packId, state.world.id, state.world.tick);
+    }
+
     await keLuot(
       motCau.trim(),
       motCau.trim() === ''
@@ -1840,9 +1859,19 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       try {
         const ui = await docUiState(db, state.world.id, state.world.branchId);
         if (ui?.scene && Array.isArray(ui.scene)) {
-          sceneCu = (ui.scene as DongScene[]).filter(
-            (d) => d && typeof d.noiDung === 'string' && typeof d.loai === 'string',
-          );
+          sceneCu = (ui.scene as DongScene[])
+            .filter((d) => d && typeof d.noiDung === 'string' && typeof d.loai === 'string')
+            .map((d) =>
+              d.loai === 'ket_qua'
+                ? {
+                    ...d,
+                    noiDung: catSuyLuanNoiBo(d.noiDung),
+                    noiDungGoc:
+                      typeof d.noiDungGoc === 'string' ? catSuyLuanNoiBo(d.noiDungGoc) : d.noiDungGoc,
+                  }
+                : d,
+            )
+            .filter((d) => d.noiDung.trim() !== '');
         }
       } catch {
         // Không đọc được scene cũ thì bắt đầu trắng — phiền, không chết.

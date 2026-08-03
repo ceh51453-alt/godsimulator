@@ -14,8 +14,8 @@
  *    riêng, và nó chạy lint trước khi ghi bất cứ thứ gì.
  * 2. [BB] 66.6 — biến pack sống trong namespace của pack, theo NHÁNH, và không
  *    có hàm nào ở đây ghi chúng vào `WorldState`.
- * 3. [BB] 64.2 — script bị cách ly không có nút bật. Chúng chỉ hiện ra kèm
- *    đường port native tương ứng, để người dùng biết app đã làm thay việc gì.
+ * 3. Script và regex được quản lý cùng pack. JavaScript nguồn vẫn được giữ để
+ *    round-trip; runtime dùng adapter native tương ứng thay vì chạy mã tùy ý.
  */
 import { create } from 'zustand';
 import { TUNING_MAC_DINH } from '../core/tuning/schema.js';
@@ -25,7 +25,7 @@ import { viewGia, sceneGia } from '../core/preset/giaLap.js';
 import { R } from '../core/registry/index.js';
 import type { ModelProfile, NormalizedGenParams } from '../core/schema/ai.js';
 import { useAi } from './ai.js';
-import { wizardMoi, napKetQua, diToi, datChon, giaiMotXungDot, baoCaoNhap } from '../core/preset/wizard.js';
+import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
 import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
@@ -42,6 +42,7 @@ import type { CaptureRule, CapturedData, PromptMessageLike } from '../core/prese
 import type { ImportIssue } from '../core/contracts/primitives.js';
 import { docChiThiScene } from '../core/preset/scriptAdapter.js';
 import { giaiMacro } from '../core/preset/macro.js';
+import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import {
   ghiPack,
@@ -64,15 +65,6 @@ export type TrangThaiPreset = {
   /** Biến của từng pack trên nhánh hiện tại. */
   bien: Readonly<Record<string, Record<string, unknown>>>;
   wizard: TrangThaiWizard;
-  /**
-   * Lựa chọn xung đột theo PACK, không theo phiên wizard.
-   *
-   * [BB] 65.2 — pack chưa giải xung đột thì không kích hoạt. Nếu lựa chọn chỉ
-   * sống trong wizard thì mở lại app là mất, và một pack đã nằm trong thư viện
-   * sẽ vĩnh viễn không bật được vì không còn màn nào để giải. Đây là lỗi thật đã
-   * gặp khi nhập fixture A: hai module cùng khai `history.wrapper`.
-   */
-  xungDot: Readonly<Record<string, Record<string, unknown>>>;
   /** Báo cáo sau nhập (66.2) của lần nhập gần nhất. */
   baoCao: BaoCaoNhap | null;
   /** Lỗi lint của lần bấm "Bật" gần nhất — hiện tại chỗ, không nuốt. */
@@ -81,6 +73,8 @@ export type TrangThaiPreset = {
   capturedData: CapturedData;
   /** Regex nguồn đã vượt trần trong phiên; không chạy lại cho tới khi nạp lại. */
   regexDaTat: readonly string[];
+  /** Preset sẽ tự bật trước lời kể đầu tiên của một ván mới. */
+  chonChoVanMoi: readonly string[];
   branchId: string;
   daNap: boolean;
 
@@ -91,8 +85,6 @@ export type TrangThaiPreset = {
   doThu(ten: string, noiDung: string, tick: number): void;
   diManWizard(man: ManWizard): void;
   chonModule(ids: readonly string[]): void;
-  /** Giải một nhóm xung đột cho một pack cụ thể — sống lâu hơn phiên wizard. */
-  giaiXungDot(packId: string, khoa: string, chon: unknown): void;
   /** Ghi kết quả wizard vào thư viện. Vẫn CHƯA bật. */
   nhapVaoThuVien(): Promise<void>;
   dongWizard(): void;
@@ -102,6 +94,15 @@ export type TrangThaiPreset = {
   /** Hoàn tác về activation trước — 65.4, chỉ đổi con trỏ. */
   luiMotBuoc(packId: string): Promise<void>;
   xoaKhoiThuVien(packId: string): Promise<void>;
+  datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
+  /** Bật/tắt module, regex hoặc adapter script trong cấu hình của đúng pack/nhánh. */
+  datTinhNang(
+    packId: string,
+    loai: 'module' | 'regex' | 'script',
+    id: string,
+    bat: boolean,
+    tick: number,
+  ): Promise<void>;
 
   /** Pack đang bật, dạng `bienSoanLuot()` nhận. */
   packChoLuot(): readonly PackDangBat[];
@@ -188,6 +189,49 @@ function rowsDangBat(
     });
 }
 
+const KHOA_TINH_NANG = Object.freeze({
+  module: '__module_enabled',
+  regex: '__transform_enabled',
+  script: '__adapter_enabled',
+} as const);
+
+const KHOA_PRESET_VAN_MOI = 'preset.new-game.v1';
+
+function chuanHoaChonChoVanMoi(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))];
+}
+
+async function docChonChoVanMoi(): Promise<string[]> {
+  if (!coIndexedDb()) return [];
+  const row = await layDb().settings.get(KHOA_PRESET_VAN_MOI);
+  return chuanHoaChonChoVanMoi(row?.value);
+}
+
+async function ghiChonChoVanMoi(packIds: readonly string[]): Promise<void> {
+  if (!coIndexedDb()) return;
+  await layDb().settings.put({ key: KHOA_PRESET_VAN_MOI, value: [...packIds] });
+}
+
+/** Trạng thái cấu hình theo nhánh; vắng override thì giữ đúng cờ của file nguồn. */
+export function tinhNangPresetDangBat(
+  bienPack: Readonly<Record<string, unknown>> | undefined,
+  loai: keyof typeof KHOA_TINH_NANG,
+  id: string,
+  macDinh: boolean,
+): boolean {
+  const goc = bienPack?.[KHOA_TINH_NANG[loai]];
+  if (goc === null || typeof goc !== 'object' || Array.isArray(goc)) return macDinh;
+  const v = (goc as Readonly<Record<string, unknown>>)[id];
+  return typeof v === 'boolean' ? v : macDinh;
+}
+
+function adapterDangBat(row: PresetPackRow, bienPack: Readonly<Record<string, unknown>> | undefined) {
+  return (row.scriptAdapters ?? []).filter((a) =>
+    tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon),
+  );
+}
+
 const TRUONG_GEN = [
   'temperature',
   'topP',
@@ -243,12 +287,12 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   dangBat: {},
   thuTuBat: [],
   bien: {},
-  xungDot: {},
   wizard: wizardMoi(),
   baoCao: null,
   loiBat: [],
   capturedData: {},
   regexDaTat: [],
+  chonChoVanMoi: [],
   branchId: '',
   daNap: false,
 
@@ -259,18 +303,31 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
     try {
       const db = layDb();
-      const thuVien = await docThuVien(db);
+      const [thuVien, chonChoVanMoi] = await Promise.all([docThuVien(db), docChonChoVanMoi()]);
       const acts = await docKichHoatDangChay(db, branchId);
       const dangBat: Record<string, PresetActivation> = {};
       const bien: Record<string, Record<string, unknown>> = {};
+      for (const row of thuVien) {
+        if (bien[row.packId] !== undefined) continue;
+        bien[row.packId] = await docBienPack(db, row.packId, branchId);
+      }
       for (const a of acts) {
         dangBat[a.packId] = a;
-        bien[a.packId] = await docBienPack(db, a.packId, branchId);
       }
       const thuTuBat = [...acts]
         .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
         .map((a) => a.packId);
-      set({ thuVien, dangBat, thuTuBat, bien, branchId, daNap: true, regexDaTat: [] });
+      const packCoSan = new Set(thuVien.map((row) => row.packId));
+      set({
+        thuVien,
+        dangBat,
+        thuTuBat,
+        bien,
+        chonChoVanMoi: chonChoVanMoi.filter((id) => packCoSan.has(id)),
+        branchId,
+        daNap: true,
+        regexDaTat: [],
+      });
       if (acts.length > 0) apThongSoPack(thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
     } catch {
       // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
@@ -319,13 +376,6 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   chonModule(ids) {
     set({ wizard: datChon(get().wizard, ids) });
-  },
-
-  giaiXungDot(packId, khoa, chon) {
-    set({
-      wizard: giaiMotXungDot(get().wizard, khoa, chon),
-      xungDot: { ...get().xungDot, [packId]: { ...(get().xungDot[packId] ?? {}), [khoa]: chon } },
-    });
   },
 
   async nhapVaoThuVien() {
@@ -379,8 +429,9 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         ? w.chonModuleIds
         : row.pack.modules.filter((m) => m.enabled && !BI_LOAI.has(m.activation)).map((m) => m.id);
 
-    // Lựa chọn xung đột lấy theo PACK, nên nó còn nguyên sau khi đóng wizard.
-    const giai = get().xungDot[packId] ?? {};
+    // Nhóm cùng tác động được tự hợp nhất theo `prompt_order` của tác giả. Không
+    // bắt người chơi chọn một module rồi vô tình làm mất phần còn lại của preset.
+    const giai: Readonly<Record<string, unknown>> = {};
     const lint = lintTruocKhiBat(row, { selectedModuleIds: chon, conflictResolutions: giai });
     if (!lint.dat) {
       set({ loiBat: lint.issues });
@@ -501,8 +552,48 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     delete b[packId];
     const thuVien = get().thuVien.filter((r) => r.packId !== packId);
     const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
-    set({ thuVien, dangBat: con, thuTuBat, bien: b });
+    const chonChoVanMoi = get().chonChoVanMoi.filter((id) => id !== packId);
+    set({ thuVien, dangBat: con, thuTuBat, bien: b, chonChoVanMoi });
+    try {
+      await ghiChonChoVanMoi(chonChoVanMoi);
+    } catch {
+      /* lựa chọn trong bộ nhớ vẫn phản ánh đúng thư viện hiện tại */
+    }
     apThongSoPack(thuVien, con, thuTuBat, nen);
+  },
+
+  async datChonChoVanMoi(packId, chon) {
+    if (!get().thuVien.some((row) => row.packId === packId)) return;
+    const chonChoVanMoi = chon
+      ? [...new Set([...get().chonChoVanMoi, packId])]
+      : get().chonChoVanMoi.filter((id) => id !== packId);
+    set({ chonChoVanMoi, loiBat: [] });
+    try {
+      await ghiChonChoVanMoi(chonChoVanMoi);
+    } catch {
+      // Mất đĩa không làm nút bị bật/tắt ngược trong phiên hiện tại.
+    }
+  },
+
+  async datTinhNang(packId, loai, id, bat, tick) {
+    const khoa = KHOA_TINH_NANG[loai];
+    const bienPack = { ...(get().bien[packId] ?? {}) };
+    const cu = bienPack[khoa];
+    const bang =
+      cu !== null && typeof cu === 'object' && !Array.isArray(cu)
+        ? { ...(cu as Record<string, unknown>) }
+        : {};
+    bang[id] = bat;
+    bienPack[khoa] = bang;
+    const bien = { ...get().bien, [packId]: bienPack };
+    set({ bien });
+
+    if (!coIndexedDb() || get().branchId === '') return;
+    try {
+      await ghiBienPack(layDb(), packId, get().branchId, bienPack, tick);
+    } catch {
+      // Cấu hình trong phiên vẫn có hiệu lực; lỗi đĩa không chặn quản lý preset.
+    }
   },
 
   packChoLuot() {
@@ -534,8 +625,10 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     const ra: TransformDef[] = [];
     for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
       for (const t of row.transformDefs) {
-        // [BB] 64.1 — chỉ transform đã được đưa về `sandboxed` mới chạy được.
-        if (t.activation === 'sandboxed') ra.push(t);
+        const bat = tinhNangPresetDangBat(get().bien[row.packId], 'regex', t.id, t.batONguon);
+        // Regex tắt ở file nguồn vẫn bật lại được nếu cú pháp hợp lệ. Regex cần
+        // engine khác tiếp tục được giữ nguyên nhưng không chạy đoán mò.
+        if (bat && (t.activation === 'sandboxed' || t.activation === 'disabled')) ra.push(t);
       }
     }
     return ra;
@@ -601,7 +694,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   lichSuChoPrompt(canh) {
     const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
-      (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'prompt_merge'),
+      adapterDangBat(row, get().bien[row.packId]).filter((a) => a.kind === 'prompt_merge'),
     );
     const cfg = adapters.at(-1)?.config ?? {};
     const h = cfg['chat_history'];
@@ -643,11 +736,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   xuLyOutput(vanBan) {
     const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
-      (row.scriptAdapters ?? []).filter((a) => a.batONguon),
+      adapterDangBat(row, get().bien[row.packId]),
     );
     let out = vanBan;
     if (adapters.some((a) => a.kind === 'cot_cleanup')) {
-      out = out.replace(/<(thinking|think|reasoning)>[\s\S]*?<\/\1>/gi, '').trim();
+      out = catSuyLuanNoiBo(out);
     }
     for (const a of adapters.filter((x) => x.kind === 'prompt_merge')) {
       const stop = a.config['stop_string'];
@@ -750,7 +843,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     const bienMoi: Record<string, Record<string, unknown>> = { ...get().bien };
     let daDoi = false;
     for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
-      const adapters = (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'scene_switch');
+      const adapters = adapterDangBat(row, get().bien[row.packId]).filter((a) => a.kind === 'scene_switch');
       if (adapters.length === 0) continue;
       const override: Record<string, unknown> = {
         ...((bienMoi[row.packId]?.['__module_enabled'] as Record<string, unknown> | undefined) ?? {}),
