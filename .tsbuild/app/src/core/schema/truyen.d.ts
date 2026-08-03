@@ -105,11 +105,11 @@ export declare const ForeshadowSchema: z.ZodObject<{
     machId: z.ZodPrefault<z.ZodNullable<z.ZodString>>;
     noiDung: z.ZodString;
     loai: z.ZodEnum<{
+        bi_mat: "bi_mat";
         vat: "vat";
         loi_noi: "loi_noi";
         nhan_vat: "nhan_vat";
         dieu_bao: "dieu_bao";
-        bi_mat: "bi_mat";
         mon_no: "mon_no";
     }>;
     tickGieo: z.ZodNumber;

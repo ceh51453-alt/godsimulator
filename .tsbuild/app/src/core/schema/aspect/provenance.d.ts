@@ -30,10 +30,10 @@ export declare const NHAN_NGUON_SINH: Readonly<Record<NguonSinh, string>>;
 export declare const NHOM_NGUON: Readonly<Record<string, readonly NguonSinh[]>>;
 export declare const ProvenanceSchema: z.ZodPrefault<z.ZodObject<{
     nguon: z.ZodEnum<{
-        nguoi_choi: "nguoi_choi";
         than: "than";
         pham_nhan: "pham_nhan";
         workflow: "workflow";
+        nguoi_choi: "nguoi_choi";
         lorebook: "lorebook";
         ket_tinh: "ket_tinh";
         the_gioi_tu_sinh: "the_gioi_tu_sinh";

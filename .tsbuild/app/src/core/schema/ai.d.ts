@@ -37,8 +37,8 @@ export declare const ModelProfileSchema: z.ZodObject<{
     tyLeToken: z.ZodPrefault<z.ZodNumber>;
     nguon: z.ZodPrefault<z.ZodEnum<{
         nguoi_dung: "nguoi_dung";
-        dung_san: "dung_san";
         tu_do: "tu_do";
+        dung_san: "dung_san";
     }>>;
 }, z.core.$strict>;
 export declare const GenParamsSchema: z.ZodPrefault<z.ZodObject<{

@@ -47,8 +47,8 @@ export declare const WorkflowScheduleSchema: z.ZodObject<{
             }>>;
         }, z.core.$strip>>;
         khiParseLoi: z.ZodPrefault<z.ZodEnum<{
-            dung: "dung";
             bo_qua: "bo_qua";
+            dung: "dung";
             chay_luon: "chay_luon";
         }>>;
     }, z.core.$strip>>;
@@ -164,8 +164,8 @@ export declare const WorkflowTaskSchema: z.ZodObject<{
                 }>>;
             }, z.core.$strip>>;
             khiParseLoi: z.ZodPrefault<z.ZodEnum<{
-                dung: "dung";
                 bo_qua: "bo_qua";
+                dung: "dung";
                 chay_luon: "chay_luon";
             }>>;
         }, z.core.$strip>>;
@@ -298,8 +298,8 @@ export declare const WorkflowPresetSchema: z.ZodObject<{
                     }>>;
                 }, z.core.$strip>>;
                 khiParseLoi: z.ZodPrefault<z.ZodEnum<{
-                    dung: "dung";
                     bo_qua: "bo_qua";
+                    dung: "dung";
                     chay_luon: "chay_luon";
                 }>>;
             }, z.core.$strip>>;

@@ -47,10 +47,10 @@ export declare const ImportEnvelopeSchema: z.ZodObject<{
     rawSourceRef: z.ZodString;
     detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
         workflow: "workflow";
-        registry: "registry";
         lorebook: "lorebook";
         generation: "generation";
         prompt: "prompt";
+        registry: "registry";
         extension: "extension";
     }>>>;
     warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -96,8 +96,8 @@ export declare const PromptModuleSchema: z.ZodObject<{
     }>;
     kind: z.ZodEnum<{
         unknown: "unknown";
-        memory: "memory";
         world: "world";
+        memory: "memory";
         slot: "slot";
         instruction: "instruction";
         style: "style";
@@ -209,10 +209,10 @@ export declare const NormalizedPresetPackSchema: z.ZodObject<{
         rawSourceRef: z.ZodString;
         detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
             workflow: "workflow";
-            registry: "registry";
             lorebook: "lorebook";
             generation: "generation";
             prompt: "prompt";
+            registry: "registry";
             extension: "extension";
         }>>>;
         warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -241,8 +241,8 @@ export declare const NormalizedPresetPackSchema: z.ZodObject<{
         }>;
         kind: z.ZodEnum<{
             unknown: "unknown";
-            memory: "memory";
             world: "world";
+            memory: "memory";
             slot: "slot";
             instruction: "instruction";
             style: "style";
@@ -570,10 +570,10 @@ export declare const PresetPackRowSchema: z.ZodObject<{
             rawSourceRef: z.ZodString;
             detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
                 workflow: "workflow";
-                registry: "registry";
                 lorebook: "lorebook";
                 generation: "generation";
                 prompt: "prompt";
+                registry: "registry";
                 extension: "extension";
             }>>>;
             warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -602,8 +602,8 @@ export declare const PresetPackRowSchema: z.ZodObject<{
             }>;
             kind: z.ZodEnum<{
                 unknown: "unknown";
-                memory: "memory";
                 world: "world";
+                memory: "memory";
                 slot: "slot";
                 instruction: "instruction";
                 style: "style";

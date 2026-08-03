@@ -62,9 +62,9 @@ export declare const EventSchema: z.ZodObject<{
     }, z.core.$strict>>>;
     visibility: z.ZodPrefault<z.ZodEnum<{
         engine: "engine";
-        bi_mat: "bi_mat";
         cong_khai: "cong_khai";
         gioi_han: "gioi_han";
+        bi_mat: "bi_mat";
     }>>;
     source: z.ZodEnum<{
         engine: "engine";

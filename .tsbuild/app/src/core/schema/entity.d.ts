@@ -31,10 +31,10 @@ export declare const LinkSchema: z.ZodObject<{
     tickTao: z.ZodNumber;
     tickDut: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
     nguon: z.ZodPrefault<z.ZodEnum<{
+        giai_lo_hong: "giai_lo_hong";
         nguoi_choi: "nguoi_choi";
         engine: "engine";
         thu_hoach: "thu_hoach";
-        giai_lo_hong: "giai_lo_hong";
         thanh_tra: "thanh_tra";
     }>>;
 }, z.core.$strict>;

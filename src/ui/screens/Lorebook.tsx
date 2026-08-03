@@ -18,8 +18,9 @@
  * kỳ vọng lệch: vì một entry bị che, vì một sách bị tắt, hoặc vì thế giới đã đi
  * lối khác. Ba khối ngược lại thì mất mạch ấy.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '../../store/game.js';
+import { useThuVienLorebook } from '../../store/lorebook.js';
 import { bangDoiSoat, doiSoatEntry } from '../../core/lore/doiSoat.js';
 import type { EntryCoNguon } from '../../core/lore/doiSoat.js';
 import { banDoDiBiet } from '../../core/lore/kyVong.js';
@@ -55,13 +56,194 @@ function Khoi({ ten, phu, children }: { ten: string; phu?: string; children: Rea
 
 export function Lorebook(): JSX.Element {
   const state = useGame((s) => s.state);
+  const stateHash = useGame((s) => s.stateHash);
   const nhap = useGame((s) => s.nhapLorebookTuChuoi);
   const bat = useGame((s) => s.batLorebook);
+  const xoa = useGame((s) => s.xoaLorebook);
+  const thuVien = useThuVienLorebook((s) => s.muc);
+  const daNapThuVien = useThuVienLorebook((s) => s.daNap);
+  const dangXuLyThuVien = useThuVienLorebook((s) => s.dangXuLy);
+  const loiThuVien = useThuVienLorebook((s) => s.loi);
+  const napThuVien = useThuVienLorebook((s) => s.napTuDia);
+  const themThuVien = useThuVienLorebook((s) => s.themTuChuoi);
+  const chonChoVanMoi = useThuVienLorebook((s) => s.datChonChoVanMoi);
+  const xoaKhoiThuVien = useThuVienLorebook((s) => s.xoaKhoiThuVien);
   const oFile = useRef<HTMLInputElement>(null);
   const [tin, setTin] = useState('');
   const [dangThemDungSan, setDangThemDungSan] = useState(false);
 
-  const sach = useMemo(() => (state === null ? [] : [...state.lorebooks.values()]), [state]);
+  /*
+   * `WorldState` chứa Map và Event engine sửa Map tại chỗ. Theo dõi thêm hash
+   * nội dung để danh sách không giữ mảng cũ trong một render đã được batch — lỗi
+   * ấy khiến sách chỉ hiện sau khi chuyển tab rồi quay lại.
+   */
+  const sach = useMemo(() => (state === null ? [] : [...state.lorebooks.values()]), [state, stateHash]);
+
+  useEffect(() => {
+    if (!daNapThuVien) void napThuVien();
+  }, [daNapThuVien, napThuVien]);
+
+  const themMucVaoVan = async (noiDung: string, ten: string): Promise<boolean> => {
+    if (state === null) return false;
+    if (sach.some((lb) => lb.ten.trim().toLocaleLowerCase('vi') === ten.trim().toLocaleLowerCase('vi'))) {
+      setTin(`“${ten}” đã có trong ván này.`);
+      return true;
+    }
+    const ok = await nhap(noiDung, ten);
+    setTin(
+      ok
+        ? `Đã thêm “${ten}” vào ván này. Sách đang tắt để bạn tự quyết định lúc bắt đầu ảnh hưởng.`
+        : `Không thêm được “${ten}” vào ván.`,
+    );
+    return ok;
+  };
+
+  const themDungSan = async (): Promise<void> => {
+    setDangThemDungSan(true);
+    try {
+      const url = `${import.meta.env.BASE_URL}lorebooks/than-thoai-an-do.json`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const noiDung = await response.text();
+      const okThuVien = await themThuVien(noiDung, 'Thần thoại Ấn Độ', {
+        dungSan: true,
+        chonChoVanMoi: state === null,
+      });
+      if (!okThuVien) return;
+      if (state !== null) {
+        await themMucVaoVan(noiDung, 'Thần thoại Ấn Độ');
+      } else {
+        setTin('Đã thêm và chọn “Thần thoại Ấn Độ” cho ván mới. Bạn có thể bỏ tick nếu chưa muốn dùng.');
+      }
+    } catch (error) {
+      setTin(`Không đọc được Lorebook dựng sẵn: ${error instanceof Error ? error.message : String(error)}.`);
+    } finally {
+      setDangThemDungSan(false);
+    }
+  };
+
+  const nhapFile = async (file: File): Promise<void> => {
+    const noiDung = await file.text();
+    const ten = file.name.replace(/\.json$/i, '');
+    const okThuVien = await themThuVien(noiDung, ten, { chonChoVanMoi: state === null });
+    if (!okThuVien) return;
+    if (state !== null) {
+      await themMucVaoVan(noiDung, ten);
+    } else {
+      setTin(`Đã nhập và chọn “${ten}” cho ván mới.`);
+    }
+  };
+
+  const khoiThuVien = (
+    <Khoi
+      ten="Lorebook cho ván mới"
+      phu={`${thuVien.filter((x) => x.chonChoVanMoi).length}/${thuVien.length} sách sẽ tự nạp và bật khi tạo ván`}
+    >
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          style={nut(false, dangThemDungSan || dangXuLyThuVien)}
+          disabled={dangThemDungSan || dangXuLyThuVien}
+          onClick={() => void themDungSan()}
+        >
+          {dangThemDungSan ? 'Đang thêm…' : 'Thêm Thần thoại Ấn Độ'}
+        </button>
+        <button
+          type="button"
+          style={nut(true, dangXuLyThuVien)}
+          disabled={dangXuLyThuVien}
+          onClick={() => oFile.current?.click()}
+        >
+          Nhập lorebook (.json)
+        </button>
+        <input
+          ref={oFile}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void nhapFile(f);
+          }}
+        />
+        <span style={{ ...nhanNho, textTransform: 'none' }}>
+          Hỗ trợ SillyTavern V2, V3 và định dạng Thiên Diễn.
+        </span>
+      </div>
+      {(tin !== '' || loiThuVien !== '') && (
+        <p
+          role={loiThuVien !== '' ? 'alert' : 'status'}
+          style={{ color: loiThuVien !== '' ? 'var(--hoi)' : 'var(--tro)', fontSize: 13, margin: 0 }}
+        >
+          {loiThuVien || tin}
+        </p>
+      )}
+      {!daNapThuVien ? (
+        <p style={{ color: 'var(--mo)', fontSize: 13, margin: 0 }}>Đang đọc thư viện Lorebook…</p>
+      ) : thuVien.length === 0 ? (
+        <p style={{ color: 'var(--mo)', fontSize: 13, margin: 0 }}>
+          Chưa có sách trong thư viện. Nhập một file hoặc thêm sách dựng sẵn, rồi tick sách muốn dùng cho ván
+          mới.
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
+          {thuVien.map((muc) => {
+            const daCoTrongVan = sach.some(
+              (lb) => lb.ten.trim().toLocaleLowerCase('vi') === muc.ten.trim().toLocaleLowerCase('vi'),
+            );
+            return (
+              <li key={muc.id} style={{ ...the, display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong style={{ fontFamily: 'var(--chu-hien)', fontSize: 17 }}>{muc.ten}</strong>
+                  <span style={nhanNho}>{muc.soEntry} entry</span>
+                  <span style={{ flex: 1 }} />
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={muc.chonChoVanMoi}
+                      onChange={(e) => void chonChoVanMoi(muc.id, e.currentTarget.checked)}
+                    />
+                    dùng cho ván mới
+                  </label>
+                </div>
+                {muc.moTa.trim() !== '' && (
+                  <p style={{ margin: 0, color: 'var(--tro)', fontSize: 13 }}>{muc.moTa}</p>
+                )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {state !== null && (
+                    <button
+                      type="button"
+                      style={nut(false, daCoTrongVan)}
+                      disabled={daCoTrongVan}
+                      onClick={() => void themMucVaoVan(muc.noiDung, muc.ten)}
+                    >
+                      {daCoTrongVan ? 'Đã có trong ván' : 'Thêm vào ván này'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    style={{ ...nut(false), color: 'var(--hoi)' }}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Xóa “${muc.ten}” khỏi thư viện? Sách đã nằm trong các ván cũ vẫn được giữ.`,
+                        )
+                      ) {
+                        void xoaKhoiThuVien(muc.id);
+                      }
+                    }}
+                  >
+                    Xóa khỏi thư viện
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Khoi>
+  );
 
   /**
    * Đối soát chạy trên entry của sách ĐANG BẬT.
@@ -103,12 +285,13 @@ export function Lorebook(): JSX.Element {
 
   if (state === null) {
     return (
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 22px 80px' }}>
+      <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 22px 80px', display: 'grid', gap: 28 }}>
         <h1 style={{ fontFamily: 'var(--chu-hien)', fontSize: 30, margin: 0 }}>Lorebook</h1>
-        <p style={{ color: 'var(--tro)' }}>
-          Lorebook thuộc về một thế giới cụ thể — nó fork theo nhánh như mọi thứ khác có trạng thái. Hãy mở
-          một ván trước, rồi quay lại đây.
+        <p style={{ color: 'var(--tro)', margin: 0 }}>
+          Chuẩn bị sách trước khi tạo thế giới. Sách được tick sẽ tự nạp và bật ngay từ lời kể đầu tiên; bỏ
+          tick không xóa sách và không ảnh hưởng các ván đã có.
         </p>
+        {khoiThuVien}
       </main>
     );
   }
@@ -127,68 +310,12 @@ export function Lorebook(): JSX.Element {
         </p>
       </header>
 
+      {khoiThuVien}
+
       <Khoi
-        ten="Sách"
+        ten="Sách trong ván này"
         phu={`${sach.length} sách trên nhánh này · ${sach.filter((s) => s.bat).length} đang bật`}
       >
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            style={nut(false)}
-            disabled={dangThemDungSan}
-            onClick={() => {
-              if (sach.some((lb) => lb.ten.trim().toLowerCase() === 'thần thoại ấn độ')) {
-                setTin('“Thần thoại Ấn Độ” đã có trong ván này. Bạn chỉ cần bật công tắc của sách.');
-                return;
-              }
-              void (async () => {
-                setDangThemDungSan(true);
-                try {
-                  const url = `${import.meta.env.BASE_URL}lorebooks/than-thoai-an-do.json`;
-                  const response = await fetch(url);
-                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                  const ok = await nhap(await response.text(), 'Thần thoại Ấn Độ');
-                  setTin(
-                    ok
-                      ? 'Đã thêm “Thần thoại Ấn Độ”. Sách đang tắt; bật khi bạn muốn thế giới bắt đầu chịu lực hút.'
-                      : 'Không thêm được “Thần thoại Ấn Độ” — xem lỗi ở Tự Chẩn Đoán.',
-                  );
-                } catch (error) {
-                  setTin(
-                    `Không đọc được Lorebook dựng sẵn: ${error instanceof Error ? error.message : String(error)}.`,
-                  );
-                } finally {
-                  setDangThemDungSan(false);
-                }
-              })();
-            }}
-          >
-            {dangThemDungSan ? 'Đang thêm…' : 'Thêm Thần thoại Ấn Độ'}
-          </button>
-          <button type="button" style={nut(true)} onClick={() => oFile.current?.click()}>
-            Nhập lorebook (.json)
-          </button>
-          <input
-            ref={oFile}
-            type="file"
-            accept="application/json,.json"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
-              if (!f) return;
-              void (async () => {
-                const ok = await nhap(await f.text(), f.name.replace(/\.json$/i, ''));
-                setTin(ok ? `Đã nhập "${f.name}".` : `Không nhập được "${f.name}" — xem lỗi ở Tự Chẩn Đoán.`);
-              })();
-            }}
-          />
-          <span style={{ ...nhanNho, textTransform: 'none' }}>
-            Hỗ trợ SillyTavern V2, V3 và định dạng Thiên Diễn.
-          </span>
-        </div>
-        {tin !== '' && <p style={{ color: 'var(--tro)', fontSize: 13, margin: 0 }}>{tin}</p>}
-
         {sach.length === 0 ? (
           <p style={{ color: 'var(--mo)', fontSize: 13, margin: 0 }}>
             Chưa có sách nào. Thế giới vẫn chạy được — lorebook là lực hấp dẫn, không phải kịch bản.
@@ -209,10 +336,25 @@ export function Lorebook(): JSX.Element {
                       <input
                         type="checkbox"
                         checked={lb.bat}
-                        onChange={(e) => bat(lb.id, e.target.checked)}
+                        onChange={(e) => bat(lb.id, e.currentTarget.checked)}
                       />
                       {lb.bat ? 'đang bật' : 'đang tắt'}
                     </label>
+                    <button
+                      type="button"
+                      style={{ ...nut(false), color: 'var(--hoi)', padding: '5px 10px' }}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Xóa “${lb.ten}” khỏi ván này? Các nhân vật và địa danh đã xuất hiện sẽ vẫn là lịch sử.`,
+                          )
+                        ) {
+                          void xoa(lb.id);
+                        }
+                      }}
+                    >
+                      Xóa
+                    </button>
                   </div>
                   {lb.moTa.trim() !== '' && (
                     <p style={{ margin: 0, color: 'var(--tro)', fontSize: 13 }}>{lb.moTa}</p>

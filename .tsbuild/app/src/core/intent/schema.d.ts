@@ -30,18 +30,18 @@ export declare const IntentSchema: z.ZodObject<{
     method: z.ZodPrefault<z.ZodString>;
     constraints: z.ZodPrefault<z.ZodArray<z.ZodString>>;
     horizon: z.ZodPrefault<z.ZodEnum<{
+        year: "year";
+        day: "day";
         immediate: "immediate";
         scene: "scene";
-        day: "day";
         season: "season";
-        year: "year";
         era: "era";
     }>>;
     stance: z.ZodPrefault<z.ZodObject<{
         secrecy: z.ZodPrefault<z.ZodEnum<{
             open: "open";
-            discreet: "discreet";
             secret: "secret";
+            discreet: "discreet";
         }>>;
         risk: z.ZodPrefault<z.ZodEnum<{
             avoid: "avoid";
@@ -202,10 +202,10 @@ export declare const ProjectSchema: z.ZodObject<{
     requirements: z.ZodPrefault<z.ZodArray<z.ZodObject<{
         kind: z.ZodEnum<{
             unknown: "unknown";
+            knowledge: "knowledge";
             ritual: "ritual";
             material: "material";
             labor: "labor";
-            knowledge: "knowledge";
             permission: "permission";
             relationship: "relationship";
             law: "law";

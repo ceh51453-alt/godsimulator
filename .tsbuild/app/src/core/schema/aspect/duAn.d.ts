@@ -45,10 +45,10 @@ export declare const DuAnSchema: z.ZodPrefault<z.ZodObject<{
         requirements: z.ZodPrefault<z.ZodArray<z.ZodObject<{
             kind: z.ZodEnum<{
                 unknown: "unknown";
+                knowledge: "knowledge";
                 ritual: "ritual";
                 material: "material";
                 labor: "labor";
-                knowledge: "knowledge";
                 permission: "permission";
                 relationship: "relationship";
                 law: "law";

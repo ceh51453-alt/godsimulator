@@ -27,12 +27,12 @@ export type DinhMuc = {
 export declare const NGAN_SACH_MAC_DINH: Readonly<Record<LoaiCall, DinhMuc>>;
 export declare const CalibSchema: z.ZodObject<{
     loai: z.ZodEnum<{
-        giai_lo_hong: "giai_lo_hong";
         ke_canh: "ke_canh";
         tick_t2: "tick_t2";
         sinh_ky_nguyen: "sinh_ky_nguyen";
         nen_ky_nguyen: "nen_ky_nguyen";
         sinh_lorebook: "sinh_lorebook";
+        giai_lo_hong: "giai_lo_hong";
         giai_lo_hong_cuoi_ky: "giai_lo_hong_cuoi_ky";
         hinh_thuc_hoa_luat: "hinh_thuc_hoa_luat";
         thanh_tra_mach_lac: "thanh_tra_mach_lac";

@@ -117,6 +117,8 @@ export type TrangThaiGame = {
     nhapLorebookTuChuoi(noiDung: string, ten: string): Promise<boolean>;
     /** Bật/tắt một lorebook. Đi qua Event như mọi thay đổi state khác. */
     batLorebook(id: string, bat: boolean): void;
+    /** Xóa sách khỏi nhánh hiện tại; lịch sử đã hiện thực hóa vẫn được giữ. */
+    xoaLorebook(id: string): Promise<void>;
     /**
      * Đặt tên một trục Luật Nền — [BB] 43.2, 43.3, 43.5.
      *

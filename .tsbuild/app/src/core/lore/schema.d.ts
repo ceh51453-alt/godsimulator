@@ -91,8 +91,8 @@ export declare const LorebookEntrySchema: z.ZodObject<{
     lichSu: z.ZodPrefault<z.ZodArray<z.ZodObject<{
         tick: z.ZodNumber;
         boiAi: z.ZodEnum<{
-            nguoi_choi: "nguoi_choi";
             workflow: "workflow";
+            nguoi_choi: "nguoi_choi";
             ai: "ai";
             doi_soat: "doi_soat";
         }>;
@@ -171,8 +171,8 @@ export declare const LorebookSchema: z.ZodObject<{
         lichSu: z.ZodPrefault<z.ZodArray<z.ZodObject<{
             tick: z.ZodNumber;
             boiAi: z.ZodEnum<{
-                nguoi_choi: "nguoi_choi";
                 workflow: "workflow";
+                nguoi_choi: "nguoi_choi";
                 ai: "ai";
                 doi_soat: "doi_soat";
             }>;

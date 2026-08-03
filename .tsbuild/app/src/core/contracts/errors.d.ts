@@ -14,11 +14,9 @@ export declare const StructuredErrorSchema: z.ZodObject<{
         ai: "ai";
         migration: "migration";
         visibility: "visibility";
-        intent: "intent";
-        preset: "preset";
         rerank: "rerank";
-        schema: "schema";
         registry: "registry";
+        schema: "schema";
         tuning: "tuning";
         patch: "patch";
         event: "event";
@@ -27,6 +25,8 @@ export declare const StructuredErrorSchema: z.ZodObject<{
         persistence: "persistence";
         privacy: "privacy";
         retrieval: "retrieval";
+        preset: "preset";
+        intent: "intent";
     }>;
     code: z.ZodString;
     severity: z.ZodPrefault<z.ZodEnum<{

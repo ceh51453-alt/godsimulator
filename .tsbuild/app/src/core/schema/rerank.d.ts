@@ -74,12 +74,12 @@ export declare const RerankQuerySchema: z.ZodObject<{
     branchId: z.ZodString;
     scopeKey: z.ZodString;
     task: z.ZodEnum<{
-        answer_prayer: "answer_prayer";
-        world_report: "world_report";
         narrate_scene: "narrate_scene";
-        storyline_beat: "storyline_beat";
         resolve_intent: "resolve_intent";
+        storyline_beat: "storyline_beat";
+        world_report: "world_report";
         lorebook_write: "lorebook_write";
+        answer_prayer: "answer_prayer";
         custom_workflow: "custom_workflow";
     }>;
     focusText: z.ZodString;
@@ -164,12 +164,12 @@ export declare const RetrievalRunSchema: z.ZodObject<{
     scopeKey: z.ZodString;
     queryHash: z.ZodString;
     task: z.ZodEnum<{
-        answer_prayer: "answer_prayer";
-        world_report: "world_report";
         narrate_scene: "narrate_scene";
-        storyline_beat: "storyline_beat";
         resolve_intent: "resolve_intent";
+        storyline_beat: "storyline_beat";
+        world_report: "world_report";
         lorebook_write: "lorebook_write";
+        answer_prayer: "answer_prayer";
         custom_workflow: "custom_workflow";
     }>;
     candidateCount: z.ZodNumber;
@@ -196,12 +196,12 @@ export declare const RetrievalEvalCaseSchema: z.ZodObject<{
     }>;
     chuTheId: z.ZodNullable<z.ZodString>;
     task: z.ZodEnum<{
-        answer_prayer: "answer_prayer";
-        world_report: "world_report";
         narrate_scene: "narrate_scene";
-        storyline_beat: "storyline_beat";
         resolve_intent: "resolve_intent";
+        storyline_beat: "storyline_beat";
+        world_report: "world_report";
         lorebook_write: "lorebook_write";
+        answer_prayer: "answer_prayer";
         custom_workflow: "custom_workflow";
     }>;
     query: z.ZodString;

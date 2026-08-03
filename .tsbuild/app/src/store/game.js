@@ -18,6 +18,7 @@
  * Nói cách khác: AI là bắt buộc, nhưng AI không cầm sổ (71.5).
  */
 import { create } from 'zustand';
+import { useThuVienLorebook } from './lorebook.js';
 import { SceneSchema } from '../core/contracts/core.js';
 import { bienSoanLuot } from '../core/preset/hopNhat.js';
 import { parseChoice } from '../core/ai/choice.js';
@@ -70,7 +71,7 @@ import { CAU_HINH_HEURISTIC } from '../core/schema/rerank.js';
 import { truyHoi, dungBaTruyVan } from '../core/retrieval/truyHoi.js';
 import { KhoRerankCache } from '../db/rerankCache.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
-import { KhoDexie, napState } from '../db/repo.js';
+import { KhoDexie, KhoNhanh, napState } from '../db/repo.js';
 import { danhSachSave, ghiVan, ghiVanNhe, xoaVan, doiTenVan, nhanMacDinh } from '../db/quanLySave.js';
 import { xuatSave, nhapSave } from '../db/save.js';
 import { capNhatUiState, docUiState } from '../db/preset.js';
@@ -221,6 +222,10 @@ export const useGame = create((set, get) => {
             return;
         const view = chieu(s, s.world.playerState.mode, s.world.playerState.chuTheId);
         set({
+            // `apDungEvent()` sửa state tại chỗ. Tạo vỏ mới để selector React nhận ra
+            // thay đổi; nếu giữ nguyên tham chiếu, checkbox Lorebook đã đổi dữ liệu
+            // nhưng màn hình không render lại nên trông như không thể tick.
+            state: { ...s },
             view,
             stateHash: hashState(s),
             goiY: goiYChoCanh(view, s.world.playerState.chuTheId, 5),
@@ -1045,6 +1050,18 @@ export const useGame = create((set, get) => {
             patchBiTuChoi: [],
         });
         dongBo();
+        // Lorebook được chọn ở Sảnh phải có mặt và được bật trước lời kể đầu tiên.
+        // Chúng vẫn được nhập qua đúng Event như thao tác trong ván, không ghi thẳng
+        // vào WorldState và không làm các ván cũ chịu ảnh hưởng.
+        await useThuVienLorebook.getState().napTuDia();
+        for (const muc of useThuVienLorebook.getState().muc.filter((x) => x.chonChoVanMoi)) {
+            const ok = await get().nhapLorebookTuChuoi(muc.noiDung, muc.ten);
+            if (!ok)
+                continue;
+            const lb = [...(get().state?.lorebooks.values() ?? [])].find((x) => x.ten === muc.ten && !x.bat);
+            if (lb)
+                get().batLorebook(lb.id, true);
+        }
         await keLuot(motCau.trim(), motCau.trim() === ''
             ? ['Chưa có gì tồn tại. Không đất, không luật, không tên gọi nào.']
             : [
@@ -1577,7 +1594,15 @@ export const useGame = create((set, get) => {
                 });
                 return false;
             }
-            const id = `lore_${s.world.tick}_${s.lorebooks.size + 1}`;
+            // Không tái dùng id của sách đã xóa: bia mộ copy-on-write của id cũ sẽ
+            // che bản nhập mới sau khi mở lại ván. Event log là append-only nên là
+            // nguồn đáng tin để biết id nào từng tồn tại, kể cả sách không còn trong Map.
+            let soThuTu = s.lorebooks.size + 1;
+            let id = `lore_${s.world.tick}_${soThuTu}`;
+            while (s.lorebooks.has(id) || log.theoId(`ev_nhap_lore_${id}`) !== undefined) {
+                soThuTu++;
+                id = `lore_${s.world.tick}_${soThuTu}`;
+            }
             const kq = nhapLorebook({
                 goc: tho,
                 id,
@@ -1716,6 +1741,85 @@ export const useGame = create((set, get) => {
                 capNhatLoreTrongState(s, log, 'Lorebook vừa được bật và các neo đã được hiện thực hóa.');
             dongBo();
             void get().luuVan();
+        },
+        async xoaLorebook(id) {
+            const s = get().state;
+            const log = get().log;
+            const lb = s?.lorebooks.get(id);
+            if (!s || !log || !lb)
+                return;
+            demLore++;
+            const evId = `ev_lore_xoa_${id}_${s.world.tick}_${demLore}`;
+            const patches = [];
+            const kyVongIds = [];
+            // Kỳ vọng chưa thành không được tiếp tục tác động sau khi xóa sách. Các
+            // entity đã xuất hiện là lịch sử của thế giới nên được giữ nguyên.
+            for (const kv of s.loreExpectations.values()) {
+                if (kv.lorebookId !== id)
+                    continue;
+                kyVongIds.push(kv.id);
+                patches.push({
+                    op: 'unlink',
+                    target: { table: 'loreExpectations', id: kv.id, path: '' },
+                    sourceEventId: evId,
+                });
+            }
+            patches.push({
+                op: 'unlink',
+                target: { table: 'lorebooks', id, path: '' },
+                sourceEventId: evId,
+            });
+            const ev = taoEvent({
+                id: evId,
+                branchId: s.world.branchId,
+                tick: s.world.tick,
+                loai: 'xoa_lorebook',
+                actorIds: [],
+                targetIds: [],
+                causeEventIds: [],
+                locationId: null,
+                patches,
+                visibility: 'engine',
+                source: 'player',
+                payload: { id, ten: lb.ten },
+            });
+            const ok = apDungEvent(s, ev, log);
+            if (!ok.ok) {
+                set({ loi: [...get().loi, ...ok.errors] });
+                return;
+            }
+            dongBo();
+            // `ghiState()` chỉ upsert các dòng còn tồn tại, nên tự nó không thể xóa
+            // bản ghi cũ khỏi IndexedDB. Ghi bia mộ copy-on-write để sách không sống
+            // lại khi mở ván hoặc khi nhánh con từng kế thừa sách từ nhánh cha.
+            if (coIndexedDb()) {
+                try {
+                    // Một lần lưu khởi chạy ngay sau thao tác nhập/bật có thể vẫn đang giữ
+                    // ảnh cũ chứa sách. Đợi nó xong trước khi xóa thật để ảnh cũ không ghi
+                    // sách sống lại sau transaction xóa.
+                    await hangDoiLuu;
+                    const db = layDb();
+                    const kho = new KhoNhanh(db);
+                    await db.transaction('rw', db.lorebooks, db.loreExpectations, db.tombstones, async () => {
+                        for (const kyVongId of kyVongIds) {
+                            await kho.xoa('loreExpectations', s.world.branchId, kyVongId, s.world.tick);
+                        }
+                        await kho.xoa('lorebooks', s.world.branchId, id, s.world.tick);
+                    });
+                }
+                catch (error) {
+                    set({
+                        loi: [
+                            ...get().loi,
+                            loi('persistence', 'XOA_LOREBOOK_KHONG_LUU_DUOC', `Đã xóa trong phiên nhưng chưa ghi được xuống đĩa: ${String(error)}`, {
+                                recoverable: true,
+                            }),
+                        ],
+                    });
+                    return;
+                }
+            }
+            await get().luuVan();
         },
         // ── vật lý thế giới ──
         datTenTrucNen(truc, khaiNiemNenId) {

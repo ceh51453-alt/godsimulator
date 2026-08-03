@@ -48,9 +48,9 @@ export declare const PlayerProfileSchema: z.ZodObject<{
             toan_canh: "toan_canh";
         }>>;
         proseDensity: z.ZodPrefault<z.ZodEnum<{
-            day: "day";
             gon: "gon";
             vua: "vua";
+            day: "day";
         }>>;
         dialogueAmount: z.ZodPrefault<z.ZodEnum<{
             vua: "vua";
@@ -90,8 +90,8 @@ export declare const CreatorIdentitySchema: z.ZodObject<{
     taboos: z.ZodPrefault<z.ZodArray<z.ZodString>>;
     relationToWorld: z.ZodPrefault<z.ZodEnum<{
         unknown: "unknown";
-        witness: "witness";
         creator: "creator";
+        witness: "witness";
         gardener: "gardener";
         judge: "judge";
         wanderer: "wanderer";
