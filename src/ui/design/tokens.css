@@ -293,31 +293,51 @@ body {
 
 /* Mở rộng phần thông số sinh — nhẹ nhàng, không gây xao nhãng. */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Slider range — bỏ giao diện mặc định trình duyệt, dùng thumb nhỏ gọn. */
-input[type='range'] { -webkit-appearance: none; appearance: none; background: transparent; }
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px; height: 14px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--dong);
   border: 2px solid var(--kinh-nen-2);
   cursor: pointer;
   margin-top: -5px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   transition: transform 0.12s ease;
 }
-input[type='range']::-webkit-slider-thumb:hover { transform: scale(1.15); }
-input[type='range']:disabled::-webkit-slider-thumb { background: var(--mo); cursor: not-allowed; }
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type='range']:disabled::-webkit-slider-thumb {
+  background: var(--mo);
+  cursor: not-allowed;
+}
 input[type='range']::-moz-range-thumb {
-  width: 14px; height: 14px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--dong);
   border: 2px solid var(--kinh-nen-2);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
-input[type='range']:disabled::-moz-range-thumb { background: var(--mo); cursor: not-allowed; }
+input[type='range']:disabled::-moz-range-thumb {
+  background: var(--mo);
+  cursor: not-allowed;
+}

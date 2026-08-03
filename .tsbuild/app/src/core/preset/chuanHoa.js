@@ -1,5 +1,6 @@
-import { phanLoaiNoiDung, XU_LY_THEO_NHAN } from './anToan.js';
+import { phanLoaiNoiDung } from './anToan.js';
 import { macroChuaHoTro, macroTrongChuoi } from './macro.js';
+import { dungScriptAdapters } from './scriptAdapter.js';
 import { suyConflictKeys, suyPhuThuoc } from './xungDot.js';
 import { GenerationCandidateSchema } from './schema.js';
 import { NormalizedGenParamsSchema } from '../schema/ai.js';
@@ -78,21 +79,15 @@ function phanLoaiLane(identifier, kind, viTriChen) {
 /**
  * Trạng thái kích hoạt — 64.1 + 64.5.
  *
- * Thứ tự kiểm quan trọng: cách ly thắng mọi thứ, rồi tới disable, rồi tới
- * needs_adapter. Một module vừa đòi ghi state vừa dùng macro lạ phải là
- * `quarantined`, không phải `needs_adapter` — nhãn nhẹ hơn sẽ mời người dùng bật nó.
+ * Prompt chỉ được biên vào tầng pack ngoài, không nhận tool hay quyền ghi state.
+ * Vì vậy classifier ghi nhãn chẩn đoán nhưng không tự làm mất mục tác giả đã bật.
  */
-function chonActivation(nhan, macroLa, laMarker) {
-    for (const n of nhan) {
-        if (XU_LY_THEO_NHAN[n] === 'quarantine')
-            return 'quarantined';
-    }
-    for (const n of nhan) {
-        if (XU_LY_THEO_NHAN[n] === 'disable')
-            return 'disabled';
-    }
-    if (macroLa.length > 0)
-        return 'needs_adapter';
+function chonActivation(_nhan, _macroLa, laMarker) {
+    // Prompt nhập chỉ là nội dung ở tầng quyền thấp hơn lõi engine. Nhãn rủi ro
+    // vẫn được ghi vào sourceMeta và báo cáo, nhưng không làm mất module mà tác
+    // giả đã bật. Những khả năng nguy hiểm (ghi state, gọi tool, chạy script) vốn
+    // không tồn tại trong compiler này; lõi an toàn/tính đúng vẫn nằm phía trên.
+    // Macro lạ cũng được giữ nguyên raw thay vì làm tắt cả module.
     return laMarker ? 'native' : 'adapted';
 }
 // ─────────────────────────────────────────── chuẩn hóa chính
@@ -261,6 +256,7 @@ export function chuanHoaSillyTavern(input) {
                 injection_order: soNguyen(p.injection_order),
                 forbid_overrides: p.forbid_overrides === true,
                 enabledONguon: batNguon,
+                enabledHieuLucNguon: batHieuLuc,
                 trongOrder,
                 nhanRuiRo,
                 macroCanAdapter: macroLa,
@@ -290,9 +286,26 @@ export function chuanHoaSillyTavern(input) {
             pattern,
             co: '',
             thayThe: chuoi(r['replaceString']),
+            placement: Array.isArray(r['placement'])
+                ? r['placement'].filter((v) => typeof v === 'number' && Number.isInteger(v))
+                : [2],
+            runOnEdit: r['runOnEdit'] === true,
+            trimStrings: Array.isArray(r['trimStrings'])
+                ? r['trimStrings'].filter((v) => typeof v === 'string')
+                : [],
+            substituteRegex: soNguyen(r['substituteRegex']),
+            minDepth: typeof r['minDepth'] === 'number' && Number.isFinite(r['minDepth'])
+                ? Math.trunc(r['minDepth'])
+                : null,
+            maxDepth: typeof r['maxDepth'] === 'number' && Number.isFinite(r['maxDepth'])
+                ? Math.trunc(r['maxDepth'])
+                : null,
+            markdownOnlyNguon: r['markdownOnly'] === true,
             promptOnlyNguon: r['promptOnly'] === true,
+            batONguon: r['disabled'] !== true,
+            thuTuNguon: i,
             // [BB] 64.3 — pattern engine không đỡ được thì `needs_adapter`, không thử chạy.
-            activation: hopLe ? 'sandboxed' : 'needs_adapter',
+            activation: r['disabled'] === true ? 'disabled' : hopLe ? 'sandboxed' : 'needs_adapter',
             lyDo: hopLe
                 ? 'Chạy trên bản sao output hiển thị, có timeout; không chạm system prompt, user input, patch hay event.'
                 : 'Cú pháp regex không chạy được bằng engine của trình duyệt.',
@@ -312,15 +325,15 @@ export function chuanHoaSillyTavern(input) {
             lyDo: 'Script Tavern Helper luôn vào ở trạng thái cách ly. Chỉ chạy được qua adapter viết tay (64.2).',
         };
     });
+    const scriptAdapters = dungScriptAdapters({ goc, packId, helperScripts: helperTho });
     if (quarantined.length > 0) {
         issues.push({
             code: 'SCRIPT_CACH_LY',
             severity: 'quarantine',
             path: 'extensions.tavern_helper.scripts',
-            message: `${quarantined.length} script trợ giúp đã được LƯU nguyên vẹn và KHÔNG chạy. ` +
-                `${quarantined.filter((q) => q.batONguon).length} cái đang bật trong file nguồn — ` +
-                'cờ đó không có hiệu lực ở đây.',
-            details: { so: quarantined.length },
+            message: `${quarantined.length} script trợ giúp đã được lưu nguyên vẹn nhưng không chạy trực tiếp. ` +
+                `${scriptAdapters.filter((a) => a.batONguon).length} chức năng đang bật đã có adapter native an toàn.`,
+            details: { so: quarantined.length, soAdapter: scriptAdapters.length },
         });
     }
     for (const t of transformDefs.filter((t) => t.activation === 'needs_adapter')) {
@@ -334,12 +347,24 @@ export function chuanHoaSillyTavern(input) {
     }
     // ── tham số sinh ──
     const generation = docThamSoNguon(goc);
+    const scriptVariables = {};
+    for (const s of helperTho) {
+        if (s['enabled'] === false)
+            continue;
+        const data = s['data'];
+        if (data === null || typeof data !== 'object' || Array.isArray(data))
+            continue;
+        for (const [k, v] of Object.entries(data)) {
+            if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype')
+                scriptVariables[k] = v;
+        }
+    }
     const pack = {
         envelope,
         version,
         modules,
         generation,
-        variables: {},
+        variables: scriptVariables,
         transforms: transformDefs.map((t) => t.id),
         extensionRefs: quarantined.map((q) => q.id),
         issues,
@@ -348,6 +373,7 @@ export function chuanHoaSillyTavern(input) {
         pack,
         transformDefs,
         quarantined,
+        scriptAdapters,
         thongKe: {
             soPrompt: promptsTho.length,
             soOrderEntry: orderEntries.length,

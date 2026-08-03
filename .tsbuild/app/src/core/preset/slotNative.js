@@ -20,10 +20,11 @@ function tang(prompt, so) {
  * dùng nội dung module).
  */
 export function dungLoiNative(prompt, ng = {}) {
-    const lichSu = (ng.canhGanDay ?? [])
-        .slice(-8)
-        .map((c) => (c.loai === 'nguoi_choi' ? `Ngươi: ${c.noiDung}` : c.noiDung))
-        .join('\n\n');
+    const lichSu = ng.lichSuDaDinhDang ??
+        (ng.canhGanDay ?? [])
+            .slice(-8)
+            .map((c) => (c.loai === 'nguoi_choi' ? `Ngươi: ${c.noiDung}` : c.noiDung))
+            .join('\n\n');
     const slot = {
         worldinfobefore: tang(prompt, TEN_TANG_TRONG_PROMPT.BAN_TIN_TRUY_HOI),
         chardescription: tang(prompt, TEN_TANG_TRONG_PROMPT.BOI_CANH_CHU_THE),

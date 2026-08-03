@@ -33,6 +33,7 @@ import { doiSoatEntry, phanLoaiQuanHe, che, boChe, kiemNguonSinhSu, bangDoiSoat,
 import { apMotOp, apLoOp, duocPhep, QUYEN_OP, conTrongThungRac } from './lore/ops.js';
 import { tinhDoTinCay, duocNap, thuHoachDanhTu, goiYKeys, kiemEntry, briefSinhEntry } from './lore/tinCay.js';
 import { trichKyVong, capNhatKyVong, aiThoa, banDoDiBiet, entryCanChe } from './lore/kyVong.js';
+import { docNeoLore, vatChatHoaLorebook } from './lore/hienThuc.js';
 // ── Khối N ──
 import { WorkflowTaskSchema, WorkflowPresetSchema } from './workflow/schema.js';
 import { quyetDinhChay, trangThaiLichMoi, docTickTuVanBan, TICK_MOI_DON_VI } from './workflow/lich.js';
@@ -901,6 +902,44 @@ describe('35.4, 35.5 [BB] — lorebook là lực hấp dẫn, và Dị Bản khi
         const lb = { ...kq.lorebook, lucHapDan, bat: true };
         return lb;
     }
+    it('bật Lorebook hiện thực hóa neo nhân vật rõ ràng và kỳ vọng nhận đúng thực thể', () => {
+        const { state } = theGioi('lore-anchor');
+        const kq = nhapLorebook({
+            goc: {
+                entries: [
+                    {
+                        uid: 'thanh-my',
+                        comment: 'Thanh My',
+                        key: ['Thanh My'],
+                        content: 'Nhân vật: Thanh My\nMột kiếm khách giữ lời thề dưới trăng.',
+                    },
+                ],
+            },
+            id: 'lb.minh-nguyet',
+            ten: 'Minh Nguyệt',
+            nguon: 'nguoi_dung',
+        });
+        const lorebook = { ...kq.lorebook, bat: true };
+        expect(docNeoLore(lorebook.entries[0])?.ten).toBe('Thanh My');
+        const entities = vatChatHoaLorebook(lorebook, state, 'ev.bat-lore');
+        expect(entities).toHaveLength(1);
+        expect(entities[0]?.ten).toBe('Thanh My');
+        expect(entities[0]?.kind).toBe('mortal');
+        expect(entities[0]?.aspects['provenance']).toMatchObject({ nguon: 'lorebook' });
+        state.entities.set(entities[0].id, entities[0]);
+        const kyVong = trichKyVong(lorebook, state.world.branchId);
+        const daCapNhat = capNhatKyVong({
+            kyVong,
+            state,
+            theoDoi: { thoaBoi: new Map() },
+            tick: state.world.tick,
+            lucHapDan: lorebook.lucHapDan,
+        });
+        const neo = daCapNhat.kyVong.find((k) => k.dieuKien.kieu === 'ton_tai_ten');
+        expect(neo?.trangThai).toBe('da_thoa');
+        expect(neo?.thoaBoiId).toBe(entities[0]?.id);
+        expect(trichKyVong({ ...lorebook, bat: false }, state.world.branchId)).toHaveLength(0);
+    });
     it('trích được kỳ vọng có điều kiện KHAI BÁO, không phải chuỗi eval', () => {
         const kv = trichKyVong(lorebookAiCap(), 'br_goc');
         expect(kv.length).toBeGreaterThanOrEqual(2);
@@ -1922,6 +1961,9 @@ describe('bất biến Phase 10 — bắt lỗi ở lượt thứ bốn trăm, k
             version: '1.0',
             nguon,
             conflictPolicy: 'song_song',
+            nhipMoGiaiDoan: 8,
+            soDiemHutMoiLuot: 3,
+            tickBat: 0,
             entries: [e],
         });
         return state;

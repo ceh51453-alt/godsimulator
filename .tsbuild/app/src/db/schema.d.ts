@@ -54,6 +54,13 @@ export type HangUiState = {
     tabThongTin: string;
     theoDoiMachIds: string[];
     ghimTongQuan: string[];
+    /**
+     * Lịch sử chat/lời kể — lưu để mở lại ván không mất đoạn đang chơi.
+     *
+     * Optional vì hàng cũ (trước bản sửa) không có trường này, và Dexie cho
+     * phép thêm field không index mà không cần migration.
+     */
+    scene?: unknown[];
 };
 /**
  * Cấu hình AI của MÁY này. Một hàng duy nhất, `id = 'may_nay'`.

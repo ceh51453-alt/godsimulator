@@ -54,6 +54,10 @@ const THE_CAM = /<\s*\/?\s*(script|iframe|object|embed|form|link|meta|base|style
 const HANDLER = /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const URL_CAM = /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"|')?\s*(?:javascript|data|vbscript):[^"'\s>]*/gi;
 const STYLE_REMOTE = /\bstyle\s*=\s*(?:"[^"]*url\s*\([^)]*\)[^"]*"|'[^']*url\s*\([^)]*\)[^']*')/gi;
+const BLOCK_CAM = /<\s*(script|iframe|object|embed|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const THE_NGOAI = /<\s*\/?\s*(link|meta|base)\b[^>]*>/gi;
+const URL_MANG = /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const CSS_MANG = /@import\b[^;]*;?|url\s*\([^)]*\)/gi;
 /**
  * Làm sạch HTML thay thế trước khi render — 64.3.
  *
@@ -77,6 +81,32 @@ export function lamSachHtml(html) {
     return { html: ra, daBo };
 }
 /**
+ * Dựng tài liệu HTML cho iframe không có quyền script/same-origin.
+ *
+ * Khác `lamSachHtml`, hàm này giữ CSS nội tuyến và thẻ `<style>` vì các preset
+ * Tawa/Ako dùng chúng để dựng bảng, nhưng loại mọi URL mạng, import và handler.
+ */
+export function taiLieuHtmlCachLy(html) {
+    const daBo = [];
+    let ra = html;
+    const bo = (re, nhan) => {
+        const truoc = ra;
+        ra = ra.replace(re, '');
+        if (ra !== truoc)
+            daBo.push(nhan);
+    };
+    bo(BLOCK_CAM, 'khối có khả năng thực thi/gửi dữ liệu');
+    bo(THE_NGOAI, 'thẻ tải tài nguyên hoặc đổi base URL');
+    bo(/<\s*\/?\s*(script|iframe|object|embed|form)\b[^>]*>/gi, 'thẻ nguy hiểm');
+    bo(HANDLER, 'thuộc tính bắt sự kiện (on*)');
+    bo(URL_CAM, 'URL có scheme thực thi');
+    bo(URL_MANG, 'thuộc tính URL');
+    bo(CSS_MANG, 'CSS tải tài nguyên ngoài');
+    const csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; form-action 'none'; base-uri 'none'";
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;background:transparent;color:#d8d3c5;font:14px/1.6 system-ui,sans-serif}*{box-sizing:border-box}details{margin:.4rem 0}button,input,textarea,select{pointer-events:none}</style></head><body>${ra}</body></html>`;
+    return { html: doc, daBo };
+}
+/**
  * Áp một chuỗi transform lên **bản sao output hiển thị**.
  *
  * `dongHo` được tiêm vào thay vì gọi `performance.now()` trực tiếp: `core/` không
@@ -87,6 +117,9 @@ export function apTransform(input) {
     const { text, transforms, maxRegexMs } = input;
     const daTat = input.daTat ?? new Set();
     const dongHo = input.dongHo ?? (() => 0);
+    const placement = input.placement ?? 2;
+    const destination = input.destination ?? 'display';
+    const depth = input.depth ?? 0;
     const daApDung = [];
     const daBoQua = [];
     const issues = [];
@@ -110,12 +143,36 @@ export function apTransform(input) {
         };
     }
     for (const t of transforms) {
+        if (!t.batONguon) {
+            daBoQua.push({ id: t.id, lyDo: 'đã tắt trong preset nguồn' });
+            continue;
+        }
         if (daTat.has(t.id)) {
             daBoQua.push({ id: t.id, lyDo: 'đã bị tắt sau một lần chạy quá chậm' });
             continue;
         }
         if (t.activation !== 'sandboxed') {
             daBoQua.push({ id: t.id, lyDo: `trạng thái ${t.activation}` });
+            continue;
+        }
+        if (!t.placement.includes(placement)) {
+            daBoQua.push({ id: t.id, lyDo: `không áp ở placement ${placement}` });
+            continue;
+        }
+        if (t.minDepth !== null && depth < t.minDepth) {
+            daBoQua.push({ id: t.id, lyDo: `depth ${depth} nhỏ hơn minDepth ${t.minDepth}` });
+            continue;
+        }
+        if (t.maxDepth !== null && depth > t.maxDepth) {
+            daBoQua.push({ id: t.id, lyDo: `depth ${depth} lớn hơn maxDepth ${t.maxDepth}` });
+            continue;
+        }
+        if (destination === 'display' && t.promptOnlyNguon && !t.markdownOnlyNguon) {
+            daBoQua.push({ id: t.id, lyDo: 'chỉ áp vào prompt' });
+            continue;
+        }
+        if (destination === 'prompt' && t.markdownOnlyNguon && !t.promptOnlyNguon) {
+            daBoQua.push({ id: t.id, lyDo: 'chỉ áp khi hiển thị' });
             continue;
         }
         const bien = bienRegex(t.pattern);
@@ -133,7 +190,24 @@ export function apTransform(input) {
         const batDau = dongHo();
         let sau;
         try {
-            sau = ra.replace(bien.re, t.thayThe);
+            sau = ra.replace(bien.re, (...args) => {
+                const mauThay = t.thayThe.replace(/{{match}}/gi, '$0');
+                const daChenNhom = mauThay.replace(/\$(\d+)|\$<([^>]+)>/g, (_raw, so, tenNhom) => {
+                    const nhom = args.at(-1);
+                    const match = so
+                        ? args[Number(so)]
+                        : nhom !== null && typeof nhom === 'object'
+                            ? nhom[tenNhom]
+                            : undefined;
+                    if (typeof match !== 'string' || match === '')
+                        return '';
+                    let loc = match;
+                    for (const trim of t.trimStrings)
+                        loc = loc.split(trim).join('');
+                    return loc;
+                });
+                return input.thayMacro?.(daChenNhom, t) ?? daChenNhom;
+            });
         }
         catch {
             daBoQua.push({ id: t.id, lyDo: 'lỗi khi thay thế' });
@@ -158,4 +232,20 @@ export function apTransform(input) {
         daApDung.push(t.id);
     }
     return { text: ra, daApDung, daBoQua, issues, quaCham };
+}
+/**
+ * Áp regex `promptOnly` lên **chuỗi prompt** trước khi gửi AI.
+ *
+ * Cùng bộ bảo vệ sandbox (timeout, chặn pattern, max ký tự) nhưng target là
+ * prompt thay vì output hiển thị. Chỉ chạy transform có `promptOnlyNguon: true`.
+ *
+ * [BB] Ranh giới vẫn giữ: transform chỉ chạy trên chuỗi văn bản đã phẳng hóa,
+ * KHÔNG chạy trên WorldView, PatchOp hay cấu trúc dữ liệu engine.
+ */
+export function apPromptTransform(input) {
+    const dungChoPrompt = input.transforms;
+    if (dungChoPrompt.length === 0) {
+        return { text: input.text, daApDung: [], daBoQua: [], issues: [], quaCham: [] };
+    }
+    return apTransform({ ...input, transforms: dungChoPrompt, destination: 'prompt' });
 }

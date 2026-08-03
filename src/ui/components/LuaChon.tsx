@@ -105,22 +105,12 @@ export default function LuaChon({ luaChon, onChon, dangKe }: Props): JSX.Element
       <div style={HEADER}>
         <span style={HEADER_TITLE}>Lua chon hanh dong</span>
         <label style={TOGGLE_LABEL}>
-          <input
-            type="checkbox"
-            checked={guiTrucTiep}
-            onChange={(e) => setGuiTrucTiep(e.target.checked)}
-          />
+          <input type="checkbox" checked={guiTrucTiep} onChange={(e) => setGuiTrucTiep(e.target.checked)} />
           Gui truc tiep
         </label>
       </div>
       {luaChon.map((lc, i) => (
-        <button
-          key={i}
-          style={nutChon(dangKe)}
-          disabled={dangKe}
-          onClick={() => xuLyChon(lc)}
-          type="button"
-        >
+        <button key={i} style={nutChon(dangKe)} disabled={dangKe} onClick={() => xuLyChon(lc)} type="button">
           <span style={INDEX_BADGE}>{String(i + 1).padStart(2, '0')}</span>
           <span>{lc}</span>
         </button>

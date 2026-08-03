@@ -2,9 +2,9 @@ import { thieuGiDeChoi } from './cauHinh.js';
 export const TRANG_THAI_CONG = ['chua_cau_hinh', 'dang_do', 'san_sang', 'dut_duong'];
 export const NHAN_TRANG_THAI_CONG = Object.freeze({
     chua_cau_hinh: 'chưa nối AI',
-    dang_do: 'đang thử đường',
+    dang_do: 'đang kiểm tra',
     san_sang: 'đã nối',
-    dut_duong: 'đứt đường',
+    dut_duong: 'mất kết nối',
 });
 export const MACH_MOI = Object.freeze({
     hongLienTiep: 0,
@@ -57,7 +57,7 @@ export function danhGiaCong(v) {
             trangThai: 'chua_cau_hinh',
             choPhepChoi: false,
             lyDo: Object.freeze([
-                'Thiên Điện chạy bằng AI. Chưa nối được model thì chưa có ai kể chuyện, nên chưa vào chơi được.',
+                'Thiên Diễn chạy bằng AI. Chưa nối được model thì chưa có ai kể chuyện, nên chưa vào chơi được.',
             ]),
             viecCanLam: Object.freeze([...thieu]),
         });
@@ -66,7 +66,7 @@ export function danhGiaCong(v) {
         return Object.freeze({
             trangThai: 'dang_do',
             choPhepChoi: false,
-            lyDo: Object.freeze(['Đang thử đường tới model.']),
+            lyDo: Object.freeze(['Đang kiểm tra kết nối tới model.']),
             viecCanLam: Object.freeze([]),
         });
     }
@@ -82,7 +82,7 @@ export function danhGiaCong(v) {
                 'Thế giới của bạn vẫn còn nguyên. Nối lại được là chơi tiếp từ đúng chỗ đang dở.',
             ]),
             viecCanLam: Object.freeze([
-                { truong: 'probe', thongDiep: 'Bấm "Thử lại đường" hoặc đổi sang model khác.' },
+                { truong: 'probe', thongDiep: 'Bấm "Thử kết nối lại" hoặc đổi sang model khác.' },
             ]),
         });
     }

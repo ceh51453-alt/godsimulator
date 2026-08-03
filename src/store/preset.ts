@@ -23,7 +23,7 @@ import { nhapPreset } from '../core/preset/nhap.js';
 import type { KetQuaNhap } from '../core/preset/nhap.js';
 import { viewGia, sceneGia } from '../core/preset/giaLap.js';
 import { R } from '../core/registry/index.js';
-import type { ModelProfile } from '../core/schema/ai.js';
+import type { ModelProfile, NormalizedGenParams } from '../core/schema/ai.js';
 import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, giaiMotXungDot, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
@@ -31,10 +31,17 @@ import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/prese
 import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
-import { apTransform, apPromptTransform } from '../core/preset/sandbox.js';
-import { apInPromptRegex, captureFromOutput, replaceTagsInPrompt } from '../core/preset/adapterMerge.js';
-import type { CaptureRule, CapturedData } from '../core/preset/adapterMerge.js';
+import { apTransform, apPromptTransform, bienRegex } from '../core/preset/sandbox.js';
+import {
+  apInPromptRegex,
+  apInPromptRegexMessages,
+  captureFromOutput,
+  replaceTagsInPrompt,
+} from '../core/preset/adapterMerge.js';
+import type { CaptureRule, CapturedData, PromptMessageLike } from '../core/preset/adapterMerge.js';
 import type { ImportIssue } from '../core/contracts/primitives.js';
+import { docChiThiScene } from '../core/preset/scriptAdapter.js';
+import { giaiMacro } from '../core/preset/macro.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import {
   ghiPack,
@@ -52,6 +59,8 @@ export type TrangThaiPreset = {
   thuVien: readonly PresetPackRow[];
   /** Activation đang chạy trên nhánh hiện tại, khóa theo `packId`. */
   dangBat: Readonly<Record<string, PresetActivation>>;
+  /** Thứ tự chồng pack, cũ trước mới sau. */
+  thuTuBat: readonly string[];
   /** Biến của từng pack trên nhánh hiện tại. */
   bien: Readonly<Record<string, Record<string, unknown>>>;
   wizard: TrangThaiWizard;
@@ -70,6 +79,8 @@ export type TrangThaiPreset = {
   loiBat: readonly ImportIssue[];
   /** Dữ liệu đã capture từ output AI bởi adapter kemini_noass. */
   capturedData: CapturedData;
+  /** Regex nguồn đã vượt trần trong phiên; không chạy lại cho tới khi nạp lại. */
+  regexDaTat: readonly string[];
   branchId: string;
   daNap: boolean;
 
@@ -97,13 +108,19 @@ export type TrangThaiPreset = {
   /** Transform hiển thị của các pack đang bật — 64.3, chạy trên BẢN SAO. */
   transformDangBat(): readonly TransformDef[];
   /** Áp transform lên một dòng văn để hiển thị. Không đụng dữ liệu gốc. */
-  hienThi(vanBan: string): string;
+  hienThi(vanBan: string, ctx?: { user?: string; sceneId?: string; turn?: number }): string;
   /** Áp regex promptOnly lên chuỗi prompt trước khi gửi AI. */
-  transformPrompt(vanBan: string): string;
+  transformPrompt(vanBan: string, placement?: 1 | 2, depth?: number): string;
+  /** Dựng slot chatHistory theo adapter merge của preset đang bật. */
+  lichSuChoPrompt(canh: readonly { loai: string; noiDung: string }[]): string;
+  /** Port phần dọn output/stop marker của helper script đang bật. */
+  xuLyOutput(vanBan: string): string;
   /** Áp adapter merge: in-prompt regex + tag replace. */
   apAdapter(vanBan: string): string;
+  /** Áp adapter lên module nhập, giữ nguyên mọi message `td:*` của engine. */
+  apAdapterMessages(messages: readonly PromptMessageLike[]): readonly PromptMessageLike[];
   /** Bắt dữ liệu từ output AI theo capture rules của preset. */
-  captureOutput(output: string): void;
+  captureOutput(output: string, tick?: number): void;
   /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
   apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<void>;
 };
@@ -153,15 +170,85 @@ function doc(o: Record<string, unknown>, duong: string): unknown {
   return cur;
 }
 
+function rowsDangBat(
+  thuVien: readonly PresetPackRow[],
+  dangBat: Readonly<Record<string, PresetActivation>>,
+  thuTuBat: readonly string[],
+): PresetPackRow[] {
+  const viTri = new Map(thuTuBat.map((id, i) => [id, i]));
+  return thuVien
+    .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+    .sort((a, b) => {
+      const va = viTri.get(a.packId) ?? Number.MAX_SAFE_INTEGER;
+      const vb = viTri.get(b.packId) ?? Number.MAX_SAFE_INTEGER;
+      if (va !== vb) return va - vb;
+      const aa = dangBat[a.packId];
+      const ab = dangBat[b.packId];
+      return (aa?.activatedAt ?? 0) - (ab?.activatedAt ?? 0) || a.packId.localeCompare(b.packId);
+    });
+}
+
+const TRUONG_GEN = [
+  'temperature',
+  'topP',
+  'topK',
+  'topA',
+  'minP',
+  'repetitionPenalty',
+  'presencePenalty',
+  'frequencyPenalty',
+  'maxOutputTokens',
+  'stopSequences',
+  'seed',
+  'continuePrefill',
+  'reasoningEffort',
+  'verbosity',
+] as const;
+
+function apThongSoPack(
+  thuVien: readonly PresetPackRow[],
+  dangBat: Readonly<Record<string, PresetActivation>>,
+  thuTuBat: readonly string[],
+  nen: NormalizedGenParams,
+): void {
+  const gop: Record<string, unknown> = { ...nen };
+  for (const row of rowsDangBat(thuVien, dangBat, thuTuBat)) {
+    const gen = row.pack.generation;
+    if (!gen) continue;
+    for (const k of TRUONG_GEN) {
+      const v = (gen as Record<string, unknown>)[k];
+      if (v !== undefined) gop[k] = v;
+    }
+    if (gen.maxContext !== undefined) gop['contextLimit'] = gen.maxContext;
+  }
+  useAi.getState().suaEndpoint('narrator', { params: gop as NormalizedGenParams });
+}
+
+function paramsNenCua(
+  dangBat: Readonly<Record<string, PresetActivation>>,
+  thuTuBat: readonly string[],
+): NormalizedGenParams {
+  for (const id of thuTuBat) {
+    const p = dangBat[id]?.normalizedParams;
+    if (p !== undefined) return { ...p };
+  }
+  const p = Object.values(dangBat)
+    .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
+    .find((a) => a.normalizedParams !== undefined)?.normalizedParams;
+  return { ...(p ?? useAi.getState().cfg.narrator.params) };
+}
+
 export const usePreset = create<TrangThaiPreset>((set, get) => ({
   thuVien: [],
   dangBat: {},
+  thuTuBat: [],
   bien: {},
   xungDot: {},
   wizard: wizardMoi(),
   baoCao: null,
   loiBat: [],
   capturedData: {},
+  regexDaTat: [],
   branchId: '',
   daNap: false,
 
@@ -180,10 +267,14 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         dangBat[a.packId] = a;
         bien[a.packId] = await docBienPack(db, a.packId, branchId);
       }
-      set({ thuVien, dangBat, bien, branchId, daNap: true });
+      const thuTuBat = [...acts]
+        .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
+        .map((a) => a.packId);
+      set({ thuVien, dangBat, thuTuBat, bien, branchId, daNap: true, regexDaTat: [] });
+      if (acts.length > 0) apThongSoPack(thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
     } catch {
       // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
-      set({ thuVien: [], dangBat: {}, bien: {}, branchId, daNap: true });
+      set({ thuVien: [], dangBat: {}, thuTuBat: [], bien: {}, branchId, daNap: true, regexDaTat: [] });
     }
   },
 
@@ -311,9 +402,13 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       return false;
     }
 
+    const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
+    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
+    const activation: PresetActivation = { ...kq.activation, normalizedParams: nen };
+
     if (coIndexedDb()) {
       try {
-        await ghiKichHoat(layDb(), kq.activation);
+        await ghiKichHoat(layDb(), activation);
         // Biến khởi tạo của pack chỉ được ghi khi CHƯA có bản của nhánh này —
         // bật lại một pack không được xóa trạng thái người chơi đã tích lũy.
         const daCo = await docBienPack(layDb(), packId, get().branchId);
@@ -326,58 +421,31 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
 
     set({
-      dangBat: { ...get().dangBat, [packId]: kq.activation },
+      dangBat: { ...get().dangBat, [packId]: activation },
+      thuTuBat,
       bien: {
         ...get().bien,
         [packId]: get().bien[packId] ?? { ...row.pack.variables },
       },
+      capturedData:
+        row.pack.variables['stored_data'] !== null &&
+        typeof row.pack.variables['stored_data'] === 'object' &&
+        !Array.isArray(row.pack.variables['stored_data'])
+          ? { ...get().capturedData, ...(row.pack.variables['stored_data'] as CapturedData) }
+          : get().capturedData,
       loiBat: [],
     });
 
-    /*
-     * [BB] Preset khai generation thì áp vào endpoint Tường Thuật.
-     *
-     * Đây là thứ người dùng kỳ vọng: nhập một preset SillyTavern là nhập CẢ thông
-     * số sinh chứ không chỉ nhập prompt. Áp vào `narrator` vì đó là endpoint mà
-     * preset nhắm tới (62.3). Updater và workflow giữ nguyên.
-     *
-     * Chỉ ghi đè trường nào preset THẬT SỰ khai (khác `undefined`) — trường
-     * không có trong file thì giữ giá trị hiện tại, tránh xoá cấu hình người dùng.
-     */
-    const gen = row.pack.generation;
-    if (gen !== undefined) {
-      const aiState = useAi.getState();
-      const paramsHienTai = aiState.cfg.narrator.params;
-      const gop: Record<string, unknown> = { ...paramsHienTai };
-      // Danh sách trường GenParams mà preset có thể khai.
-      const TRUONG_AP: readonly string[] = [
-        'temperature', 'topP', 'topK', 'topA', 'minP',
-        'repetitionPenalty', 'presencePenalty', 'frequencyPenalty',
-        'maxOutputTokens', 'stopSequences', 'seed',
-        'continuePrefill', 'reasoningEffort', 'verbosity',
-      ] as const;
-      let coThayDoi = false;
-      for (const k of TRUONG_AP) {
-        const v = (gen as Record<string, unknown>)[k];
-        if (v !== undefined) {
-          gop[k] = v;
-          coThayDoi = true;
-        }
-      }
-      // `maxContext` trong preset tương ứng `contextLimit` ở GenParams.
-      if (gen.maxContext !== undefined) {
-        gop['contextLimit'] = gen.maxContext;
-        coThayDoi = true;
-      }
-      if (coThayDoi) {
-        aiState.suaEndpoint('narrator', { params: gop as typeof paramsHienTai });
-      }
-    }
+    const dangBatMoi = { ...get().dangBat, [packId]: activation };
+    // Mọi lớp (module, transform, adapter, generation) dùng cùng một thứ tự.
+    set({ dangBat: dangBatMoi, thuTuBat });
+    apThongSoPack(get().thuVien, dangBatMoi, thuTuBat, nen);
 
     return true;
   },
 
   async tat(packId) {
+    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
     if (coIndexedDb()) {
       try {
         await goKichHoat(layDb(), packId, get().branchId);
@@ -387,9 +455,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
     const con = { ...get().dangBat };
     delete con[packId];
+    const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
     // [BB] 65.4 — tắt pack trả về prompt native. Biến KHÔNG bị xóa: bật lại thì
     // trạng thái cũ còn đó, và mất nó là mất tiến trình chơi của người dùng.
-    set({ dangBat: con, loiBat: [] });
+    set({ dangBat: con, thuTuBat, loiBat: [] });
+    apThongSoPack(get().thuVien, con, thuTuBat, nen);
   },
 
   async luiMotBuoc(packId) {
@@ -407,13 +477,17 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         return;
       }
       await ghiKichHoat(layDb(), { ...truoc, activatedAt: (act?.activatedAt ?? 0) + 1 });
-      set({ dangBat: { ...get().dangBat, [packId]: truoc } });
+      const dangBat = { ...get().dangBat, [packId]: truoc };
+      const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
+      set({ dangBat, thuTuBat });
+      apThongSoPack(get().thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
     } catch {
       /* bỏ qua */
     }
   },
 
   async xoaKhoiThuVien(packId) {
+    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
     if (coIndexedDb()) {
       try {
         await xoaPack(layDb(), packId);
@@ -425,27 +499,40 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     delete con[packId];
     const b = { ...get().bien };
     delete b[packId];
-    set({ thuVien: get().thuVien.filter((r) => r.packId !== packId), dangBat: con, bien: b });
+    const thuVien = get().thuVien.filter((r) => r.packId !== packId);
+    const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
+    set({ thuVien, dangBat: con, thuTuBat, bien: b });
+    apThongSoPack(thuVien, con, thuTuBat, nen);
   },
 
   packChoLuot() {
     const dangBat = get().dangBat;
     const ra: PackDangBat[] = [];
-    for (const row of get().thuVien) {
+    for (const row of rowsDangBat(get().thuVien, dangBat, get().thuTuBat)) {
       const act = dangBat[row.packId];
       if (act === undefined || act.packVersion !== row.version) continue;
       // Biến của nhánh ghi đè biến khai trong file: file cấp giá trị KHỞI ĐẦU,
       // ván chơi cấp giá trị HIỆN TẠI.
       const bien = { ...row.pack.variables, ...(get().bien[row.packId] ?? {}) };
-      ra.push({ row: { ...row, pack: { ...row.pack, variables: bien } }, activation: act });
+      const override = bien['__module_enabled'];
+      let activation = act;
+      if (override !== null && typeof override === 'object' && !Array.isArray(override)) {
+        const chon = new Set(act.selectedModuleIds);
+        for (const m of row.pack.modules) {
+          const v = (override as Record<string, unknown>)[m.sourceIdentifier];
+          if (v === true) chon.add(m.id);
+          else if (v === false) chon.delete(m.id);
+        }
+        activation = { ...act, selectedModuleIds: [...chon] };
+      }
+      ra.push({ row: { ...row, pack: { ...row.pack, variables: bien } }, activation });
     }
     return ra;
   },
 
   transformDangBat() {
     const ra: TransformDef[] = [];
-    for (const row of get().thuVien) {
-      if (get().dangBat[row.packId] === undefined) continue;
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
       for (const t of row.transformDefs) {
         // [BB] 64.1 — chỉ transform đã được đưa về `sandboxed` mới chạy được.
         if (t.activation === 'sandboxed') ra.push(t);
@@ -454,7 +541,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     return ra;
   },
 
-  hienThi(vanBan) {
+  hienThi(vanBan, ctx = {}) {
     const ds = get().transformDangBat();
     if (ds.length === 0) return vanBan;
     // [BB] 64.3 — chạy trên BẢN SAO hiển thị. Trả về chuỗi mới; không nơi nào
@@ -464,36 +551,175 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       transforms: ds,
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
+      daTat: new Set(get().regexDaTat),
+      placement: 2,
+      destination: 'display',
+      depth: 0,
+      thayMacro: (text, t) =>
+        giaiMacro(text, {
+          char: '',
+          user: ctx.user ?? '',
+          persona: ctx.user ?? '',
+          description: '',
+          lastUserMessage: '',
+          sceneId: ctx.sceneId ?? 'display',
+          moduleId: t.id,
+          turn: ctx.turn ?? 0,
+          maxDepth: TUNING_MAC_DINH.preset.maxMacroDepth,
+          bien: {},
+        }).text,
     });
+    if (kq.quaCham.length > 0 || kq.issues.length > 0) {
+      set({
+        regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
+        loiBat: [...get().loiBat, ...kq.issues].slice(-80),
+      });
+    }
     return kq.text;
   },
 
-  transformPrompt(vanBan) {
-    const ds = get().transformDangBat().filter((t) => t.promptOnlyNguon);
+  transformPrompt(vanBan, placement = 1, depth = 0) {
+    const ds = get().transformDangBat();
     if (ds.length === 0) return vanBan;
     const kq = apPromptTransform({
       text: vanBan,
       transforms: ds,
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
+      daTat: new Set(get().regexDaTat),
+      placement,
+      depth,
     });
+    if (kq.quaCham.length > 0 || kq.issues.length > 0) {
+      set({
+        regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
+        loiBat: [...get().loiBat, ...kq.issues].slice(-80),
+      });
+    }
     return kq.text;
+  },
+
+  lichSuChoPrompt(canh) {
+    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
+      (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'prompt_merge'),
+    );
+    const cfg = adapters.at(-1)?.config ?? {};
+    const h = cfg['chat_history'];
+    const hc = h !== null && typeof h === 'object' && !Array.isArray(h) ? (h as Record<string, unknown>) : {};
+    const userLabel = typeof cfg['user'] === 'string' ? cfg['user'] : 'Người chơi';
+    const assistantLabel = typeof cfg['assistant'] === 'string' ? cfg['assistant'] : 'Trợ lý';
+    const systemLabel = typeof cfg['system'] === 'string' ? cfg['system'] : 'Hệ thống';
+    const userPrefix = typeof hc['user_prefix'] === 'string' ? hc['user_prefix'] : `${userLabel}: `;
+    const userSuffix = typeof hc['user_suffix'] === 'string' ? hc['user_suffix'] : '';
+    const assistantPrefix =
+      typeof hc['assistant_prefix'] === 'string' ? hc['assistant_prefix'] : `${assistantLabel}: `;
+    const assistantSuffix = typeof hc['assistant_suffix'] === 'string' ? hc['assistant_suffix'] : '';
+    const systemPrefix = typeof hc['system_prefix'] === 'string' ? hc['system_prefix'] : `${systemLabel}: `;
+    const systemSuffix = typeof hc['system_suffix'] === 'string' ? hc['system_suffix'] : '';
+    const delimiterCfg = cfg['delimiter'];
+    const delimiter =
+      typeof hc['message_separator'] === 'string'
+        ? hc['message_separator']
+        : delimiterCfg !== null &&
+            typeof delimiterCfg === 'object' &&
+            !Array.isArray(delimiterCfg) &&
+            typeof (delimiterCfg as Record<string, unknown>)['value'] === 'string'
+          ? ((delimiterCfg as Record<string, unknown>)['value'] as string)
+          : '\n\n';
+
+    return canh
+      .slice(-20)
+      .map((d, i, all) => {
+        const depth = all.length - 1 - i;
+        const placement: 1 | 2 = d.loai === 'nguoi_choi' ? 1 : 2;
+        const text = get().transformPrompt(d.noiDung, placement, depth);
+        if (d.loai === 'he_thong') return `${systemPrefix}${text}${systemSuffix}`;
+        return placement === 1
+          ? `${userPrefix}${text}${userSuffix}`
+          : `${assistantPrefix}${text}${assistantSuffix}`;
+      })
+      .join(delimiter);
+  },
+
+  xuLyOutput(vanBan) {
+    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
+      (row.scriptAdapters ?? []).filter((a) => a.batONguon),
+    );
+    let out = vanBan;
+    if (adapters.some((a) => a.kind === 'cot_cleanup')) {
+      out = out.replace(/<(thinking|think|reasoning)>[\s\S]*?<\/\1>/gi, '').trim();
+    }
+    for (const a of adapters.filter((x) => x.kind === 'prompt_merge')) {
+      const stop = a.config['stop_string'];
+      if (typeof stop !== 'string' || stop.trim() === '') continue;
+      const rx = bienRegex(stop);
+      if (rx === null) continue;
+      rx.re.lastIndex = 0;
+      const m = rx.re.exec(out);
+      if (m !== null) out = out.slice(0, m.index);
+    }
+    return out.trim();
   },
 
   apAdapter(vanBan) {
     // 1. Tag replace — thêm dữ liệu đã capture vào prompt
     let kq = replaceTagsInPrompt(vanBan, get().capturedData);
     // 2. In-prompt regex — parse và chạy `<regex>` blocks bên trong prompt
-    const regex = apInPromptRegex(kq);
+    const regex = apInPromptRegex(kq, {
+      maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+      dongHo: () => performance.now(),
+    });
     kq = regex.text;
+    if (regex.errors.length > 0) {
+      set({
+        loiBat: [
+          ...get().loiBat,
+          ...regex.errors.map((message): ImportIssue => ({
+            code: 'IN_PROMPT_REGEX_LOI',
+            severity: 'warning',
+            path: 'adapter_merge',
+            message,
+            details: {},
+          })),
+        ].slice(-80),
+      });
+    }
     return kq;
   },
 
-  captureOutput(output) {
+  apAdapterMessages(messages) {
+    const captured = get().capturedData;
+    const daThayTag = messages.map((m) =>
+      m.moduleId.startsWith('td:') ? m : { ...m, content: replaceTagsInPrompt(m.content, captured) },
+    );
+    const regex = apInPromptRegexMessages(daThayTag, {
+      maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+      dongHo: () => performance.now(),
+    });
+    if (regex.errors.length > 0) {
+      set({
+        loiBat: [
+          ...get().loiBat,
+          ...regex.errors.map((message): ImportIssue => ({
+            code: 'IN_PROMPT_REGEX_LOI',
+            severity: 'warning',
+            path: 'adapter_merge',
+            message,
+            details: {},
+          })),
+        ].slice(-80),
+      });
+    }
+    return regex.messages;
+  },
+
+  captureOutput(output, tick = 0) {
     // Lấy capture rules từ biến pack
     const bien = get().bien;
+    const packBat = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).map((row) => row.packId);
     const rules: CaptureRule[] = [];
-    for (const packBien of Object.values(bien)) {
+    for (const packId of packBat) {
+      const packBien = bien[packId] ?? {};
       const captureRules = packBien['capture_rules'];
       if (Array.isArray(captureRules)) {
         for (const r of captureRules) {
@@ -503,20 +729,57 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         }
       }
     }
-    if (rules.length === 0) return;
-
-    // Kiểm tra công tắc toàn cục
-    let globalEnabled = true;
-    for (const packBien of Object.values(bien)) {
-      if (packBien['capture_enabled'] === false) {
-        globalEnabled = false;
-        break;
+    if (rules.length > 0) {
+      // Kiểm tra công tắc toàn cục
+      let globalEnabled = true;
+      for (const packId of packBat) {
+        const packBien = bien[packId] ?? {};
+        if (packBien['capture_enabled'] === false) {
+          globalEnabled = false;
+          break;
+        }
+      }
+      if (globalEnabled) {
+        const { data, changed } = captureFromOutput(output, rules, get().capturedData);
+        if (changed) set({ capturedData: data });
       }
     }
-    if (!globalEnabled) return;
 
-    const { data, changed } = captureFromOutput(output, rules, get().capturedData);
-    if (changed) set({ capturedData: data });
+    const chiThi = docChiThiScene(output);
+    if (Object.keys(chiThi).length === 0) return;
+    const bienMoi: Record<string, Record<string, unknown>> = { ...get().bien };
+    let daDoi = false;
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+      const adapters = (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'scene_switch');
+      if (adapters.length === 0) continue;
+      const override: Record<string, unknown> = {
+        ...((bienMoi[row.packId]?.['__module_enabled'] as Record<string, unknown> | undefined) ?? {}),
+      };
+      let rowDaDoi = false;
+      for (const a of adapters) {
+        const map = a.config['sceneMap'];
+        if (map === null || typeof map !== 'object' || Array.isArray(map)) continue;
+        for (const [key, enabled] of Object.entries(chiThi)) {
+          const sourceId = (map as Record<string, unknown>)[key];
+          if (typeof sourceId === 'string') {
+            override[sourceId] = enabled;
+            rowDaDoi = true;
+            daDoi = true;
+          }
+        }
+      }
+      if (rowDaDoi) bienMoi[row.packId] = { ...(bienMoi[row.packId] ?? {}), __module_enabled: override };
+    }
+    if (!daDoi) return;
+    set({ bien: bienMoi });
+    if (coIndexedDb()) {
+      for (const [packId, vars] of Object.entries(bienMoi)) {
+        if (get().dangBat[packId] !== undefined)
+          void ghiBienPack(layDb(), packId, get().branchId, vars, tick).catch(() => {
+            // Biến trong phiên vẫn đúng; lỗi đĩa không được làm hỏng lượt kể.
+          });
+      }
+    }
   },
 
   async apBienPack(thayDoi, tick) {

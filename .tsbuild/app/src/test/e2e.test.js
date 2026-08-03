@@ -191,6 +191,8 @@ describe('[BB] E2E — chơi trọn ba tầng, và ba tầng thấy ba thứ kh�
 describe('[BB] E2E — lưu, rời ván, mở lại', () => {
     it('rời ván ghi xuống đĩa và danh sách thấy nó', async () => {
         const truoc = hashState(useGame.getState().state);
+        const sceneTruoc = [...useGame.getState().scene];
+        expect(sceneTruoc.length).toBeGreaterThan(0);
         await useGame.getState().roiVan();
         expect(useGame.getState().state).toBeNull();
         const ds = useGame.getState().danhSachVan;
@@ -200,6 +202,7 @@ describe('[BB] E2E — lưu, rời ván, mở lại', () => {
         const ok = await useGame.getState().tiepTucVan(ds[0]?.branchId ?? '');
         expect(ok).toBe(true);
         expect(hashState(useGame.getState().state)).toBe(truoc);
+        expect(useGame.getState().scene).toEqual(sceneTruoc);
     });
     it('xuất rồi nhập lại qua JSON thật giữ nguyên thế giới', async () => {
         const truoc = hashState(useGame.getState().state);

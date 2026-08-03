@@ -31,9 +31,9 @@ export type KetQuaLint = {
 /**
  * Toàn bộ lint/test tĩnh chạy trước khi bật — 65.4 bước 2.
  *
- * Ba nhóm kiểm, và cả ba đều là điều kiện CHẶN chứ không phải cảnh báo:
- * cycle chưa gỡ, nhóm xung đột cần người chọn mà chưa chọn, và module cách ly bị
- * chọn để bật.
+ * Cycle chưa gỡ và module cách ly là điều kiện chặn. Nhóm tác động trùng bên
+ * trong cùng preset được giữ theo `prompt_order` và báo cảnh báo để không phá
+ * thiết kế phối hợp có chủ ý của tác giả.
  */
 export declare function lintTruocKhiBat(row: PresetPackRow, chon: {
     readonly selectedModuleIds: readonly string[];

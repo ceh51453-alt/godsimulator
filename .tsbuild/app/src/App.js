@@ -114,6 +114,48 @@ export function App() {
         if (daVao)
             setDangTao(false);
     }, [daVao]);
+    /**
+     * Tự lưu khi người dùng rời trang — sửa lỗi "đóng tab = mất ván".
+     *
+     * Hai sự kiện, và cả hai đều cần:
+     *
+     *   `visibilitychange → hidden`  Đáng tin nhất trên di động và desktop hiện đại.
+     *     Safari iOS không bắn `beforeunload` khi vuốt đi, nhưng bắn cái này.
+     *     Fire-and-forget: trình duyệt cho đủ thời gian để IndexedDB ghi xong vì
+     *     nó không hứa sẽ đóng tab — nó chỉ nói rằng tab vừa mất tiêu điểm.
+     *
+     *   `beforeunload`  Cơ hội cuối trước khi tab thật sự đóng. Gọi `luuVan()`
+     *     fire-and-forget (trình duyệt không chờ Promise trong handler này) và
+     *     đặt `e.preventDefault()` để trình duyệt hiện dialog "bạn có chắc" khi
+     *     ván đang có thay đổi chưa xuống đĩa. Dialog này là hàng rào cuối cùng:
+     *     nếu người chơi bấm "Ở lại", `luuVan()` chạy nốt; nếu bấm "Rời đi",
+     *     ít nhất visibilitychange đã ghi một lần rồi.
+     *
+     * Không đọc React state: cả hai handler dùng `useGame.getState()` trực tiếp
+     * vì chúng chạy ngoài vòng render và cần giá trị tại thời điểm sự kiện bắn.
+     */
+    useEffect(() => {
+        const onBeforeUnload = (e) => {
+            const s = useGame.getState();
+            if (s.state && s.tickDaLuu !== s.state.world.tick) {
+                void s.luuVan();
+                e.preventDefault();
+            }
+        };
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                const s = useGame.getState();
+                if (s.state)
+                    void s.luuVan();
+            }
+        };
+        window.addEventListener('beforeunload', onBeforeUnload);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            window.removeEventListener('beforeunload', onBeforeUnload);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, []);
     /*
      * Migration hỏng là chuyện phải nói TO và nói TRƯỚC.
      *

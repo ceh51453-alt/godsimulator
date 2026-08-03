@@ -16,15 +16,18 @@ import { chuanHoaSillyTavern, chuanHoaThamSo, docThamSoNguon } from './chuanHoa.
 import { dungDoThi, nhomXungDot, giaiTuDong, suyPhuThuoc } from './xungDot.js';
 import { bienDichPromptPreset, locModuleChoPipeline, TANG_0 } from './bienDich.js';
 import { bocTheLegacy } from './theLegacy.js';
-import { apTransform, lamSachHtml, bienRegex } from './sandbox.js';
+import { apTransform, apPromptTransform, lamSachHtml, bienRegex, taiLieuHtmlCachLy } from './sandbox.js';
+import { docChiThiScene, dungScriptAdapters } from './scriptAdapter.js';
+import { apInPromptRegex, apInPromptRegexMessages } from './adapterMerge.js';
 import { viewGia, sceneGia, TEN_BI_CHE } from './giaLap.js';
 import { nhapPreset, tenPackTuNguon } from './nhap.js';
 import { kichHoat, hoanTac, apActivation, lintTruocKhiBat, diffPack, versionKeTiep, BAC_QUYEN, } from './kichHoat.js';
 import { wizardMoi, napKetQua, manKeTiep, manTruocDo, diToi, baoCaoNhap, MAN_WIZARD } from './wizard.js';
-import { ImportEnvelopeSchema } from './schema.js';
+import { ImportEnvelopeSchema, TransformDefSchema } from './schema.js';
 import { TUNING_MAC_DINH } from '../tuning/schema.js';
 import { ModelProfileSchema } from '../schema/ai.js';
 import { bocTach } from '../ai/bocTach.js';
+import { parseChoice } from '../ai/choice.js';
 import { taoState, taoEventLog, hashState } from '../engine/state.js';
 import { apDungChuoi, apDungEvent } from '../engine/transaction.js';
 import { motTick } from '../engine/tick.js';
@@ -33,6 +36,30 @@ import { moThuGioi, KhoiTaoWorldSchema } from '../world/khoiTao.js';
 import { eventGieoNen } from '../world/gieoNen.js';
 import { napBatBienTheGioiSong } from '../world/batBien.js';
 import { datLaiInvariant } from '../engine/invariant.js';
+describe('regex nội tuyến — chỉ được sửa nội dung preset, không chạm hợp đồng lõi', () => {
+    it('giữ nguyên tuyệt đối message td:* dù preset cố thay thẻ CapNhat', () => {
+        const core = '<CapNhat>{"ops":[]}</CapNhat>';
+        const ketQua = apInPromptRegexMessages([
+            {
+                role: 'system',
+                moduleId: 'pack.regex',
+                lane: 'style',
+                content: '<regex order=2>"/CapNhat/g" : "DaDoi"</regex>\nCapNhat',
+            },
+            { role: 'user', moduleId: 'td:tang5', lane: 'user_input', content: core },
+        ]);
+        expect(ketQua.applied).toBe(1);
+        expect(ketQua.messages[0]?.content).toContain('DaDoi');
+        expect(ketQua.messages[0]?.content).not.toContain('<regex');
+        expect(ketQua.messages[1]?.content).toBe(core);
+    });
+    it('từ chối biểu thức quay lui nguy hiểm và báo chẩn đoán thay vì làm treo game', () => {
+        const ketQua = apInPromptRegex('<regex>"/(a+)+$/g" : "x"</regex>\naaaa');
+        expect(ketQua.applied).toBe(0);
+        expect(ketQua.text.trim()).toBe('aaaa');
+        expect(ketQua.errors.join(' ')).toContain('từ chối');
+    });
+});
 // ─────────────────────────────────────────── fixture
 const THU_MUC = join(process.cwd(), 'src/test/fixtures/preset');
 function docFixture(nhan) {
@@ -139,6 +166,21 @@ describe.each(['A', 'B'])('cổng 1 — fixture %s đúng hash, count và mismat
         expect(tenSau).toEqual(tenGoc.map((t, i) => (t === '' ? (goc.prompts[i]?.identifier ?? '') : t)));
     });
 });
+describe.each(['C', 'D', 'E'])('hồi quy preset người dùng %s (fixture ẩn danh)', (nhan) => {
+    const { meta, text } = docFixture(nhan);
+    const kq = chayNhap(text, `fixture-${nhan}.json`);
+    it('giữ đủ prompt, regex, helper và trạng thái bật nguồn', () => {
+        expect(kq.dungOBuoc).toBe(12);
+        expect(kq.row).not.toBeNull();
+        expect(kq.thongKe?.soPrompt).toBe(meta.counts.prompts);
+        expect(kq.thongKe?.soHieuLucBat).toBe(meta.counts.effectiveEnabled);
+        expect(kq.thongKe?.soRegex).toBe(meta.counts.regexScripts);
+        expect(kq.thongKe?.soRegexBatONguon).toBe(meta.counts.regexSourceEnabled);
+        expect(kq.thongKe?.soHelper).toBe(meta.counts.helperScripts);
+        expect(kq.thongKe?.soHelperBatONguon).toBe(meta.counts.helperSourceEnabled);
+        expect(kq.row?.pack.modules.filter((m) => m.enabled)).toHaveLength(meta.counts.effectiveEnabled);
+    });
+});
 describe('cổng 1 — hai fixture khác nhau và không lẫn vào nhau', () => {
     it('hai pack id khác nhau vì hash khác nhau', () => {
         const a = chayNhap(docFixture('A').text, 'A.json');
@@ -216,7 +258,7 @@ describe('cổng 3 — không script nào chạy', () => {
         const t = kq.row.transformDefs;
         expect(t.length).toBe(21);
         for (const x of t)
-            expect(['sandboxed', 'needs_adapter']).toContain(x.activation);
+            expect(['sandboxed', 'needs_adapter', 'disabled']).toContain(x.activation);
     });
     it('regex có hình dạng quay lui hàm mũ bị từ chối TRƯỚC khi chạy', () => {
         expect(bienRegex('/(a+)+$/')).toBeNull();
@@ -233,7 +275,16 @@ describe('cổng 3 — không script nào chạy', () => {
                 pattern: '/a/g',
                 co: '',
                 thayThe: 'b',
+                placement: [2],
+                runOnEdit: false,
+                trimStrings: [],
+                substituteRegex: 0,
+                minDepth: null,
+                maxDepth: null,
+                markdownOnlyNguon: false,
                 promptOnlyNguon: false,
+                batONguon: true,
+                thuTuNguon: 0,
                 activation: 'sandboxed',
                 lyDo: '',
             },
@@ -255,6 +306,81 @@ describe('cổng 3 — không script nào chạy', () => {
         const sach = lamSachHtml(bẩn);
         expect(sach.html).not.toMatch(/<script|<iframe|<form|onclick=|javascript:/i);
         expect(sach.daBo.length).toBeGreaterThanOrEqual(3);
+    });
+    it('regex giữ đúng placement, depth, promptOnly, markdownOnly và disabled', () => {
+        const rx = (id, pattern, thayThe, extra = {}) => TransformDefSchema.parse({
+            id,
+            packId: 'p',
+            ten: id,
+            pattern,
+            thayThe,
+            activation: 'sandboxed',
+            ...extra,
+        });
+        const ds = [
+            rx('thuong', '/A/g', 'a'),
+            rx('markdown', '/B/g', 'b', { markdownOnlyNguon: true }),
+            rx('prompt', '/C/g', 'c', { promptOnlyNguon: true }),
+            rx('tat', '/D/g', 'd', { batONguon: false, activation: 'disabled' }),
+            rx('sau', '/E/g', 'e', { minDepth: 2 }),
+        ];
+        const display = apTransform({
+            text: 'A B C D E',
+            transforms: ds,
+            maxRegexMs: 20,
+            placement: 2,
+            destination: 'display',
+            depth: 1,
+        });
+        const prompt = apPromptTransform({
+            text: 'A B C D E',
+            transforms: ds,
+            maxRegexMs: 20,
+            placement: 2,
+            depth: 1,
+        });
+        expect(display.text).toBe('a b C D E');
+        expect(prompt.text).toBe('a B c D E');
+    });
+    it('trimStrings chỉ lọc capture group được chèn, không phá HTML thay thế', () => {
+        const t = TransformDefSchema.parse({
+            id: 'trim',
+            packId: 'p',
+            ten: 'trim',
+            pattern: '/(<)(cot)(>)/g',
+            thayThe: '<b>$0|$1$2$3</b>',
+            trimStrings: ['<', '>'],
+            activation: 'sandboxed',
+        });
+        const kq = apTransform({ text: '<cot>', transforms: [t], maxRegexMs: 20 });
+        expect(kq.text).toBe('<b>cot|cot</b>');
+    });
+    it('HTML preset giữ CSS trong iframe nhưng không giữ script, handler hay URL mạng', () => {
+        const kq = taiLieuHtmlCachLy('<style>.x{color:red;background:url(https://x)}</style><div class="x" onclick="x()">ok</div><script>x()</script>');
+        expect(kq.html).toContain('<style>');
+        expect(kq.html).toContain('color:red');
+        expect(kq.html).not.toMatch(/https:\/\/x|onclick=|<script>x/i);
+        expect(kq.html).toContain('Content-Security-Policy');
+    });
+    it('script helper được nhận diện thành adapter native và chỉ thị scene được đọc', () => {
+        const adapters = dungScriptAdapters({
+            packId: 'p',
+            goc: { prompts: [{ name: 'Cảnh chính', identifier: 'scene_main' }] },
+            helperScripts: [
+                {
+                    id: 's1',
+                    name: 'Auto scene switch',
+                    enabled: true,
+                    content: "const map={main:'Cảnh chính'}; const re=/<!--\\s*scene/; updatePresetWith(map);",
+                },
+            ],
+        });
+        expect(adapters).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'scene_switch', batONguon: true })]));
+        expect(docChiThiScene('x<!-- scene main:on side:false -->')).toEqual({ main: true, side: false });
+    });
+    it('parser lựa chọn nhận cả <choice> và <choices> dạng phân cách bằng |', () => {
+        expect(parseChoice('Văn<choices>A | B | C</choices>').luaChon).toEqual(['A', 'B', 'C']);
+        expect(parseChoice('<choice>1. Một\n2) Hai</choice>').luaChon).toEqual(['Một', 'Hai']);
     });
     it('quét an toàn từ chối node có khóa __proto__ và bản đã lọc không còn nó', () => {
         const doc = JSON.parse('{"a":1,"b":{"__proto__":{"x":1},"c":2}}');
@@ -680,11 +806,23 @@ describe('macro — AST, không replace chuỗi (63.5)', () => {
     it('{{trim}} là directive whitespace, không sinh nội dung', () => {
         expect(giaiMacro('  {{trim}} nội dung  ', ctx).text).toBe('nội dung');
     });
-    it('macro không biết giữ nguyên raw và khai needs_adapter', () => {
+    it('macro không biết giữ nguyên raw và báo chẩn đoán mà không làm mất module', () => {
         const kq = giaiMacro('trước {{khong_he_biet::x}} sau', ctx);
         expect(kq.text).toContain('{{khong_he_biet::x}}');
         expect(kq.chuaGiai).toEqual(['khong_he_biet']);
         expect(macroChuaHoTro('{{khong_he_biet}}{{char}}')).toEqual(['khong_he_biet']);
+    });
+    it('hỗ trợ cú pháp roll và macro summon_writer dùng trong preset Ako', () => {
+        const rollA = Number(giaiMacro('{{roll:d100}}', ctx).text);
+        const rollB = Number(giaiMacro('{{roll 1d9}}', ctx).text);
+        expect(rollA).toBeGreaterThanOrEqual(1);
+        expect(rollA).toBeLessThanOrEqual(100);
+        expect(rollB).toBeGreaterThanOrEqual(1);
+        expect(rollB).toBeLessThanOrEqual(9);
+        expect(giaiMacro('{{macro::summon_writer::Văn phong A}}', ctx).text).toBe('Văn phong A');
+    });
+    it('random dạng danh sách dấu phẩy tách thành nhiều lựa chọn', () => {
+        expect(['a', 'b', 'c']).toContain(giaiMacro('{{random::a,b,c}}', ctx).text);
     });
     it('[BB] cycle biến cho ra lỗi CÓ ĐƯỜNG DẪN cycle, không treo', () => {
         const kq = giaiMacro('{{setvar::x::{{getvar::y}}}}{{setvar::y::{{getvar::x}}}}{{getvar::x}}', {
@@ -778,7 +916,7 @@ describe('classifier chỉ gắn nhãn, không tự xóa (64.5)', () => {
     ])('nhận nhãn đúng cho %s', (text, nhan) => {
         expect(phanLoaiNoiDung(text).map((n) => n.nhan)).toContain(nhan);
     });
-    it('ba nhãn vượt quyền dẫn tới cách ly, reasoning dẫn tới tắt', () => {
+    it('nhãn rủi ro được báo nhưng không làm mất prompt đã bật ở nguồn', () => {
         const goc = {
             prompts: [
                 {
@@ -801,12 +939,14 @@ describe('classifier chỉ gắn nhãn, không tự xóa (64.5)', () => {
         };
         const kq = chayNhap(JSON.stringify(goc), 'x.json');
         const mods = kq.row.pack.modules;
-        expect(mods[0]?.activation).toBe('quarantined');
-        expect(mods[1]?.activation).toBe('disabled');
-        // KHÔNG bị xóa — vẫn còn đủ nội dung để export lại.
+        expect(mods[0]?.activation).toBe('adapted');
+        expect(mods[1]?.activation).toBe('adapted');
+        expect(mods[0]?.sourceMeta['nhanRuiRo']).toEqual(expect.arrayContaining(['visibility_override', 'state_write_claim']));
+        expect(mods[1]?.sourceMeta['nhanRuiRo']).toContain('reasoning_request');
+        // Compiler không cấp tool/quyền ghi state; prompt vẫn đủ nội dung để chạy.
         expect(mods[0]?.content).toContain('database');
         for (const m of mods)
-            expect(m.enabled).toBe(false);
+            expect(m.enabled).toBe(true);
     });
     it('nội dung nhạy cảm KHÔNG tự bật chỉ vì source bật', () => {
         const goc = {

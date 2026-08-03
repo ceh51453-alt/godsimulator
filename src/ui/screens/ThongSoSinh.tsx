@@ -164,7 +164,10 @@ function doPresetHienTai(p: GenParams): TenPreset {
     for (const [k, v] of Object.entries(preset)) {
       const hienTai = p[k as TenThamSo];
       if (typeof v === 'number' && typeof hienTai === 'number') {
-        if (Math.abs(hienTai - v) > eps) { khop = false; break; }
+        if (Math.abs(hienTai - v) > eps) {
+          khop = false;
+          break;
+        }
       }
     }
     if (khop) return ten;
@@ -190,7 +193,6 @@ function DongSlider({
   const phanTram = ((giaTri - gh.min) / (gh.max - gh.min)) * 100;
   const laFloat = gh.step < 1;
   const hienThi = laFloat ? giaTri.toFixed(2) : giaTri.toLocaleString();
-
 
   return (
     <div
@@ -231,7 +233,15 @@ function DongSlider({
       />
 
       {/* Hàng 2: slider chiếm toàn bộ */}
-      <div style={{ gridColumn: '1 / -1', position: 'relative', height: 24, display: 'flex', alignItems: 'center' }}>
+      <div
+        style={{
+          gridColumn: '1 / -1',
+          position: 'relative',
+          height: 24,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
         {/* Track nền */}
         <div
           style={{
@@ -283,8 +293,12 @@ function DongSlider({
 
       {/* Hàng 3: min — max labels */}
       <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 10, color: 'var(--mo)' }}>{laFloat ? gh.min.toFixed(2) : gh.min.toLocaleString()}</span>
-        <span style={{ fontSize: 10, color: 'var(--mo)' }}>{laFloat ? gh.max.toFixed(2) : gh.max.toLocaleString()}</span>
+        <span style={{ fontSize: 10, color: 'var(--mo)' }}>
+          {laFloat ? gh.min.toFixed(2) : gh.min.toLocaleString()}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--mo)' }}>
+          {laFloat ? gh.max.toFixed(2) : gh.max.toLocaleString()}
+        </span>
       </div>
     </div>
   );
@@ -413,19 +427,14 @@ export function ThongSoSinh({
             }}
           >
             {THU_TU.map((ten) => (
-              <DongSlider
-                key={ten}
-                ten={ten}
-                giaTri={params[ten] as number}
-                tat={tat}
-                onChange={doiThamSo}
-              />
+              <DongSlider key={ten} ten={ten} giaTri={params[ten] as number} tat={tat} onChange={doiThamSo} />
             ))}
           </div>
 
           {/* Ghi chú */}
           <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--mo)', lineHeight: 1.5 }}>
-            Giới hạn tối đa theo Gemini 3.1 Pro. Chỉnh tay bất kỳ tham số nào sẽ chuyển preset về &quot;Tùy chỉnh&quot;.
+            Giới hạn tối đa theo Gemini 3.1 Pro. Chỉnh tay bất kỳ tham số nào sẽ chuyển preset về &quot;Tùy
+            chỉnh&quot;.
           </p>
         </div>
       )}

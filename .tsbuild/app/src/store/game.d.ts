@@ -29,6 +29,9 @@ export type DongScene = {
     tick: number;
     loai: 'he_thong' | 'nguoi_choi' | 'ket_qua';
     noiDung: string;
+    /** Văn bản trước regex hiển thị, dùng khi dựng lịch sử cho lượt sau. */
+    noiDungGoc?: string;
+    dinhDang?: 'text' | 'html';
 };
 export type TrangThaiGame = {
     state: WorldState | null;
@@ -61,6 +64,8 @@ export type TrangThaiGame = {
      * có quyền biết điều đó thay vì chỉ được đưa cho một chuỗi đã sạch.
      */
     vetVeSinh: readonly string[];
+    /** Lựa chọn hành động từ `<choice>` block trong output AI. Rỗng = không có. */
+    luaChon: readonly string[];
     /** Đang chờ Narrator viết xong. UI khóa ô nhập trong lúc này. */
     dangKe: boolean;
     /**

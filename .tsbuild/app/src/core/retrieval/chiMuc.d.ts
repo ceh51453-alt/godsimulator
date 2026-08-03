@@ -22,4 +22,4 @@ import type { Chunk } from './chunk.js';
  * Hàm thuần: cùng state cho cùng danh sách chunk, cùng thứ tự. Đó là điều kiện
  * để `candidateSetHash` của cache rerank (77.8) có nghĩa.
  */
-export declare function dungChiMuc(s: WorldState): readonly Chunk[];
+export declare function dungChiMuc(s: WorldState, loreQuery?: string): readonly Chunk[];

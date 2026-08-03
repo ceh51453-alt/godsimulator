@@ -211,11 +211,13 @@ export function locModuleChoPipeline(modules, pipeline) {
         });
     }
     giu.sort((a, b) => {
+        // Với module ngoài, `prompt_order` là nguồn chân lý. Lane chỉ làm khóa phụ
+        // cho module không có vị trí nguồn; xếp lane trước sẽ đảo tung preset ST.
+        if (a.order !== b.order)
+            return a.order - b.order;
         const la = LANE_ORDER[a.lane] - LANE_ORDER[b.lane];
         if (la !== 0)
             return la;
-        if (a.order !== b.order)
-            return a.order - b.order;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
     return { giu, bo, issues };

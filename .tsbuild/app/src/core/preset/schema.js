@@ -216,8 +216,17 @@ export const TransformDefSchema = z
     pattern: z.string(),
     co: z.string().prefault(''),
     thayThe: z.string().prefault(''),
-    /** [BB] 64.3 — `promptOnly` KHÔNG được giữ semantics tự động. */
+    /** Vị trí SillyTavern: 1 = user input, 2 = AI output. */
+    placement: z.array(z.number().int()).prefault([2]),
+    runOnEdit: z.boolean().prefault(false),
+    trimStrings: z.array(z.string()).prefault([]),
+    substituteRegex: z.number().int().prefault(0),
+    minDepth: z.number().int().nullable().prefault(null),
+    maxDepth: z.number().int().nullable().prefault(null),
+    markdownOnlyNguon: z.boolean().prefault(false),
     promptOnlyNguon: z.boolean().prefault(false),
+    batONguon: z.boolean().prefault(true),
+    thuTuNguon: z.number().int().prefault(0),
     activation: z.enum(ACTIVATION_STATES),
     lyDo: z.string().prefault(''),
 })
@@ -233,6 +242,25 @@ export const QuarantinedScriptSchema = z
     /** Cờ `enabled` trong FILE NGUỒN — ghi lại, và cố ý không dùng tới. */
     batONguon: z.boolean().prefault(false),
     lyDo: z.string(),
+})
+    .strict();
+export const SCRIPT_ADAPTER_KINDS = ['cot_cleanup', 'prompt_merge', 'scene_switch', 'choice_ui'];
+/**
+ * Bản port khai báo của Tavern Helper script.
+ *
+ * Không chứa và không chạy JavaScript nguồn. Importer chỉ nhận diện một tập tính
+ * năng hữu hạn rồi đưa cấu hình dữ liệu qua runtime native có schema.
+ */
+export const ScriptAdapterDefSchema = z
+    .object({
+    id: z.string(),
+    packId: z.string(),
+    sourceScriptId: z.string(),
+    ten: z.string(),
+    kind: z.enum(SCRIPT_ADAPTER_KINDS),
+    batONguon: z.boolean().prefault(false),
+    config: z.record(z.string(), z.unknown()).prefault({}),
+    lyDo: z.string().prefault(''),
 })
     .strict();
 export const ADAPTER_CAPABILITIES = [
@@ -281,6 +309,7 @@ export const PresetPackRowSchema = z
     pack: NormalizedPresetPackSchema,
     transformDefs: z.array(TransformDefSchema).prefault([]),
     quarantined: z.array(QuarantinedScriptSchema).prefault([]),
+    scriptAdapters: z.array(ScriptAdapterDefSchema).prefault([]),
     thamSo: z.array(ThamSoDaChuanSchema).prefault([]),
 })
     .strict();

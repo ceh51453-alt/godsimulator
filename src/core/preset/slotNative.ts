@@ -45,6 +45,8 @@ export type NguLieuSlot = Readonly<{
   /** [BB] 78.11 — persona ĐÃ CHIẾU, không bao giờ là hồ sơ riêng. */
   moTaPersona?: string;
   tenPersona?: string;
+  /** Lịch sử đã được regex/adapter preset xử lý theo từng vai trò và depth. */
+  lichSuDaDinhDang?: string;
 }>;
 
 const TEN_TANG_TRONG_PROMPT = Object.freeze({
@@ -71,10 +73,12 @@ function tang(prompt: PromptGoi, so: number): string {
  * dùng nội dung module).
  */
 export function dungLoiNative(prompt: PromptGoi, ng: NguLieuSlot = {}): LoiNative {
-  const lichSu = (ng.canhGanDay ?? [])
-    .slice(-8)
-    .map((c) => (c.loai === 'nguoi_choi' ? `Ngươi: ${c.noiDung}` : c.noiDung))
-    .join('\n\n');
+  const lichSu =
+    ng.lichSuDaDinhDang ??
+    (ng.canhGanDay ?? [])
+      .slice(-8)
+      .map((c) => (c.loai === 'nguoi_choi' ? `Ngươi: ${c.noiDung}` : c.noiDung))
+      .join('\n\n');
 
   const slot: Record<string, string> = {
     worldinfobefore: tang(prompt, TEN_TANG_TRONG_PROMPT.BAN_TIN_TRUY_HOI),

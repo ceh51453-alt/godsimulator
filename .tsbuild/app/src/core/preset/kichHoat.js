@@ -16,9 +16,9 @@ export const BAC_CUA_PACK_NGOAI = 6;
 /**
  * Toàn bộ lint/test tĩnh chạy trước khi bật — 65.4 bước 2.
  *
- * Ba nhóm kiểm, và cả ba đều là điều kiện CHẶN chứ không phải cảnh báo:
- * cycle chưa gỡ, nhóm xung đột cần người chọn mà chưa chọn, và module cách ly bị
- * chọn để bật.
+ * Cycle chưa gỡ và module cách ly là điều kiện chặn. Nhóm tác động trùng bên
+ * trong cùng preset được giữ theo `prompt_order` và báo cảnh báo để không phá
+ * thiết kế phối hợp có chủ ý của tác giả.
  */
 export function lintTruocKhiBat(row, chon) {
     const issues = [];
@@ -67,9 +67,10 @@ export function lintTruocKhiBat(row, chon) {
         if (!Object.hasOwn(chon.conflictResolutions, n.khoa)) {
             issues.push({
                 code: 'XUNG_DOT_CHUA_GIAI',
-                severity: 'error',
+                severity: 'warning',
                 path: n.khoa,
-                message: `Nhóm xung đột "${n.khoa}" cần người chọn: ${n.moTa} (${n.moduleIds.length} module).`,
+                message: `Nhóm "${n.khoa}" có ${n.moduleIds.length} module cùng tác động. ` +
+                    'Giữ nguyên cả nhóm theo thứ tự prompt_order của tác giả preset.',
                 details: { moduleIds: n.moduleIds, chienLuoc: n.chienLuoc },
             });
         }

@@ -89,6 +89,10 @@ const HANDLER = /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const URL_CAM =
   /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"|')?\s*(?:javascript|data|vbscript):[^"'\s>]*/gi;
 const STYLE_REMOTE = /\bstyle\s*=\s*(?:"[^"]*url\s*\([^)]*\)[^"]*"|'[^']*url\s*\([^)]*\)[^']*')/gi;
+const BLOCK_CAM = /<\s*(script|iframe|object|embed|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const THE_NGOAI = /<\s*\/?\s*(link|meta|base)\b[^>]*>/gi;
+const URL_MANG = /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const CSS_MANG = /@import\b[^;]*;?|url\s*\([^)]*\)/gi;
 
 export type KetQuaLamSach = {
   readonly html: string;
@@ -120,6 +124,33 @@ export function lamSachHtml(html: string): KetQuaLamSach {
   return { html: ra, daBo };
 }
 
+/**
+ * Dựng tài liệu HTML cho iframe không có quyền script/same-origin.
+ *
+ * Khác `lamSachHtml`, hàm này giữ CSS nội tuyến và thẻ `<style>` vì các preset
+ * Tawa/Ako dùng chúng để dựng bảng, nhưng loại mọi URL mạng, import và handler.
+ */
+export function taiLieuHtmlCachLy(html: string): KetQuaLamSach {
+  const daBo: string[] = [];
+  let ra = html;
+  const bo = (re: RegExp, nhan: string): void => {
+    const truoc = ra;
+    ra = ra.replace(re, '');
+    if (ra !== truoc) daBo.push(nhan);
+  };
+  bo(BLOCK_CAM, 'khối có khả năng thực thi/gửi dữ liệu');
+  bo(THE_NGOAI, 'thẻ tải tài nguyên hoặc đổi base URL');
+  bo(/<\s*\/?\s*(script|iframe|object|embed|form)\b[^>]*>/gi, 'thẻ nguy hiểm');
+  bo(HANDLER, 'thuộc tính bắt sự kiện (on*)');
+  bo(URL_CAM, 'URL có scheme thực thi');
+  bo(URL_MANG, 'thuộc tính URL');
+  bo(CSS_MANG, 'CSS tải tài nguyên ngoài');
+
+  const csp =
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; form-action 'none'; base-uri 'none'";
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;background:transparent;color:#d8d3c5;font:14px/1.6 system-ui,sans-serif}*{box-sizing:border-box}details{margin:.4rem 0}button,input,textarea,select{pointer-events:none}</style></head><body>${ra}</body></html>`;
+  return { html: doc, daBo };
+}
 // ─────────────────────────────────────────── chạy transform
 
 export type KetQuaTransform = {
@@ -145,10 +176,20 @@ export function apTransform(input: {
   readonly maxRegexMs: number;
   readonly daTat?: ReadonlySet<string>;
   readonly dongHo?: () => number;
+  /** 1 = user input, 2 = AI output. */
+  readonly placement?: 1 | 2;
+  readonly destination?: 'display' | 'prompt';
+  /** 0 là tin mới nhất; số lớn hơn là tin cũ hơn trong lịch sử. */
+  readonly depth?: number;
+  /** Macro SillyTavern trong replacement, do tầng store cấp ngữ cảnh an toàn. */
+  readonly thayMacro?: (text: string, transform: TransformDef) => string;
 }): KetQuaTransform {
   const { text, transforms, maxRegexMs } = input;
   const daTat = input.daTat ?? new Set<string>();
   const dongHo = input.dongHo ?? (() => 0);
+  const placement = input.placement ?? 2;
+  const destination = input.destination ?? 'display';
+  const depth = input.depth ?? 0;
 
   const daApDung: string[] = [];
   const daBoQua: { id: string; lyDo: string }[] = [];
@@ -175,12 +216,36 @@ export function apTransform(input: {
   }
 
   for (const t of transforms) {
+    if (!t.batONguon) {
+      daBoQua.push({ id: t.id, lyDo: 'đã tắt trong preset nguồn' });
+      continue;
+    }
     if (daTat.has(t.id)) {
       daBoQua.push({ id: t.id, lyDo: 'đã bị tắt sau một lần chạy quá chậm' });
       continue;
     }
     if (t.activation !== 'sandboxed') {
       daBoQua.push({ id: t.id, lyDo: `trạng thái ${t.activation}` });
+      continue;
+    }
+    if (!t.placement.includes(placement)) {
+      daBoQua.push({ id: t.id, lyDo: `không áp ở placement ${placement}` });
+      continue;
+    }
+    if (t.minDepth !== null && depth < t.minDepth) {
+      daBoQua.push({ id: t.id, lyDo: `depth ${depth} nhỏ hơn minDepth ${t.minDepth}` });
+      continue;
+    }
+    if (t.maxDepth !== null && depth > t.maxDepth) {
+      daBoQua.push({ id: t.id, lyDo: `depth ${depth} lớn hơn maxDepth ${t.maxDepth}` });
+      continue;
+    }
+    if (destination === 'display' && t.promptOnlyNguon && !t.markdownOnlyNguon) {
+      daBoQua.push({ id: t.id, lyDo: 'chỉ áp vào prompt' });
+      continue;
+    }
+    if (destination === 'prompt' && t.markdownOnlyNguon && !t.promptOnlyNguon) {
+      daBoQua.push({ id: t.id, lyDo: 'chỉ áp khi hiển thị' });
       continue;
     }
     const bien = bienRegex(t.pattern);
@@ -199,7 +264,22 @@ export function apTransform(input: {
     const batDau = dongHo();
     let sau: string;
     try {
-      sau = ra.replace(bien.re, t.thayThe);
+      sau = ra.replace(bien.re, (...args: unknown[]) => {
+        const mauThay = t.thayThe.replace(/{{match}}/gi, '$0');
+        const daChenNhom = mauThay.replace(/\$(\d+)|\$<([^>]+)>/g, (_raw, so: string, tenNhom: string) => {
+          const nhom = args.at(-1);
+          const match = so
+            ? args[Number(so)]
+            : nhom !== null && typeof nhom === 'object'
+              ? (nhom as Record<string, unknown>)[tenNhom]
+              : undefined;
+          if (typeof match !== 'string' || match === '') return '';
+          let loc = match;
+          for (const trim of t.trimStrings) loc = loc.split(trim).join('');
+          return loc;
+        });
+        return input.thayMacro?.(daChenNhom, t) ?? daChenNhom;
+      });
     } catch {
       daBoQua.push({ id: t.id, lyDo: 'lỗi khi thay thế' });
       continue;
@@ -226,7 +306,6 @@ export function apTransform(input: {
     daApDung.push(t.id);
   }
 
-
   return { text: ra, daApDung, daBoQua, issues, quaCham };
 }
 
@@ -245,11 +324,12 @@ export function apPromptTransform(input: {
   readonly maxRegexMs: number;
   readonly daTat?: ReadonlySet<string>;
   readonly dongHo?: () => number;
+  readonly placement?: 1 | 2;
+  readonly depth?: number;
 }): KetQuaTransform {
-  // Lọc chỉ lấy transform promptOnly
-  const promptOnly = input.transforms.filter((t) => t.promptOnlyNguon);
-  if (promptOnly.length === 0) {
+  const dungChoPrompt = input.transforms;
+  if (dungChoPrompt.length === 0) {
     return { text: input.text, daApDung: [], daBoQua: [], issues: [], quaCham: [] };
   }
-  return apTransform({ ...input, transforms: promptOnly });
+  return apTransform({ ...input, transforms: dungChoPrompt, destination: 'prompt' });
 }

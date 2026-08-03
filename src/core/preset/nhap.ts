@@ -329,6 +329,7 @@ export function nhapPreset(dv: DauVaoNhap): KetQuaNhap {
     pack: { ...ch.pack, issues },
     transformDefs: ch.transformDefs,
     quarantined: ch.quarantined,
+    scriptAdapters: ch.scriptAdapters,
     thamSo: thamSo.bang,
   });
 

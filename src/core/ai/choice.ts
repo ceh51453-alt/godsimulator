@@ -6,7 +6,7 @@
  * cấu trúc mà UI có thể render thành buttons.
  *
  * Luật:
- * - Mỗi output chỉ có TỐI ĐA một block `<choice>`.
+ * - Nhận cả `<choice>` và `<choices>`.
  * - Block xuất hiện bất kỳ đâu trong output (đầu, giữa, cuối).
  * - Dòng trong block có thể bắt đầu bằng `1.`, `2)`, `3、` hoặc không có số.
  * - Dòng trống bị bỏ qua.
@@ -19,8 +19,8 @@ export type KetQuaChoice = {
   readonly luaChon: readonly string[];
 };
 
-const CHOICE_RE = /<choice>([\s\S]*?)<\/choice>/i;
-const DONG_CO_SO = /^\d+[\.\)、]\s*(.*)/;
+const CHOICE_RE = /<choices?>([\s\S]*?)<\/choices?>/i;
+const DONG_CO_SO = /^\d+[.)、]\s*(.*)/;
 
 /**
  * Parse `<choice>` block từ output AI.
@@ -37,7 +37,7 @@ export function parseChoice(text: string): KetQuaChoice {
 
   // Parse các dòng trong block
   const noiDung = m[1] ?? '';
-  const dong = noiDung.split(/\r?\n/);
+  const dong = noiDung.split(/\r?\n|\s*\|\s*/);
   const luaChon: string[] = [];
 
   for (const d of dong) {

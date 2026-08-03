@@ -48,9 +48,9 @@ export declare const ImportEnvelopeSchema: z.ZodObject<{
     detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
         workflow: "workflow";
         registry: "registry";
+        lorebook: "lorebook";
         generation: "generation";
         prompt: "prompt";
-        lorebook: "lorebook";
         extension: "extension";
     }>>>;
     warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -210,9 +210,9 @@ export declare const NormalizedPresetPackSchema: z.ZodObject<{
         detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
             workflow: "workflow";
             registry: "registry";
+            lorebook: "lorebook";
             generation: "generation";
             prompt: "prompt";
-            lorebook: "lorebook";
             extension: "extension";
         }>>>;
         warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -414,7 +414,16 @@ export declare const TransformDefSchema: z.ZodObject<{
     pattern: z.ZodString;
     co: z.ZodPrefault<z.ZodString>;
     thayThe: z.ZodPrefault<z.ZodString>;
+    placement: z.ZodPrefault<z.ZodArray<z.ZodNumber>>;
+    runOnEdit: z.ZodPrefault<z.ZodBoolean>;
+    trimStrings: z.ZodPrefault<z.ZodArray<z.ZodString>>;
+    substituteRegex: z.ZodPrefault<z.ZodNumber>;
+    minDepth: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
+    maxDepth: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
+    markdownOnlyNguon: z.ZodPrefault<z.ZodBoolean>;
     promptOnlyNguon: z.ZodPrefault<z.ZodBoolean>;
+    batONguon: z.ZodPrefault<z.ZodBoolean>;
+    thuTuNguon: z.ZodPrefault<z.ZodNumber>;
     activation: z.ZodEnum<{
         native: "native";
         adapted: "adapted";
@@ -437,6 +446,30 @@ export declare const QuarantinedScriptSchema: z.ZodObject<{
     lyDo: z.ZodString;
 }, z.core.$strict>;
 export type QuarantinedScript = z.infer<typeof QuarantinedScriptSchema>;
+export declare const SCRIPT_ADAPTER_KINDS: readonly ["cot_cleanup", "prompt_merge", "scene_switch", "choice_ui"];
+export type ScriptAdapterKind = (typeof SCRIPT_ADAPTER_KINDS)[number];
+/**
+ * Bản port khai báo của Tavern Helper script.
+ *
+ * Không chứa và không chạy JavaScript nguồn. Importer chỉ nhận diện một tập tính
+ * năng hữu hạn rồi đưa cấu hình dữ liệu qua runtime native có schema.
+ */
+export declare const ScriptAdapterDefSchema: z.ZodObject<{
+    id: z.ZodString;
+    packId: z.ZodString;
+    sourceScriptId: z.ZodString;
+    ten: z.ZodString;
+    kind: z.ZodEnum<{
+        cot_cleanup: "cot_cleanup";
+        prompt_merge: "prompt_merge";
+        scene_switch: "scene_switch";
+        choice_ui: "choice_ui";
+    }>;
+    batONguon: z.ZodPrefault<z.ZodBoolean>;
+    config: z.ZodPrefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    lyDo: z.ZodPrefault<z.ZodString>;
+}, z.core.$strict>;
+export type ScriptAdapterDef = z.infer<typeof ScriptAdapterDefSchema>;
 export declare const ADAPTER_CAPABILITIES: readonly ["read_compiled_output", "render_isolated_panel", "write_preset_variable", "request_user_action"];
 export type AdapterCapability = (typeof ADAPTER_CAPABILITIES)[number];
 /** 64.2 — muốn hỗ trợ một script thì phải viết adapter, không phải bật nó lên. */
@@ -538,9 +571,9 @@ export declare const PresetPackRowSchema: z.ZodObject<{
             detectedParts: z.ZodPrefault<z.ZodArray<z.ZodEnum<{
                 workflow: "workflow";
                 registry: "registry";
+                lorebook: "lorebook";
                 generation: "generation";
                 prompt: "prompt";
-                lorebook: "lorebook";
                 extension: "extension";
             }>>>;
             warnings: z.ZodPrefault<z.ZodArray<z.ZodObject<{
@@ -660,7 +693,16 @@ export declare const PresetPackRowSchema: z.ZodObject<{
         pattern: z.ZodString;
         co: z.ZodPrefault<z.ZodString>;
         thayThe: z.ZodPrefault<z.ZodString>;
+        placement: z.ZodPrefault<z.ZodArray<z.ZodNumber>>;
+        runOnEdit: z.ZodPrefault<z.ZodBoolean>;
+        trimStrings: z.ZodPrefault<z.ZodArray<z.ZodString>>;
+        substituteRegex: z.ZodPrefault<z.ZodNumber>;
+        minDepth: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
+        maxDepth: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
+        markdownOnlyNguon: z.ZodPrefault<z.ZodBoolean>;
         promptOnlyNguon: z.ZodPrefault<z.ZodBoolean>;
+        batONguon: z.ZodPrefault<z.ZodBoolean>;
+        thuTuNguon: z.ZodPrefault<z.ZodNumber>;
         activation: z.ZodEnum<{
             native: "native";
             adapted: "adapted";
@@ -679,6 +721,21 @@ export declare const PresetPackRowSchema: z.ZodObject<{
         soKyTu: z.ZodNumber;
         batONguon: z.ZodPrefault<z.ZodBoolean>;
         lyDo: z.ZodString;
+    }, z.core.$strict>>>;
+    scriptAdapters: z.ZodPrefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        packId: z.ZodString;
+        sourceScriptId: z.ZodString;
+        ten: z.ZodString;
+        kind: z.ZodEnum<{
+            cot_cleanup: "cot_cleanup";
+            prompt_merge: "prompt_merge";
+            scene_switch: "scene_switch";
+            choice_ui: "choice_ui";
+        }>;
+        batONguon: z.ZodPrefault<z.ZodBoolean>;
+        config: z.ZodPrefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        lyDo: z.ZodPrefault<z.ZodString>;
     }, z.core.$strict>>>;
     thamSo: z.ZodPrefault<z.ZodArray<z.ZodObject<{
         truong: z.ZodString;

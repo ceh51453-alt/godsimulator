@@ -62,6 +62,7 @@ export type NguCanhHopNhat = Readonly<{
   /** [BB] 78.11 — mô tả persona ĐÃ CHIẾU, không bao giờ là `PlayerProfile`. */
   moTaPersona?: string;
   hoTroPrefill?: boolean;
+  lichSuDaDinhDang?: string;
 }>;
 
 export type KetQuaHopNhat = Readonly<{
@@ -136,6 +137,7 @@ export function bienSoanLuot(ng: NguCanhHopNhat): KetQuaHopNhat {
     canhGanDay: ng.nguLieu.canhGanDay,
     moTaPersona: ng.moTaPersona,
     tenPersona: ng.tenPersona,
+    lichSuDaDinhDang: ng.lichSuDaDinhDang,
   });
 
   const compiled = bienDichPromptPreset({

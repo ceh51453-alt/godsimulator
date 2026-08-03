@@ -41,7 +41,7 @@ function tang1(mode) {
     const quyTac = BAY_QUY_TAC_NARRATOR.map((q, i) => `${i + 1}. ${q}`).join('\n');
     const so = LUAT_KHONG_GIU_SO.map((q) => `- ${q}`).join('\n');
     return [
-        'Bạn là người kể chuyện của Thiên Điện, một thế giới thần thoại do một engine mô phỏng giữ sổ.',
+        'Bạn là người kể chuyện của Thiên Diễn, một thế giới thần thoại do một engine mô phỏng giữ sổ.',
         'Viết bằng tiếng Việt. Văn xuôi, không markdown, không tiêu đề, không gạch đầu dòng.',
         'Độ dài: hai tới năm đoạn ngắn.',
         '',
@@ -50,6 +50,11 @@ function tang1(mode) {
         '',
         'ENGINE GIỮ SỔ:',
         so,
+        '',
+        'LIÊN KẾT TỰ SỰ:',
+        '- Mỗi cảnh phải nối mạch từ cảnh trước: nhắc lại ít nhất một chi tiết, nhân vật hoặc sự kiện đã xảy ra trong phần VÀI NHỊP TRƯỚC.',
+        '- Khi người chơi hành động ([Ngươi]), phản hồi phải có hậu quả trực tiếp trong cảnh — không bỏ qua, không diễn đạt lại ý người chơi bằng giọng bình luận.',
+        '- Nhân vật phải phản ứng với những gì đã xảy ra, không kể một cảnh hoàn toàn mới như chưa có gì trước đó.',
         '',
         `Ống kính lượt này đặt ở tầng ${NHAN_TANG[mode]}.`,
         mode === 'sang_the'
@@ -128,7 +133,7 @@ function tang3(view, tenNguoiChoi) {
  * `kyUcMach`, nút thắt chưa gỡ, vai trò nhân vật. Đây là tầng làm nên truyện
  * dài — nó nhớ DIỄN TIẾN, không nhớ trạng thái (30.1).
  */
-function tang4(view, mach, oChoNguoiChoi) {
+function tang4(view, mach, oChoNguoiChoi, tomTatPhien) {
     const dong = [];
     if (mach) {
         dong.push(`MẠCH TRUYỆN ĐANG CHIẾU — "${mach.ten}" (${mach.loai}, giai đoạn ${mach.giaiDoan}):`);
@@ -145,6 +150,16 @@ function tang4(view, mach, oChoNguoiChoi) {
             dong.push('Ống kính lượt này KHÔNG ở chỗ người chơi. Không nhắc tới họ, kể cả gián tiếp. ' +
                 'Đây là chuyện của những người trên.');
         }
+        dong.push('');
+    }
+    else if (tomTatPhien && tomTatPhien.trim() !== '') {
+        /**
+         * Tóm tắt phiên — khi không có mạch truyện đang chiếu, đây là nguồn duy
+         * nhất giúp model nối mạch tự sự. Không có nó thì mỗi lượt là một cảnh
+         * rời, và "nhập vai" trở thành "diễn đạt".
+         */
+        dong.push('DIỄN BIẾN GẦN ĐÂY (tóm tắt từ các cảnh đã kể — dùng để nối mạch, đừng lặp nguyên văn):');
+        dong.push(tomTatPhien.trim());
         dong.push('');
     }
     const ds = [...view.entities.values()];
@@ -175,7 +190,11 @@ function tangTruyHoi(ds) {
         return '';
     const dong = ['ĐIỀU CHỦ THỂ NHỚ HOẶC BIẾT (đã truy hồi theo tiêu điểm):'];
     for (const c of ds) {
-        dong.push(`- ${c.text}${c.daBopMeo ? ' [nghe kể lại, đã sai đi ít nhiều]' : ''}`);
+        const nguon = c.nguon === 'lorebook' ? '[THẦN THOẠI NGUỒN — điểm hút, chưa phải lịch sử đã xảy ra] ' : '';
+        dong.push(`- ${nguon}${c.text}${c.daBopMeo ? ' [nghe kể lại, đã sai đi ít nhiều]' : ''}`);
+    }
+    if (ds.some((c) => c.nguon === 'lorebook')) {
+        dong.push('Nếu một nhân vật, nơi chốn hoặc yếu tố từ THẦN THOẠI NGUỒN bước vào cảnh và chưa có trong Chân Lý Thế Giới, hãy tạo nó bằng <CapNhat>. Không được chỉ nhắc tên rồi để nó biến mất khỏi sổ.');
     }
     return dong.join('\n');
 }
@@ -202,8 +221,10 @@ function tang6(ng) {
     const dong = [];
     if (ng.canhGanDay.length > 0) {
         dong.push('VÀI NHỊP TRƯỚC:');
-        for (const c of ng.canhGanDay.slice(-6))
-            dong.push(`- ${c.noiDung}`);
+        for (const c of ng.canhGanDay.slice(-10)) {
+            const nhan = c.loai === 'nguoi_choi' ? '[Ngươi] ' : c.loai === 'ket_qua' ? '[Kể] ' : '';
+            dong.push(`- ${nhan}${c.noiDung}`);
+        }
         dong.push('');
     }
     const treo = ng.loiCau.filter((p) => !p.daTraLoi).slice(0, 6);
@@ -267,7 +288,7 @@ export function bienSoanPromptKe(ng) {
             so: 4,
             ten: 'Mạch truyện và tầm mắt',
             onDinh: false,
-            noiDung: tang4(ng.view, ng.machDangChieu ?? null, oChoNguoiChoi),
+            noiDung: tang4(ng.view, ng.machDangChieu ?? null, oChoNguoiChoi, ng.tomTatPhien),
         },
         {
             so: 5,

@@ -31,6 +31,7 @@ import { TUNING_MAC_DINH } from '../tuning/schema.js';
 import { RerankCandidateSchema, RerankConfigSchema, doCauHinhRerank } from '../schema/rerank.js';
 import type { RerankCandidate, RetrievalEvalCase } from '../schema/rerank.js';
 import { StorylineSchema } from '../schema/truyen.js';
+import { LorebookSchema } from '../lore/schema.js';
 
 import { ChunkSchema, chunkDuocThay, cuaSoTruot, luongTuHoa, giaiLuongTu, cosine } from './chunk.js';
 import type { Chunk } from './chunk.js';
@@ -173,6 +174,37 @@ describe('[BB] 54.3 — nhãn tầm nhìn gán lúc index', () => {
 // ─────────────────────────────────────────── bộ chỉ mục
 
 describe('bộ chỉ mục — Phần 54.2', () => {
+  it('chỉ đưa entry Lorebook đang bật vào chỉ mục truy hồi', () => {
+    const { state } = theGioi('lorebook-index');
+    const lorebook = LorebookSchema.parse({
+      id: 'lb.minh-nguyet',
+      branchId: state.world.branchId,
+      ten: 'Minh Nguyệt',
+      bat: false,
+      nguon: 'nguoi_dung',
+      entries: [
+        {
+          id: 'entry.thanh-my',
+          ten: 'Thanh My',
+          keys: ['Thanh My', 'Minh Nguyệt'],
+          noiDung: 'Nhân vật: Thanh My\nMột kiếm khách giữ lời thề dưới trăng.',
+          order: 10,
+          doTinCay: 100,
+        },
+      ],
+    });
+    state.lorebooks.set(lorebook.id, lorebook);
+
+    expect(dungChiMuc(state).filter((c) => c.id.startsWith('ck_lore_'))).toHaveLength(0);
+
+    state.lorebooks.set(lorebook.id, { ...lorebook, bat: true });
+    const chunks = dungChiMuc(state).filter((c) => c.id.startsWith('ck_lore_'));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.noiDung).toContain('Thanh My');
+    expect(chunks[0]?.noiDung).toContain('Một kiếm khách');
+    expect(chunks[0]?.meta['lorebookId']).toBe(lorebook.id);
+  });
+
   it('văn bản luật gốc được gán tầng `than`, kẽ hở chưa khai thác gán `sang_the`', () => {
     const { state } = theGioi();
     const ds = dungChiMuc(state);

@@ -46,6 +46,8 @@ export type NguLieuSlot = Readonly<{
     /** [BB] 78.11 — persona ĐÃ CHIẾU, không bao giờ là hồ sơ riêng. */
     moTaPersona?: string;
     tenPersona?: string;
+    /** Lịch sử đã được regex/adapter preset xử lý theo từng vai trò và depth. */
+    lichSuDaDinhDang?: string;
 }>;
 /**
  * Chia prompt native thành lõi + slot.

@@ -27,7 +27,7 @@ import { Lorebook } from './Lorebook.js';
 import { XuongWorkflow } from './XuongWorkflow.js';
 import { nhanNho } from '../design/kieu.js';
 const TAB = [
-    { id: 'proxy', ten: 'Proxy AI', phu: 'Ba điểm cuối, model, thử đường' },
+    { id: 'proxy', ten: 'Proxy AI', phu: 'Ba kênh kết nối, model, kiểm tra' },
     { id: 'preset', ten: 'Preset', phu: 'Nhập, giải xung đột, bật/tắt' },
     { id: 'lorebook', ten: 'Lorebook', phu: 'Sách, đối soát, dị biệt' },
     { id: 'workflow', ten: 'Workflow', phu: 'Đường ống tác vụ và Diễn Hóa' },

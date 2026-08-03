@@ -50,6 +50,13 @@ export type KetQuaLamSach = {
  * này; chuỗi trả về vẫn phải đi qua renderer cô lập của Phase 11.
  */
 export declare function lamSachHtml(html: string): KetQuaLamSach;
+/**
+ * Dựng tài liệu HTML cho iframe không có quyền script/same-origin.
+ *
+ * Khác `lamSachHtml`, hàm này giữ CSS nội tuyến và thẻ `<style>` vì các preset
+ * Tawa/Ako dùng chúng để dựng bảng, nhưng loại mọi URL mạng, import và handler.
+ */
+export declare function taiLieuHtmlCachLy(html: string): KetQuaLamSach;
 export type KetQuaTransform = {
     /** Văn bản sau khi áp. Bằng đầu vào khi transform bị bỏ. */
     readonly text: string;
@@ -75,4 +82,29 @@ export declare function apTransform(input: {
     readonly maxRegexMs: number;
     readonly daTat?: ReadonlySet<string>;
     readonly dongHo?: () => number;
+    /** 1 = user input, 2 = AI output. */
+    readonly placement?: 1 | 2;
+    readonly destination?: 'display' | 'prompt';
+    /** 0 là tin mới nhất; số lớn hơn là tin cũ hơn trong lịch sử. */
+    readonly depth?: number;
+    /** Macro SillyTavern trong replacement, do tầng store cấp ngữ cảnh an toàn. */
+    readonly thayMacro?: (text: string, transform: TransformDef) => string;
+}): KetQuaTransform;
+/**
+ * Áp regex `promptOnly` lên **chuỗi prompt** trước khi gửi AI.
+ *
+ * Cùng bộ bảo vệ sandbox (timeout, chặn pattern, max ký tự) nhưng target là
+ * prompt thay vì output hiển thị. Chỉ chạy transform có `promptOnlyNguon: true`.
+ *
+ * [BB] Ranh giới vẫn giữ: transform chỉ chạy trên chuỗi văn bản đã phẳng hóa,
+ * KHÔNG chạy trên WorldView, PatchOp hay cấu trúc dữ liệu engine.
+ */
+export declare function apPromptTransform(input: {
+    readonly text: string;
+    readonly transforms: readonly TransformDef[];
+    readonly maxRegexMs: number;
+    readonly daTat?: ReadonlySet<string>;
+    readonly dongHo?: () => number;
+    readonly placement?: 1 | 2;
+    readonly depth?: number;
 }): KetQuaTransform;

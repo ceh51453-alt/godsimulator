@@ -11,7 +11,10 @@
  */
 import type { ThienDienDb } from './schema.js';
 import type { HangBienPack, HangUiState } from './schema.js';
+import { PresetPackRowSchema } from '../core/preset/schema.js';
 import type { PresetPackRow, RawSourceRow, PresetActivation } from '../core/preset/schema.js';
+import { chuanHoaSillyTavern } from '../core/preset/chuanHoa.js';
+import { locKhoaNguyHiem } from '../core/preset/anToan.js';
 
 // ─────────────────────────────────────────── thư viện pack
 
@@ -22,14 +25,59 @@ export async function ghiPack(db: ThienDienDb, row: PresetPackRow, raw: RawSourc
   });
 }
 
+/** Dựng bù các trường tương thích mới cho hàng được lưu bởi bản app cũ. */
+async function nangCapRowCu(db: ThienDienDb, row: PresetPackRow): Promise<PresetPackRow | null> {
+  const daMoi =
+    Object.hasOwn(row, 'scriptAdapters') &&
+    Array.isArray(row.transformDefs) &&
+    row.transformDefs.every((t) => Object.hasOwn(t, 'placement'));
+  if (daMoi) {
+    const kq = PresetPackRowSchema.safeParse(row);
+    return kq.success ? kq.data : null;
+  }
+
+  try {
+    const raw = await db.presetRaw.get(row.pack.envelope.rawSourceRef);
+    if (raw === undefined) throw new Error('Không còn raw source');
+    const parsed = JSON.parse(raw.noiDung) as unknown;
+    const sach = locKhoaNguyHiem(parsed);
+    if (sach === null || typeof sach !== 'object' || Array.isArray(sach))
+      throw new Error('Raw source sai dạng');
+    const ch = chuanHoaSillyTavern({
+      goc: sach as Record<string, unknown>,
+      envelope: row.pack.envelope,
+      packId: row.packId,
+      version: row.version,
+    });
+    return PresetPackRowSchema.parse({
+      ...row,
+      pack: {
+        ...ch.pack,
+        issues: row.pack.issues,
+        variables: { ...ch.pack.variables, ...row.pack.variables },
+      },
+      transformDefs: ch.transformDefs,
+      quarantined: ch.quarantined,
+      scriptAdapters: ch.scriptAdapters,
+    });
+  } catch {
+    const kq = PresetPackRowSchema.safeParse(row);
+    return kq.success ? kq.data : null;
+  }
+}
+
 export async function docThuVien(db: ThienDienDb): Promise<PresetPackRow[]> {
   const ds = await db.presetPacks.toArray();
-  return ds.sort((a, b) => (a.packId !== b.packId ? (a.packId < b.packId ? -1 : 1) : b.version - a.version));
+  const nangCap = await Promise.all(ds.map((row) => nangCapRowCu(db, row)));
+  return nangCap
+    .filter((row): row is PresetPackRow => row !== null)
+    .sort((a, b) => (a.packId !== b.packId ? (a.packId < b.packId ? -1 : 1) : b.version - a.version));
 }
 
 export async function docBanMoiNhat(db: ThienDienDb, packId: string): Promise<PresetPackRow | undefined> {
   const ds = await db.presetPacks.where('packId').equals(packId).toArray();
-  return ds.sort((a, b) => b.version - a.version)[0];
+  const nangCap = await Promise.all(ds.map((row) => nangCapRowCu(db, row)));
+  return nangCap.filter((row): row is PresetPackRow => row !== null).sort((a, b) => b.version - a.version)[0];
 }
 
 /**
@@ -106,6 +154,40 @@ export async function docUiState(
   return db.uiState.get([saveId, branchId]);
 }
 
+export type BanVaUiState = Partial<Omit<HangUiState, 'saveId' | 'branchId'>>;
+
+/**
+ * Cập nhật một phần trạng thái giao diện mà không làm mất các phần được ghi bởi
+ * store khác (đặc biệt là `scene`).
+ *
+ * Đọc-và-ghi phải nằm trong cùng một transaction. Nếu hai store tự `get()` rồi
+ * `put()` ở ngoài transaction, lần hoàn tất sau có thể mang theo ảnh chụp cũ và
+ * ghi đè lịch sử chat vừa được lưu.
+ */
+export async function capNhatUiState(
+  db: ThienDienDb,
+  saveId: string,
+  branchId: string,
+  banVa: BanVaUiState,
+): Promise<void> {
+  await db.transaction('rw', db.uiState, async () => {
+    const cu = await db.uiState.get([saveId, branchId]);
+    const hang: HangUiState = {
+      anhBang: null,
+      tabThongTin: 'tong_quan',
+      theoDoiMachIds: [],
+      ghimTongQuan: [],
+      ...cu,
+      ...banVa,
+      // Khóa do đối số quyết định; dữ liệu cũ không được phép đổi đích ghi.
+      saveId,
+      branchId,
+    };
+    await db.uiState.put(hang);
+  });
+}
+
 export async function ghiUiState(db: ThienDienDb, hang: HangUiState): Promise<void> {
-  await db.uiState.put(hang);
+  const { saveId, branchId, ...banVa } = hang;
+  await capNhatUiState(db, saveId, branchId, banVa);
 }

@@ -131,6 +131,9 @@ export function nhapLorebook(input) {
             deQuy: t['excludeRecursion'] === true ? false : t['deQuy'] === true,
             // Đếm token THẬT bằng tyLeToken đã hiệu chỉnh — 35.3.
             uocLuongToken: uocLuong(noiDung, tyLeToken),
+            nhomKichHoat: chuoi(t['nhomKichHoat'] ?? t['group']),
+            giaiDoanMo: so(t['giaiDoanMo'] ?? t['phase'], 0),
+            triHoanHienThuc: t['triHoanHienThuc'] === true || t['deferMaterialization'] === true,
             chuDe: mangChuoi(t['chuDe']),
             doTinCay: input.nguon === 'nguoi_dung' ? 100 : so(t['doTinCay'], 0),
             suKienChongLung: mangChuoi(t['suKienChongLung']),
@@ -174,7 +177,14 @@ export function nhapLorebook(input) {
         thanHe: chuoi(input.goc['thanHe']),
         moTa: chuoi(input.goc['description'] ?? input.goc['moTa']),
         bat: false,
+        uuTien: so(input.goc['uuTien'], 100),
+        lucHapDan: so(input.goc['lucHapDan'], 60),
+        version: chuoi(input.goc['version'], '1.0'),
         nguon: input.nguon,
+        conflictPolicy: chuoi(input.goc['conflictPolicy'], 'song_song'),
+        nhipMoGiaiDoan: so(input.goc['nhipMoGiaiDoan'], 8),
+        soDiemHutMoiLuot: so(input.goc['soDiemHutMoiLuot'], 3),
+        tickBat: null,
         entries,
     });
     return {

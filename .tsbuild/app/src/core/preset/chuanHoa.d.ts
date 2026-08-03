@@ -1,4 +1,4 @@
-import type { ActivationState, GenerationCandidate, ImportEnvelope, ModuleLane, NormalizedPresetPack, QuarantinedScript, ThamSoDaChuan, TransformDef } from './schema.js';
+import type { ActivationState, GenerationCandidate, ImportEnvelope, ModuleLane, NormalizedPresetPack, QuarantinedScript, ScriptAdapterDef, ThamSoDaChuan, TransformDef } from './schema.js';
 import type { ModelProfile } from '../schema/ai.js';
 import type { NormalizedGenParams } from '../schema/ai.js';
 export declare const MARKER_SANG_LANE: Readonly<Record<string, ModuleLane>>;
@@ -8,6 +8,7 @@ export type KetQuaChuanHoa = {
     readonly pack: NormalizedPresetPack;
     readonly transformDefs: readonly TransformDef[];
     readonly quarantined: readonly QuarantinedScript[];
+    readonly scriptAdapters: readonly ScriptAdapterDef[];
     readonly thongKe: ThongKeChuanHoa;
 };
 export type ThongKeChuanHoa = {

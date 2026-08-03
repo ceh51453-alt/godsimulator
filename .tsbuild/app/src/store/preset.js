@@ -25,7 +25,10 @@ import { R } from '../core/registry/index.js';
 import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, giaiMotXungDot, baoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
-import { apTransform } from '../core/preset/sandbox.js';
+import { apTransform, apPromptTransform, bienRegex } from '../core/preset/sandbox.js';
+import { apInPromptRegex, apInPromptRegexMessages, captureFromOutput, replaceTagsInPrompt, } from '../core/preset/adapterMerge.js';
+import { docChiThiScene } from '../core/preset/scriptAdapter.js';
+import { giaiMacro } from '../core/preset/macro.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import { ghiPack, docThuVien, xoaPack, ghiKichHoat, docKichHoatDangChay, goKichHoat, docBienPack, ghiBienPack, } from '../db/preset.js';
 /**
@@ -78,14 +81,74 @@ function doc(o, duong) {
     }
     return cur;
 }
+function rowsDangBat(thuVien, dangBat, thuTuBat) {
+    const viTri = new Map(thuTuBat.map((id, i) => [id, i]));
+    return thuVien
+        .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+        .sort((a, b) => {
+        const va = viTri.get(a.packId) ?? Number.MAX_SAFE_INTEGER;
+        const vb = viTri.get(b.packId) ?? Number.MAX_SAFE_INTEGER;
+        if (va !== vb)
+            return va - vb;
+        const aa = dangBat[a.packId];
+        const ab = dangBat[b.packId];
+        return (aa?.activatedAt ?? 0) - (ab?.activatedAt ?? 0) || a.packId.localeCompare(b.packId);
+    });
+}
+const TRUONG_GEN = [
+    'temperature',
+    'topP',
+    'topK',
+    'topA',
+    'minP',
+    'repetitionPenalty',
+    'presencePenalty',
+    'frequencyPenalty',
+    'maxOutputTokens',
+    'stopSequences',
+    'seed',
+    'continuePrefill',
+    'reasoningEffort',
+    'verbosity',
+];
+function apThongSoPack(thuVien, dangBat, thuTuBat, nen) {
+    const gop = { ...nen };
+    for (const row of rowsDangBat(thuVien, dangBat, thuTuBat)) {
+        const gen = row.pack.generation;
+        if (!gen)
+            continue;
+        for (const k of TRUONG_GEN) {
+            const v = gen[k];
+            if (v !== undefined)
+                gop[k] = v;
+        }
+        if (gen.maxContext !== undefined)
+            gop['contextLimit'] = gen.maxContext;
+    }
+    useAi.getState().suaEndpoint('narrator', { params: gop });
+}
+function paramsNenCua(dangBat, thuTuBat) {
+    for (const id of thuTuBat) {
+        const p = dangBat[id]?.normalizedParams;
+        if (p !== undefined)
+            return { ...p };
+    }
+    const p = Object.values(dangBat)
+        .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
+        .find((a) => a.normalizedParams !== undefined)?.normalizedParams;
+    return { ...(p ?? useAi.getState().cfg.narrator.params) };
+}
 export const usePreset = create((set, get) => ({
     thuVien: [],
     dangBat: {},
+    thuTuBat: [],
     bien: {},
     xungDot: {},
     wizard: wizardMoi(),
     baoCao: null,
     loiBat: [],
+    capturedData: {},
+    regexDaTat: [],
     branchId: '',
     daNap: false,
     async napTuDia(branchId) {
@@ -103,11 +166,16 @@ export const usePreset = create((set, get) => ({
                 dangBat[a.packId] = a;
                 bien[a.packId] = await docBienPack(db, a.packId, branchId);
             }
-            set({ thuVien, dangBat, bien, branchId, daNap: true });
+            const thuTuBat = [...acts]
+                .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
+                .map((a) => a.packId);
+            set({ thuVien, dangBat, thuTuBat, bien, branchId, daNap: true, regexDaTat: [] });
+            if (acts.length > 0)
+                apThongSoPack(thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
         }
         catch {
             // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
-            set({ thuVien: [], dangBat: {}, bien: {}, branchId, daNap: true });
+            set({ thuVien: [], dangBat: {}, thuTuBat: [], bien: {}, branchId, daNap: true, regexDaTat: [] });
         }
     },
     async doiNhanh(branchId) {
@@ -224,9 +292,12 @@ export const usePreset = create((set, get) => ({
             set({ loiBat: kq.issues });
             return false;
         }
+        const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
+        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
+        const activation = { ...kq.activation, normalizedParams: nen };
         if (coIndexedDb()) {
             try {
-                await ghiKichHoat(layDb(), kq.activation);
+                await ghiKichHoat(layDb(), activation);
                 // Biến khởi tạo của pack chỉ được ghi khi CHƯA có bản của nhánh này —
                 // bật lại một pack không được xóa trạng thái người chơi đã tích lũy.
                 const daCo = await docBienPack(layDb(), packId, get().branchId);
@@ -239,16 +310,27 @@ export const usePreset = create((set, get) => ({
             }
         }
         set({
-            dangBat: { ...get().dangBat, [packId]: kq.activation },
+            dangBat: { ...get().dangBat, [packId]: activation },
+            thuTuBat,
             bien: {
                 ...get().bien,
                 [packId]: get().bien[packId] ?? { ...row.pack.variables },
             },
+            capturedData: row.pack.variables['stored_data'] !== null &&
+                typeof row.pack.variables['stored_data'] === 'object' &&
+                !Array.isArray(row.pack.variables['stored_data'])
+                ? { ...get().capturedData, ...row.pack.variables['stored_data'] }
+                : get().capturedData,
             loiBat: [],
         });
+        const dangBatMoi = { ...get().dangBat, [packId]: activation };
+        // Mọi lớp (module, transform, adapter, generation) dùng cùng một thứ tự.
+        set({ dangBat: dangBatMoi, thuTuBat });
+        apThongSoPack(get().thuVien, dangBatMoi, thuTuBat, nen);
         return true;
     },
     async tat(packId) {
+        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
         if (coIndexedDb()) {
             try {
                 await goKichHoat(layDb(), packId, get().branchId);
@@ -259,9 +341,11 @@ export const usePreset = create((set, get) => ({
         }
         const con = { ...get().dangBat };
         delete con[packId];
+        const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
         // [BB] 65.4 — tắt pack trả về prompt native. Biến KHÔNG bị xóa: bật lại thì
         // trạng thái cũ còn đó, và mất nó là mất tiến trình chơi của người dùng.
-        set({ dangBat: con, loiBat: [] });
+        set({ dangBat: con, thuTuBat, loiBat: [] });
+        apThongSoPack(get().thuVien, con, thuTuBat, nen);
     },
     async luiMotBuoc(packId) {
         const act = get().dangBat[packId];
@@ -279,13 +363,17 @@ export const usePreset = create((set, get) => ({
                 return;
             }
             await ghiKichHoat(layDb(), { ...truoc, activatedAt: (act?.activatedAt ?? 0) + 1 });
-            set({ dangBat: { ...get().dangBat, [packId]: truoc } });
+            const dangBat = { ...get().dangBat, [packId]: truoc };
+            const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
+            set({ dangBat, thuTuBat });
+            apThongSoPack(get().thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
         }
         catch {
             /* bỏ qua */
         }
     },
     async xoaKhoiThuVien(packId) {
+        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
         if (coIndexedDb()) {
             try {
                 await xoaPack(layDb(), packId);
@@ -298,27 +386,41 @@ export const usePreset = create((set, get) => ({
         delete con[packId];
         const b = { ...get().bien };
         delete b[packId];
-        set({ thuVien: get().thuVien.filter((r) => r.packId !== packId), dangBat: con, bien: b });
+        const thuVien = get().thuVien.filter((r) => r.packId !== packId);
+        const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
+        set({ thuVien, dangBat: con, thuTuBat, bien: b });
+        apThongSoPack(thuVien, con, thuTuBat, nen);
     },
     packChoLuot() {
         const dangBat = get().dangBat;
         const ra = [];
-        for (const row of get().thuVien) {
+        for (const row of rowsDangBat(get().thuVien, dangBat, get().thuTuBat)) {
             const act = dangBat[row.packId];
             if (act === undefined || act.packVersion !== row.version)
                 continue;
             // Biến của nhánh ghi đè biến khai trong file: file cấp giá trị KHỞI ĐẦU,
             // ván chơi cấp giá trị HIỆN TẠI.
             const bien = { ...row.pack.variables, ...(get().bien[row.packId] ?? {}) };
-            ra.push({ row: { ...row, pack: { ...row.pack, variables: bien } }, activation: act });
+            const override = bien['__module_enabled'];
+            let activation = act;
+            if (override !== null && typeof override === 'object' && !Array.isArray(override)) {
+                const chon = new Set(act.selectedModuleIds);
+                for (const m of row.pack.modules) {
+                    const v = override[m.sourceIdentifier];
+                    if (v === true)
+                        chon.add(m.id);
+                    else if (v === false)
+                        chon.delete(m.id);
+                }
+                activation = { ...act, selectedModuleIds: [...chon] };
+            }
+            ra.push({ row: { ...row, pack: { ...row.pack, variables: bien } }, activation });
         }
         return ra;
     },
     transformDangBat() {
         const ra = [];
-        for (const row of get().thuVien) {
-            if (get().dangBat[row.packId] === undefined)
-                continue;
+        for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
             for (const t of row.transformDefs) {
                 // [BB] 64.1 — chỉ transform đã được đưa về `sandboxed` mới chạy được.
                 if (t.activation === 'sandboxed')
@@ -327,7 +429,7 @@ export const usePreset = create((set, get) => ({
         }
         return ra;
     },
-    hienThi(vanBan) {
+    hienThi(vanBan, ctx = {}) {
         const ds = get().transformDangBat();
         if (ds.length === 0)
             return vanBan;
@@ -338,8 +440,229 @@ export const usePreset = create((set, get) => ({
             transforms: ds,
             maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
             dongHo: () => performance.now(),
+            daTat: new Set(get().regexDaTat),
+            placement: 2,
+            destination: 'display',
+            depth: 0,
+            thayMacro: (text, t) => giaiMacro(text, {
+                char: '',
+                user: ctx.user ?? '',
+                persona: ctx.user ?? '',
+                description: '',
+                lastUserMessage: '',
+                sceneId: ctx.sceneId ?? 'display',
+                moduleId: t.id,
+                turn: ctx.turn ?? 0,
+                maxDepth: TUNING_MAC_DINH.preset.maxMacroDepth,
+                bien: {},
+            }).text,
         });
+        if (kq.quaCham.length > 0 || kq.issues.length > 0) {
+            set({
+                regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
+                loiBat: [...get().loiBat, ...kq.issues].slice(-80),
+            });
+        }
         return kq.text;
+    },
+    transformPrompt(vanBan, placement = 1, depth = 0) {
+        const ds = get().transformDangBat();
+        if (ds.length === 0)
+            return vanBan;
+        const kq = apPromptTransform({
+            text: vanBan,
+            transforms: ds,
+            maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+            dongHo: () => performance.now(),
+            daTat: new Set(get().regexDaTat),
+            placement,
+            depth,
+        });
+        if (kq.quaCham.length > 0 || kq.issues.length > 0) {
+            set({
+                regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
+                loiBat: [...get().loiBat, ...kq.issues].slice(-80),
+            });
+        }
+        return kq.text;
+    },
+    lichSuChoPrompt(canh) {
+        const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) => (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'prompt_merge'));
+        const cfg = adapters.at(-1)?.config ?? {};
+        const h = cfg['chat_history'];
+        const hc = h !== null && typeof h === 'object' && !Array.isArray(h) ? h : {};
+        const userLabel = typeof cfg['user'] === 'string' ? cfg['user'] : 'Người chơi';
+        const assistantLabel = typeof cfg['assistant'] === 'string' ? cfg['assistant'] : 'Trợ lý';
+        const systemLabel = typeof cfg['system'] === 'string' ? cfg['system'] : 'Hệ thống';
+        const userPrefix = typeof hc['user_prefix'] === 'string' ? hc['user_prefix'] : `${userLabel}: `;
+        const userSuffix = typeof hc['user_suffix'] === 'string' ? hc['user_suffix'] : '';
+        const assistantPrefix = typeof hc['assistant_prefix'] === 'string' ? hc['assistant_prefix'] : `${assistantLabel}: `;
+        const assistantSuffix = typeof hc['assistant_suffix'] === 'string' ? hc['assistant_suffix'] : '';
+        const systemPrefix = typeof hc['system_prefix'] === 'string' ? hc['system_prefix'] : `${systemLabel}: `;
+        const systemSuffix = typeof hc['system_suffix'] === 'string' ? hc['system_suffix'] : '';
+        const delimiterCfg = cfg['delimiter'];
+        const delimiter = typeof hc['message_separator'] === 'string'
+            ? hc['message_separator']
+            : delimiterCfg !== null &&
+                typeof delimiterCfg === 'object' &&
+                !Array.isArray(delimiterCfg) &&
+                typeof delimiterCfg['value'] === 'string'
+                ? delimiterCfg['value']
+                : '\n\n';
+        return canh
+            .slice(-20)
+            .map((d, i, all) => {
+            const depth = all.length - 1 - i;
+            const placement = d.loai === 'nguoi_choi' ? 1 : 2;
+            const text = get().transformPrompt(d.noiDung, placement, depth);
+            if (d.loai === 'he_thong')
+                return `${systemPrefix}${text}${systemSuffix}`;
+            return placement === 1
+                ? `${userPrefix}${text}${userSuffix}`
+                : `${assistantPrefix}${text}${assistantSuffix}`;
+        })
+            .join(delimiter);
+    },
+    xuLyOutput(vanBan) {
+        const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) => (row.scriptAdapters ?? []).filter((a) => a.batONguon));
+        let out = vanBan;
+        if (adapters.some((a) => a.kind === 'cot_cleanup')) {
+            out = out.replace(/<(thinking|think|reasoning)>[\s\S]*?<\/\1>/gi, '').trim();
+        }
+        for (const a of adapters.filter((x) => x.kind === 'prompt_merge')) {
+            const stop = a.config['stop_string'];
+            if (typeof stop !== 'string' || stop.trim() === '')
+                continue;
+            const rx = bienRegex(stop);
+            if (rx === null)
+                continue;
+            rx.re.lastIndex = 0;
+            const m = rx.re.exec(out);
+            if (m !== null)
+                out = out.slice(0, m.index);
+        }
+        return out.trim();
+    },
+    apAdapter(vanBan) {
+        // 1. Tag replace — thêm dữ liệu đã capture vào prompt
+        let kq = replaceTagsInPrompt(vanBan, get().capturedData);
+        // 2. In-prompt regex — parse và chạy `<regex>` blocks bên trong prompt
+        const regex = apInPromptRegex(kq, {
+            maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+            dongHo: () => performance.now(),
+        });
+        kq = regex.text;
+        if (regex.errors.length > 0) {
+            set({
+                loiBat: [
+                    ...get().loiBat,
+                    ...regex.errors.map((message) => ({
+                        code: 'IN_PROMPT_REGEX_LOI',
+                        severity: 'warning',
+                        path: 'adapter_merge',
+                        message,
+                        details: {},
+                    })),
+                ].slice(-80),
+            });
+        }
+        return kq;
+    },
+    apAdapterMessages(messages) {
+        const captured = get().capturedData;
+        const daThayTag = messages.map((m) => m.moduleId.startsWith('td:') ? m : { ...m, content: replaceTagsInPrompt(m.content, captured) });
+        const regex = apInPromptRegexMessages(daThayTag, {
+            maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
+            dongHo: () => performance.now(),
+        });
+        if (regex.errors.length > 0) {
+            set({
+                loiBat: [
+                    ...get().loiBat,
+                    ...regex.errors.map((message) => ({
+                        code: 'IN_PROMPT_REGEX_LOI',
+                        severity: 'warning',
+                        path: 'adapter_merge',
+                        message,
+                        details: {},
+                    })),
+                ].slice(-80),
+            });
+        }
+        return regex.messages;
+    },
+    captureOutput(output, tick = 0) {
+        // Lấy capture rules từ biến pack
+        const bien = get().bien;
+        const packBat = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).map((row) => row.packId);
+        const rules = [];
+        for (const packId of packBat) {
+            const packBien = bien[packId] ?? {};
+            const captureRules = packBien['capture_rules'];
+            if (Array.isArray(captureRules)) {
+                for (const r of captureRules) {
+                    if (r && typeof r === 'object' && 'regex' in r && 'tag' in r) {
+                        rules.push(r);
+                    }
+                }
+            }
+        }
+        if (rules.length > 0) {
+            // Kiểm tra công tắc toàn cục
+            let globalEnabled = true;
+            for (const packId of packBat) {
+                const packBien = bien[packId] ?? {};
+                if (packBien['capture_enabled'] === false) {
+                    globalEnabled = false;
+                    break;
+                }
+            }
+            if (globalEnabled) {
+                const { data, changed } = captureFromOutput(output, rules, get().capturedData);
+                if (changed)
+                    set({ capturedData: data });
+            }
+        }
+        const chiThi = docChiThiScene(output);
+        if (Object.keys(chiThi).length === 0)
+            return;
+        const bienMoi = { ...get().bien };
+        let daDoi = false;
+        for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+            const adapters = (row.scriptAdapters ?? []).filter((a) => a.batONguon && a.kind === 'scene_switch');
+            if (adapters.length === 0)
+                continue;
+            const override = {
+                ...(bienMoi[row.packId]?.['__module_enabled'] ?? {}),
+            };
+            let rowDaDoi = false;
+            for (const a of adapters) {
+                const map = a.config['sceneMap'];
+                if (map === null || typeof map !== 'object' || Array.isArray(map))
+                    continue;
+                for (const [key, enabled] of Object.entries(chiThi)) {
+                    const sourceId = map[key];
+                    if (typeof sourceId === 'string') {
+                        override[sourceId] = enabled;
+                        rowDaDoi = true;
+                        daDoi = true;
+                    }
+                }
+            }
+            if (rowDaDoi)
+                bienMoi[row.packId] = { ...(bienMoi[row.packId] ?? {}), __module_enabled: override };
+        }
+        if (!daDoi)
+            return;
+        set({ bien: bienMoi });
+        if (coIndexedDb()) {
+            for (const [packId, vars] of Object.entries(bienMoi)) {
+                if (get().dangBat[packId] !== undefined)
+                    void ghiBienPack(layDb(), packId, get().branchId, vars, tick).catch(() => {
+                        // Biến trong phiên vẫn đúng; lỗi đĩa không được làm hỏng lượt kể.
+                    });
+            }
+        }
     },
     async apBienPack(thayDoi, tick) {
         if (thayDoi.length === 0)

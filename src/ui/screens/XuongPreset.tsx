@@ -283,7 +283,10 @@ export function XuongPreset(): JSX.Element {
                               }}
                             >
                               {m.content.length > 2000
-                                ? m.content.slice(0, 2000) + '\n…(cắt bớt, còn ' + (m.content.length - 2000) + ' ký tự)'
+                                ? m.content.slice(0, 2000) +
+                                  '\n…(cắt bớt, còn ' +
+                                  (m.content.length - 2000) +
+                                  ' ký tự)'
                                 : m.content}
                             </pre>
                           </div>

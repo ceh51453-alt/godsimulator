@@ -1,4 +1,6 @@
 import { ChunkSchema, cuaSoTruot } from './chunk.js';
+import { duocNap } from '../lore/tinCay.js';
+import { giaiDoanLore, renderEjsLore, taoNguCanhEjsLore } from '../lore/ejs.js';
 function doc(e, ten) {
     const a = e.aspects[ten];
     return a === undefined || a === null ? undefined : a;
@@ -44,9 +46,74 @@ function tinhCachThanhLoi(bt) {
  * Hàm thuần: cùng state cho cùng danh sách chunk, cùng thứ tự. Đó là điều kiện
  * để `candidateSetHash` của cache rerank (77.8) có nghĩa.
  */
-export function dungChiMuc(s) {
+export function dungChiMuc(s, loreQuery = '') {
     const nhap = [];
     const branchId = s.world.branchId;
+    // ── Lorebook người dùng: chỉ sách ĐANG BẬT và entry đủ tin cậy mới vào RAG ──
+    // Nguồn này là điểm hút cho Narrator. Nó không tự biến thành Sử; khi một yếu
+    // tố thật sự xuất hiện, Narrator/engine vẫn phải tạo entity/event tương ứng.
+    for (const lbId of [...s.lorebooks.keys()].sort((a, b) => (a < b ? -1 : 1))) {
+        const lb = s.lorebooks.get(lbId);
+        if (!lb?.bat)
+            continue;
+        const giaiDoanHienTai = giaiDoanLore(lb, s.world.tick);
+        const query = loreQuery.trim().toLowerCase();
+        const entries = [...lb.entries].sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        for (const entry of entries) {
+            if (!duocNap(entry))
+                continue;
+            const keys = [...new Set([...entry.keys, ...entry.secondaryKeys].map((x) => x.trim()).filter(Boolean))];
+            const duocGoiDichDanh = query !== '' &&
+                [entry.ten, ...keys].some((key) => {
+                    const k = key.trim().toLowerCase();
+                    return k.length >= 2 && query.includes(k);
+                });
+            if (entry.lop !== 'loi' && entry.giaiDoanMo > giaiDoanHienTai && !duocGoiDichDanh)
+                continue;
+            const daRender = renderEjsLore(entry.noiDung, taoNguCanhEjsLore(s, lb, entry));
+            if (daRender.text === '')
+                continue;
+            const entityIds = new Set(entry.chuDe.filter((id) => s.entities.has(id)));
+            const ten = entry.ten.trim();
+            for (const entity of s.entities.values()) {
+                if ((ten !== '' && entity.ten.toLocaleLowerCase() === ten.toLocaleLowerCase()) ||
+                    keys.some((k) => entity.ten.toLocaleLowerCase() === k.toLocaleLowerCase() ||
+                        entity.aliases.some((a) => a.toLocaleLowerCase() === k.toLocaleLowerCase()))) {
+                    entityIds.add(entity.id);
+                }
+            }
+            nhap.push({
+                id: `ck_lore_${lb.id}_${entry.id}`,
+                nguon: 'lorebook',
+                nguonId: entry.nhomKichHoat === '' ? `${lb.id}:${entry.id}` : `${lb.id}:nhom:${entry.nhomKichHoat}`,
+                noiDung: [
+                    `THẦN THOẠI NGUỒN · ${lb.ten} · ${entry.ten}`,
+                    keys.length > 0 ? `Từ khóa: ${keys.join(', ')}` : '',
+                    daRender.text,
+                ]
+                    .filter((x) => x.trim() !== '')
+                    .join('\n'),
+                tick: 0,
+                entityIds: [...entityIds],
+                trust: Math.max(0, Math.min(1, entry.doTinCay / 100)),
+                tamNhin: { tangToiThieu: 'pham_nhan' },
+                meta: {
+                    lorebookId: lb.id,
+                    entryId: entry.id,
+                    keys,
+                    lop: entry.lop,
+                    order: entry.order,
+                    xacSuat: entry.xacSuat,
+                    lucHapDan: lb.lucHapDan,
+                    nhomKichHoat: entry.nhomKichHoat,
+                    giaiDoanMo: entry.giaiDoanMo,
+                    giaiDoanHienTai,
+                    duocGoiDichDanh,
+                    ejsErrors: daRender.errors,
+                },
+            });
+        }
+    }
     for (const e of moiEntity(s)) {
         // ── Định luật: văn bản gốc + MỖI DIỄN GIẢI MỘT CHUNK RIÊNG (54.2) ──
         const l = doc(e, 'lawful');

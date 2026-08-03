@@ -36,4 +36,14 @@ export declare function goKichHoat(db: ThienDienDb, packId: string, branchId: st
 export declare function docBienPack(db: ThienDienDb, packId: string, branchId: string): Promise<Record<string, unknown>>;
 export declare function ghiBienPack(db: ThienDienDb, packId: string, branchId: string, bien: Record<string, unknown>, tickGhi: number): Promise<void>;
 export declare function docUiState(db: ThienDienDb, saveId: string, branchId: string): Promise<HangUiState | undefined>;
+export type BanVaUiState = Partial<Omit<HangUiState, 'saveId' | 'branchId'>>;
+/**
+ * Cập nhật một phần trạng thái giao diện mà không làm mất các phần được ghi bởi
+ * store khác (đặc biệt là `scene`).
+ *
+ * Đọc-và-ghi phải nằm trong cùng một transaction. Nếu hai store tự `get()` rồi
+ * `put()` ở ngoài transaction, lần hoàn tất sau có thể mang theo ảnh chụp cũ và
+ * ghi đè lịch sử chat vừa được lưu.
+ */
+export declare function capNhatUiState(db: ThienDienDb, saveId: string, branchId: string, banVa: BanVaUiState): Promise<void>;
 export declare function ghiUiState(db: ThienDienDb, hang: HangUiState): Promise<void>;

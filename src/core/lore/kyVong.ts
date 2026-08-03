@@ -24,6 +24,7 @@ import type { Conceptual } from '../schema/aspect/conceptual.js';
 import type { Lawful } from '../schema/aspect/lawful.js';
 import { DiBanSchema, LoreExpectationSchema } from './schema.js';
 import type { DiBan, Lorebook, LoreExpectation, LorebookEntry, TrangThaiKyVong } from './schema.js';
+import { docNeoLore } from './hienThuc.js';
 
 // ─────────────────────────────────────────── trích kỳ vọng
 
@@ -37,6 +38,7 @@ type MauTrich = {
 const rong = (): LoreExpectation['dieuKien'] => ({
   kieu: 'ton_tai_tag',
   kind: '',
+  ten: '',
   tag: '',
   quanHe: '',
   nguong: 0,
@@ -103,10 +105,13 @@ function chuanTag(s: string): string {
  * Dị Biệt, nhưng không kéo thế giới đi đâu cả.
  */
 export function trichKyVong(lorebook: Lorebook, branchId: string): LoreExpectation[] {
+  if (!lorebook.bat) return [];
   const ra: LoreExpectation[] = [];
   for (const e of lorebook.entries) {
     if (e.trangThai !== 'hoat_dong') continue;
+    if (e.triHoanHienThuc) continue;
     let i = 0;
+    const truocEntry = ra.length;
     for (const mau of MAU) {
       const m = mau.re.exec(e.noiDung);
       if (m === null) continue;
@@ -121,6 +126,24 @@ export function trichKyVong(lorebook: Lorebook, branchId: string): LoreExpectati
           dieuKien: mau.dung(m),
           trangThai: 'cho',
           doUuTien: Math.round((lorebook.lucHapDan / 100) * 100),
+        }),
+      );
+    }
+    // Chỉ bổ sung neo tên khi các mẫu khai báo chuyên biệt chưa nhận ra entry;
+    // một vị thần đã có kỳ vọng `ton_tai_kind` không cần thêm bản sao theo tên.
+    const neo = docNeoLore(e);
+    if (neo !== null && ra.length === truocEntry) {
+      ra.push(
+        LoreExpectationSchema.parse({
+          id: `kv.${lorebook.id}.${e.id}.neo`,
+          branchId,
+          lorebookId: lorebook.id,
+          entryId: e.id,
+          loai: 'ton_tai',
+          moTa: `${neo.ten} tồn tại trong thế giới`,
+          dieuKien: { ...rong(), kieu: 'ton_tai_ten', ten: neo.ten },
+          trangThai: 'cho',
+          doUuTien: Math.round(lorebook.lucHapDan),
         }),
       );
     }
@@ -164,6 +187,16 @@ export function aiThoa(dk: LoreExpectation['dieuKien'], s: WorldState): string |
         return e.id;
       }
       return null;
+    }
+    case 'ton_tai_ten': {
+      const ten = dk.ten.trim().toLocaleLowerCase();
+      if (ten === '') return null;
+      const e = sapId(
+        song.filter(
+          (x) => x.ten.toLocaleLowerCase() === ten || x.aliases.some((a) => a.toLocaleLowerCase() === ten),
+        ),
+      )[0];
+      return e?.id ?? null;
     }
     case 'ton_tai_tag': {
       const e = sapId(song.filter((x) => x.tags.includes(dk.tag)))[0];
@@ -232,11 +265,11 @@ export function capNhatKyVong(input: {
     const ai = aiThoa(kv.dieuKien, input.state);
     if (ai !== null) {
       thoaBoi.set(kv.id, ai);
-      ra.push({ ...kv, trangThai: 'da_thoa', lyDoLech: '', tickLech: null });
+      ra.push({ ...kv, trangThai: 'da_thoa', lyDoLech: '', tickLech: null, thoaBoiId: ai });
       continue;
     }
 
-    const cu = thoaBoi.get(kv.id);
+    const cu = kv.thoaBoiId ?? thoaBoi.get(kv.id);
     const keCu = cu === undefined ? undefined : input.state.entities.get(cu);
     const daMat = cu !== undefined && (keCu === undefined || keCu.tickDiet !== null);
 

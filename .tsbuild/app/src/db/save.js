@@ -188,6 +188,18 @@ export async function luuSnapshot(db, state, scopeKey) {
             links: [...state.links.values()],
             gaps: [...state.gaps.values()],
             metrics: state.metrics,
+            // Mười bảng Phase 5 – 10 — trước đây vắng mặt, làm snapshot mất dữ liệu
+            // và hash lệch mỗi lần phục hồi.
+            knowledge: [...state.knowledge.values()],
+            debts: [...state.debts.values()],
+            prayers: [...state.prayers.values()],
+            storylines: [...state.storylines.values()],
+            foreshadows: [...state.foreshadows.values()],
+            substrateLaws: [...state.substrateLaws.values()],
+            coChe: [...state.coChe.values()],
+            lorebooks: [...state.lorebooks.values()],
+            loreExpectations: [...state.loreExpectations.values()],
+            diBan: [...state.diBan.values()],
         },
     };
     await db.snapshots.put(row);
@@ -222,6 +234,57 @@ export function phucHoiTuSnapshot(row) {
             s.gaps.set(p.data.id, p.data);
     }
     s.metrics = WorldMetricsSchema.parse(d.metrics ?? undefined);
+    // Mười bảng Phase 5 – 10. Snapshot cũ trả mảng rỗng — trạng thái hợp lệ.
+    for (const x of d.knowledge ?? []) {
+        const p = KnowledgeRowSchema.safeParse(x);
+        if (p.success)
+            s.knowledge.set(p.data.id, p.data);
+    }
+    for (const x of d.debts ?? []) {
+        const p = DebtRowSchema.safeParse(x);
+        if (p.success)
+            s.debts.set(p.data.id, p.data);
+    }
+    for (const x of d.prayers ?? []) {
+        const p = PrayerSchema.safeParse(x);
+        if (p.success)
+            s.prayers.set(p.data.id, p.data);
+    }
+    for (const x of d.storylines ?? []) {
+        const p = StorylineSchema.safeParse(x);
+        if (p.success)
+            s.storylines.set(p.data.id, p.data);
+    }
+    for (const x of d.foreshadows ?? []) {
+        const p = ForeshadowSchema.safeParse(x);
+        if (p.success)
+            s.foreshadows.set(p.data.id, p.data);
+    }
+    for (const x of d.substrateLaws ?? []) {
+        const p = SubstrateLawSchema.safeParse(x);
+        if (p.success)
+            s.substrateLaws.set(p.data.id, p.data);
+    }
+    for (const x of d.coChe ?? []) {
+        const p = CoCheRowSchema.safeParse(x);
+        if (p.success)
+            s.coChe.set(p.data.id, p.data);
+    }
+    for (const x of d.lorebooks ?? []) {
+        const p = LorebookSchema.safeParse(x);
+        if (p.success)
+            s.lorebooks.set(p.data.id, p.data);
+    }
+    for (const x of d.loreExpectations ?? []) {
+        const p = LoreExpectationSchema.safeParse(x);
+        if (p.success)
+            s.loreExpectations.set(p.data.id, p.data);
+    }
+    for (const x of d.diBan ?? []) {
+        const p = DiBanSchema.safeParse(x);
+        if (p.success)
+            s.diBan.set(p.data.id, p.data);
+    }
     if (hashState(s) !== row.stateHash) {
         return hong([
             loi('persistence', 'SNAPSHOT_HASH_LECH', 'Snapshot bị hỏng: hash không khớp.', { recoverable: false }),

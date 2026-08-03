@@ -20,6 +20,7 @@
 import { create } from 'zustand';
 import { SceneSchema } from '../core/contracts/core.js';
 import { bienSoanLuot } from '../core/preset/hopNhat.js';
+import { parseChoice } from '../core/ai/choice.js';
 import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
 import { packDangBat, usePreset } from './preset.js';
 import { taoState, taoEventLog, hashState } from '../core/engine/state.js';
@@ -56,7 +57,7 @@ import { anhLinhHoaThan, duongDiTiep } from '../core/pham/caiChet.js';
 import { noiOCua } from '../core/pham/lich.js';
 import { bocTach } from '../core/ai/bocTach.js';
 import { bienSoanPromptCapNhat } from '../core/ai/capNhat.js';
-import { nganSachInput } from '../core/ai/nganSach.js';
+import { nganSachInput, uocLuong } from '../core/ai/nganSach.js';
 import { napBatBienTangTruyen } from '../core/world/batBienTruyen.js';
 import { napBatBienPhase10 } from '../core/world/batBienP10.js';
 import { ongKinhMoi, chonMucTieu, apOngKinh, datOngKinh, tieuDiem, ongKinhOChoNguoiChoi, } from '../core/truyen/ongKinh.js';
@@ -72,6 +73,7 @@ import { coIndexedDb, layDb } from '../db/instance.js';
 import { KhoDexie, napState } from '../db/repo.js';
 import { danhSachSave, ghiVan, ghiVanNhe, xoaVan, doiTenVan, nhanMacDinh } from '../db/quanLySave.js';
 import { xuatSave, nhapSave } from '../db/save.js';
+import { capNhatUiState, docUiState } from '../db/preset.js';
 import { veSinh, coVet, moTaVet } from '../core/anToan/veSinh.js';
 import { datTenTruc, luatNenMacDinh } from '../core/vatly/luatNen.js';
 import { quetCoChe } from '../core/vatly/coChe.js';
@@ -81,12 +83,15 @@ import { bienSoanTacVu } from '../core/workflow/bienSoanTacVu.js';
 import { PRESET_WORKFLOW, kiemLanRanh } from '../core/workflow/dungSan.js';
 import { goiTacVuWorkflow } from '../ai/client.js';
 import { nhapLorebook } from '../core/lore/nhap.js';
-import { trichKyVong } from '../core/lore/kyVong.js';
+import { capNhatKyVong, trichKyVong } from '../core/lore/kyVong.js';
+import { vatChatHoaLorebook } from '../core/lore/hienThuc.js';
+import { giaiDoanLore } from '../core/lore/ejs.js';
 import { CauHinhDienHoaSchema, EvolutionLogSchema, baoCaoDienHoa, kiemDieuKienDung, } from '../core/world/dienHoa.js';
 import { useAi } from './ai.js';
 let demIntent = 0;
 let demKe = 0;
 let demQuetCoChe = 0;
+let demLore = 0;
 /**
  * Hàng đợi ghi đĩa — mọi lần `luuVan()` nối đuôi nhau, không chồng nhau.
  *
@@ -95,6 +100,18 @@ let demQuetCoChe = 0;
  * component render lại mỗi lần một lượt ghi bắt đầu hoặc kết thúc.
  */
 let hangDoiLuu = Promise.resolve();
+/**
+ * Ghi scene (lịch sử chat) xuống bảng `uiState`.
+ *
+ * Scene không phải dữ liệu thế giới nên KHÔNG vào `WorldState`/`stateHash`.
+ * Nó nằm cùng bảng với tab, mục ghim, ảnh chụp Bảng: cùng khóa
+ * `[saveId+branchId]`, cùng ranh giới "trạng thái giao diện theo save".
+ */
+async function luuScene(saveId, branchId, scene) {
+    if (!coIndexedDb() || saveId === '')
+        return;
+    await capNhatUiState(layDb(), saveId, branchId, { scene: [...scene] });
+}
 const SEED_MAC_DINH = 'thien-dien-0001';
 /** Chỉ để ghi vào file xuất cho người đọc; không dùng để quyết định gì. */
 const PHIEN_BAN_APP = '3.1.0';
@@ -247,8 +264,8 @@ export const useGame = create((set, get) => {
      * Một ký tự đảo chiều văn bản bị xóa lặng lẽ là một cuộc tấn công không ai
      * biết đã xảy ra.
      */
-    const themDong = (loai, noiDung) => {
-        const sach = veSinh(noiDung);
+    const themDong = (loai, noiDung, meta = {}) => {
+        const sach = veSinh(noiDung, meta.dinhDang === 'html' ? 200_000 : undefined);
         if (sach.text.trim() === '')
             return;
         if (coVet(sach.vet)) {
@@ -256,7 +273,7 @@ export const useGame = create((set, get) => {
         }
         const s = get().state;
         const scene = [...get().scene];
-        scene.push({ id: `d${scene.length}`, tick: s?.world.tick ?? 0, loai, noiDung: sach.text });
+        scene.push({ id: `d${scene.length}`, tick: s?.world.tick ?? 0, loai, noiDung: sach.text, ...meta });
         set({ scene: scene.slice(-200) });
     };
     /**
@@ -328,6 +345,109 @@ export const useGame = create((set, get) => {
             oChoNguoiChoi: ongKinhOChoNguoiChoi(s, chon.mucTieu, s.world.playerState.chuTheId),
         };
     };
+    /** Luân phiên một nhóm neo Lorebook vào truy vấn để sách không chỉ bắn khi người chơi gọi đúng từ khóa. */
+    const goiYLoreChoTruyHoi = (s) => {
+        const muc = [];
+        const lorebooks = [...s.lorebooks.values()]
+            .filter((lb) => lb.bat)
+            .sort((a, b) => b.uuTien - a.uuTien || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        for (const lb of lorebooks) {
+            const phase = giaiDoanLore(lb, s.world.tick);
+            const entries = [...lb.entries]
+                .filter((e) => e.trangThai === 'hoat_dong' && e.doTinCay > 0 && e.lop !== 'loi' && e.giaiDoanMo <= phase)
+                .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+            if (entries.length === 0)
+                continue;
+            const batDau = s.world.tick % entries.length;
+            const xoay = [...entries.slice(batDau), ...entries.slice(0, batDau)].slice(0, lb.soDiemHutMoiLuot);
+            muc.push(...xoay.map((e) => [e.ten, ...e.keys.slice(0, 3)].filter(Boolean).join(' · ')));
+        }
+        if (muc.length === 0)
+            return '';
+        return `Các điểm hút của thần thoại nguồn đang tới lượt được phát triển: ${muc.join('; ')}.`;
+    };
+    /**
+     * Đánh giá kỳ vọng của mọi sách đang bật và ghi kết quả qua Event.
+     * Trả id vừa lệch/bất khả để Smart Stop có dữ liệu thật thay vì một cổng chết.
+     */
+    const capNhatLoreTrongState = (s, log, nhan) => {
+        const dangBat = new Set([...s.lorebooks.values()].filter((lb) => lb.bat).map((lb) => lb.id));
+        const hienTai = [...s.loreExpectations.values()].filter((kv) => dangBat.has(kv.lorebookId));
+        if (hienTai.length === 0)
+            return [];
+        const kq = capNhatKyVong({
+            kyVong: hienTai,
+            state: s,
+            theoDoi: { thoaBoi: new Map(hienTai.flatMap((kv) => (kv.thoaBoiId ? [[kv.id, kv.thoaBoiId]] : []))) },
+            tick: s.world.tick,
+            // `doUuTien` đã mang lực hấp dẫn riêng của sách; không nhân lần thứ hai.
+            lucHapDan: 100,
+            nguyenNhan: { chuTheId: s.world.playerState.chuTheId, eventIds: [], moTa: nhan },
+        });
+        const vuaLech = [];
+        demLore++;
+        const evId = `ev_lore_cap_nhat_${s.world.branchId}_${s.world.tick}_${demLore}`;
+        const patches = [];
+        for (const moi of kq.kyVong) {
+            const cu = s.loreExpectations.get(moi.id);
+            if (!cu)
+                continue;
+            if ((moi.trangThai === 'da_lech' || moi.trangThai === 'bat_kha') && moi.trangThai !== cu.trangThai) {
+                vuaLech.push(moi.id);
+            }
+            const truong = ['trangThai', 'lyDoLech', 'tickLech', 'thoaBoiId'];
+            for (const path of truong) {
+                if (cu[path] === moi[path])
+                    continue;
+                patches.push({
+                    op: 'set',
+                    target: { table: 'loreExpectations', id: moi.id, path },
+                    value: moi[path],
+                    sourceEventId: evId,
+                });
+            }
+        }
+        for (const db of kq.diBanMoi) {
+            if (s.diBan.has(db.id))
+                continue;
+            patches.push({
+                op: 'link',
+                target: { table: 'diBan', id: db.id, path: '' },
+                value: db,
+                sourceEventId: evId,
+            });
+        }
+        for (const gap of kq.gapMoi) {
+            if (s.gaps.has(gap.id))
+                continue;
+            patches.push({
+                op: 'link',
+                target: { table: 'gaps', id: gap.id, path: '' },
+                value: gap,
+                sourceEventId: evId,
+            });
+        }
+        if (patches.length === 0)
+            return vuaLech;
+        const ev = taoEvent({
+            id: evId,
+            branchId: s.world.branchId,
+            tick: s.world.tick,
+            loai: 'cap_nhat_ky_vong_lorebook',
+            actorIds: [],
+            targetIds: [],
+            causeEventIds: [],
+            locationId: null,
+            patches,
+            visibility: 'engine',
+            source: 'engine',
+            payload: { soKyVong: kq.kyVong.length, vuaLech },
+        });
+        const ok = apDungEvent(s, ev, log);
+        if (!ok.ok)
+            set({ loi: [...get().loi, ...ok.errors] });
+        return ok.ok ? vuaLech : [];
+    };
     /**
      * Chạy chuỗi 54.9 cho lượt này.
      *
@@ -335,16 +455,18 @@ export const useGame = create((set, get) => {
      * nào, và đó là trạng thái hợp lệ, không phải lỗi.
      */
     const chayTruyHoi = async (s, view, machId, cauNguoiChoi) => {
-        const chunks = dungChiMuc(s);
-        if (chunks.length === 0)
-            return null;
         const ai = useAi.getState();
         const td = tieuDiem(s, get().ongKinh.dangChieu, s.world.playerState.chuTheId);
-        const tv = dungBaTruyVan(view, {
+        const tvGoc = dungBaTruyVan(view, {
             tieuDiemIds: td,
             loiNguoiChoi: cauNguoiChoi,
             machDangChieuId: machId,
         });
+        const goiYLore = goiYLoreChoTruyHoi(s);
+        const tv = goiYLore === '' ? tvGoc : { ...tvGoc, precedentText: `${tvGoc.precedentText} ${goiYLore}` };
+        const chunks = dungChiMuc(s, `${cauNguoiChoi} ${tv.focusText} ${tv.intentText} ${tv.precedentText}`);
+        if (chunks.length === 0)
+            return null;
         const kq = await truyHoi({
             view,
             chunks,
@@ -403,6 +525,9 @@ export const useGame = create((set, get) => {
         const ok = chieuOngKinh(s);
         const th = await chayTruyHoi(s, view, ok.machId, cauNguoiChoi);
         const treo = phucButDangTreo(s, null).slice(0, 8);
+        // Regex placement=1 chỉ được chạm đúng lời người chơi, không được chạy trên
+        // khối hợp đồng `<CapNhat>` sau khi prompt đã phẳng hóa.
+        const cauNguoiChoiChoPrompt = usePreset.getState().transformPrompt(cauNguoiChoi, 1, 0);
         /*
          * [BB] ADR-0049 — MỘT đường prompt.
          *
@@ -414,14 +539,30 @@ export const useGame = create((set, get) => {
          * lý do preset nhập vào rồi nằm im: pipeline nhập chạy đúng, còn kết quả của
          * nó không có đường nào tới model.
          */
+        /**
+         * Tóm tắt phiên — dựng từ scene history dài hơn `canhGanDay`.
+         *
+         * Khi không có mạch truyện đang chiếu, đây là nguồn duy nhất giúp model
+         * nối mạch tự sự. Nối 20 dòng gần nhất thành một đoạn có nhãn vai trò;
+         * `bienSoan` chỉ dùng nó khi tầng 4 không có mạch nào.
+         */
+        const sceneGanDay = get().scene.slice(-20);
+        const tomTatPhien = sceneGanDay.length > 3
+            ? sceneGanDay
+                .filter((d) => d.loai !== 'he_thong')
+                .map((d) => d.loai === 'nguoi_choi' ? `[Ngươi] ${d.noiDung.slice(0, 150)}` : d.noiDung.slice(0, 200))
+                .join('\n')
+                .slice(0, 1800)
+            : undefined;
         const nguLieu = {
             view,
             banTin: get().banTin,
             loiCau: loiCauCho(s, s.world.playerState.chuTheId, s.world.tick),
             canhGanDay: get()
-                .scene.slice(-6)
+                .scene.slice(-12)
                 .map((d) => ({ loai: d.loai, noiDung: d.noiDung })),
-            cauNguoiChoi,
+            tomTatPhien,
+            cauNguoiChoi: cauNguoiChoiChoPrompt,
             ketQuaEngine,
             tenNguoiChoi: get().persona?.displayName ?? 'Người Chơi',
             tyLeToken: TY_LE_TOKEN,
@@ -445,8 +586,35 @@ export const useGame = create((set, get) => {
             // [BB] 78.11 — persona ĐÃ CHIẾU. `PlayerProfile` không có đường tới đây.
             moTaPersona: get().persona?.publicDescription ?? '',
             hoTroPrefill: useAi.getState().cfg.narrator.probe.xuatCoCauTruc,
+            lichSuDaDinhDang: usePreset
+                .getState()
+                .lichSuChoPrompt(get().scene.map((d) => ({ loai: d.loai, noiDung: d.noiDungGoc ?? d.noiDung }))),
         });
-        const prompt = hopNhat.prompt;
+        /*
+         * Adapter merge chạy trên cấu trúc message, không chạy trên chuỗi đã phẳng.
+         * Module `td:*` là lõi/hợp đồng engine và được giữ byte-for-byte; regex nội
+         * tuyến chỉ có quyền sửa module nhập và các slot mà preset sở hữu.
+         */
+        let prompt = hopNhat.prompt;
+        if (hopNhat.compiled !== null) {
+            const messages = usePreset.getState().apAdapterMessages(hopNhat.compiled.messages);
+            const noi = (role) => messages
+                .filter((m) => m.role === role)
+                .map((m) => m.content)
+                .filter((x) => x.trim() !== '')
+                .join(role === 'assistant' ? '\n' : '\n\n')
+                .trim();
+            const heThong = noi('system');
+            const nguoiDung = noi('user');
+            prompt = Object.freeze({
+                ...hopNhat.prompt,
+                heThong,
+                nguoiDung,
+                moiTraLoi: noi('assistant'),
+                soKyTu: heThong.length + nguoiDung.length,
+                uocToken: uocLuong(`${heThong}${nguoiDung}`, TY_LE_TOKEN),
+            });
+        }
         set({
             vetCatToken: prompt.vetCat.map((v) => ({ tang: v.tang, ten: v.ten, vi: v.vi })),
             presetTrace: {
@@ -482,7 +650,11 @@ export const useGame = create((set, get) => {
         // Patch phục bút phải khai NGUỒN của chính nó, không mượn `evId`: `evId` có
         // thể không bao giờ tồn tại nếu lượt kể này không đổi gì trong thế giới.
         const evPbId = `${evId}_pb`;
-        let kq = bocTach(r.vanBan, {
+        // Script adapter đọc chỉ thị trên output NGUYÊN BẢN trước khi các marker bị
+        // dọn; sau đó bộ xử lý native mới cắt CoT/stop marker để bóc dữ liệu.
+        usePreset.getState().captureOutput(r.vanBan, s.world.tick);
+        const vanBanPreset = usePreset.getState().xuLyOutput(r.vanBan);
+        let kq = bocTach(vanBanPreset, {
             eventId: evId,
             idHopLe: new Set(s.entities.keys()),
             branchId: s.world.branchId,
@@ -517,8 +689,25 @@ export const useGame = create((set, get) => {
          * nào chạm được vào Event, Patch hay `WorldState`. Đây là toàn bộ chỗ regex
          * của preset được phép có mặt trong đường chơi.
          */
-        themDong('ket_qua', usePreset.getState().hienThi(kq.loiKe));
-        set({ patchBiTuChoi: kq.biTuChoi });
+        /*
+         * Parse `<choice>` block trước khi hiển thị.
+         *
+         * Block `<choice>` bị xóa khỏi lời kể; các lựa chọn đi vào state `luaChon`
+         * để UI render thành buttons. Khi user chọn hoặc gõ input mới, `luaChon`
+         * được xóa sạch ở `keLuot()` đầu lượt sau.
+         */
+        const { loiKe: loiKeSach, luaChon: dsLuaChon } = parseChoice(kq.loiKe);
+        const loiKeHienThi = usePreset.getState().hienThi(loiKeSach, {
+            user: get().persona?.displayName ?? 'Người Chơi',
+            sceneId: `scene.${s.world.branchId}.${s.world.tick}`,
+            turn: s.world.tick,
+        });
+        const laHtml = /<(?:style|div|section|article|details|table|h[1-6]|p|span)\b/i.test(loiKeHienThi);
+        themDong('ket_qua', loiKeHienThi, {
+            noiDungGoc: loiKeSach,
+            dinhDang: laHtml ? 'html' : 'text',
+        });
+        set({ patchBiTuChoi: kq.biTuChoi, luaChon: dsLuaChon });
         /*
          * Biến pack — 66.6, tương thích thẻ bài MVU.
          *
@@ -646,6 +835,7 @@ export const useGame = create((set, get) => {
             if (!okNen.ok)
                 set({ loi: [...get().loi, ...okNen.errors] });
         }
+        capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau lượt kể.');
         dongBo();
         /**
          * Tự lưu sau MỖI lượt được kể trọn vẹn — món nợ mở từ Phase 3.
@@ -804,6 +994,19 @@ export const useGame = create((set, get) => {
     const khoiTao = async (hoSo, danhTinh, cua, motCau) => {
         if (!doiCong())
             return;
+        /*
+         * Lưu ván đang chơi TRƯỚC khi ghi đè — sửa lỗi "bắt đầu ván mới = mất ván cũ".
+         *
+         * `khoiTao()` sắp thay thế `state` và `log` bằng thế giới hư vô mới. Nếu
+         * ván hiện tại chưa từng xuống đĩa hoặc có thay đổi từ lần lưu cuối, nó sẽ
+         * mất vĩnh viễn. `await` ở đây là cố ý: ván cũ phải xuống đĩa TRƯỚC khi
+         * state bị ghi đè — fire-and-forget sẽ tạo race với `set({ state })` bên
+         * dưới và người chơi sẽ mất ván y hệt khi `luuVan()` đọc state mới thay
+         * vì state cũ.
+         */
+        if (get().state && coIndexedDb()) {
+            await get().luuVan();
+        }
         const ct = KhoiTaoWorldSchema.parse({
             cua,
             seed: SEED_MAC_DINH,
@@ -866,6 +1069,7 @@ export const useGame = create((set, get) => {
         patchBiTuChoi: [],
         vetVeSinh: [],
         dangKe: false,
+        luaChon: [],
         luotChuaKe: null,
         danhSachVan: [],
         dangLuu: false,
@@ -975,6 +1179,8 @@ export const useGame = create((set, get) => {
             const view = get().view;
             if (!s || !log || !view)
                 return;
+            // Xóa lựa chọn cũ — lượt mới, choices cũ không còn ý nghĩa.
+            set({ luaChon: [] });
             themDong('nguoi_choi', cau);
             demIntent++;
             const intent = parseIntent(cau, {
@@ -1151,6 +1357,10 @@ export const useGame = create((set, get) => {
                 try {
                     const db = layDb();
                     await ghiVan(db, new KhoDexie(db), s, [...log.tatCa()], ten ?? nhanMacDinh(s.world.tick, s.world.playerState.mode));
+                    // Scene phải hoàn tất trước khi `luuVan()` trả về. Nếu chỉ khởi chạy rồi
+                    // bỏ đó, `roiVan()` có thể xóa bộ nhớ và mở lại ván trước khi IndexedDB
+                    // kịp ghi lịch sử chat.
+                    await luuScene(s.world.id, s.world.branchId, get().scene);
                     set({ tickDaLuu: s.world.tick });
                 }
                 catch (e) {
@@ -1181,6 +1391,14 @@ export const useGame = create((set, get) => {
         async tiepTucVan(branchId) {
             if (!coIndexedDb())
                 return false;
+            /*
+             * Lưu ván đang chơi TRƯỚC khi nạp ván khác — cùng lẽ với `khoiTao()`.
+             *
+             * Kịch bản: đang chơi ván A, mở Bản Đồ Nhánh, bấm "Tiếp tục" ván B.
+             * Không lưu ở đây thì mọi thay đổi từ lần autosave cuối bị mất.
+             */
+            if (get().state)
+                await get().luuVan();
             const db = layDb();
             const kho = new KhoDexie(db);
             const r = await napState(kho, branchId);
@@ -1196,11 +1414,22 @@ export const useGame = create((set, get) => {
             const evLuat = eventGieoLuatNen(state);
             if (evLuat)
                 apDungEvent(state, evLuat, log);
+            // ── Phục hồi scene (lịch sử chat) từ đĩa ──
+            let sceneCu = [];
+            try {
+                const ui = await docUiState(db, state.world.id, state.world.branchId);
+                if (ui?.scene && Array.isArray(ui.scene)) {
+                    sceneCu = ui.scene.filter((d) => d && typeof d.noiDung === 'string' && typeof d.loai === 'string');
+                }
+            }
+            catch {
+                // Không đọc được scene cũ thì bắt đầu trắng — phiền, không chết.
+            }
             set({
                 state,
                 log,
                 hoSo: get().hoSo ?? hoSoToiThieu('pf_local', 0),
-                scene: [],
+                scene: sceneCu,
                 loi: [],
                 projects: [],
                 choXacNhan: null,
@@ -1269,6 +1498,16 @@ export const useGame = create((set, get) => {
             return JSON.stringify(x.value, null, 2);
         },
         async nhapVanTuChuoi(noiDung) {
+            /*
+             * Lưu ván đang chơi TRƯỚC khi nhập file — cùng lẽ với `khoiTao()`.
+             *
+             * Kịch bản: đang chơi ván A, nhập file save từ máy khác. Không lưu ở
+             * đây thì ván A mất thay đổi chưa lưu, và lỗi ấy đặc biệt khó phát hiện
+             * vì nhập file không đi qua `roiVan()` — người chơi thấy ván mới hiện ra
+             * và không nghĩ rằng ván cũ vừa bị xóa khỏi bộ nhớ.
+             */
+            if (get().state && coIndexedDb())
+                await get().luuVan();
             let tho;
             try {
                 tho = JSON.parse(noiDung);
@@ -1371,14 +1610,8 @@ export const useGame = create((set, get) => {
                         value: { ...kq.lorebook, branchId: s.world.branchId },
                         sourceEventId: evId,
                     },
-                    // [BB] 35.4 — kỳ vọng trích ra ngay lúc nhập, không đợi tới lúc đối
-                    // soát: một lorebook không có kỳ vọng là một lorebook không đo được.
-                    ...trichKyVong(kq.lorebook, s.world.branchId).map((kv) => ({
-                        op: 'link',
-                        target: { table: 'loreExpectations', id: kv.id, path: '' },
-                        value: kv,
-                        sourceEventId: evId,
-                    })),
+                    // Sách nhập vào mặc định TẮT. Kỳ vọng chỉ được tạo ở `batLorebook()`;
+                    // nếu tạo tại đây thì công tắc tắt chỉ đổi nhãn mà nguồn vẫn tác động.
                 ],
                 visibility: 'engine',
                 source: 'player',
@@ -1405,9 +1638,61 @@ export const useGame = create((set, get) => {
         batLorebook(id, bat) {
             const s = get().state;
             const log = get().log;
-            if (!s || !log || !s.lorebooks.has(id))
+            const lb = s?.lorebooks.get(id);
+            if (!s || !log || !lb || lb.bat === bat)
                 return;
-            const evId = `ev_lore_bat_${id}_${s.world.tick}_${bat ? 1 : 0}`;
+            demLore++;
+            const evId = `ev_lore_bat_${id}_${s.world.tick}_${bat ? 1 : 0}_${demLore}`;
+            const lbMoi = { ...lb, bat, tickBat: bat ? s.world.tick : null };
+            const patches = [
+                {
+                    op: 'flag',
+                    target: { table: 'lorebooks', id, path: 'bat' },
+                    value: bat,
+                    sourceEventId: evId,
+                },
+                {
+                    op: 'set',
+                    target: { table: 'lorebooks', id, path: 'tickBat' },
+                    value: lbMoi.tickBat,
+                    sourceEventId: evId,
+                },
+            ];
+            if (bat) {
+                for (const kv of trichKyVong(lbMoi, s.world.branchId)) {
+                    if (s.loreExpectations.has(kv.id))
+                        continue;
+                    patches.push({
+                        op: 'link',
+                        target: { table: 'loreExpectations', id: kv.id, path: '' },
+                        value: kv,
+                        sourceEventId: evId,
+                    });
+                }
+                for (const entity of vatChatHoaLorebook(lbMoi, s, evId)) {
+                    if (s.entities.has(entity.id))
+                        continue;
+                    patches.push({
+                        op: 'link',
+                        target: { table: 'entities', id: entity.id, path: '' },
+                        value: entity,
+                        sourceEventId: evId,
+                    });
+                }
+            }
+            else {
+                // Tắt là ngừng lực hút: bỏ các kỳ vọng đang theo dõi. Entity đã xuất hiện
+                // là Sử nên được giữ lại, không xóa ngược lịch sử của thế giới.
+                for (const kv of s.loreExpectations.values()) {
+                    if (kv.lorebookId !== id)
+                        continue;
+                    patches.push({
+                        op: 'unlink',
+                        target: { table: 'loreExpectations', id: kv.id, path: '' },
+                        sourceEventId: evId,
+                    });
+                }
+            }
             const ev = taoEvent({
                 id: evId,
                 branchId: s.world.branchId,
@@ -1417,14 +1702,7 @@ export const useGame = create((set, get) => {
                 targetIds: [],
                 causeEventIds: [],
                 locationId: null,
-                patches: [
-                    {
-                        op: 'flag',
-                        target: { table: 'lorebooks', id, path: 'bat' },
-                        value: bat,
-                        sourceEventId: evId,
-                    },
-                ],
+                patches,
                 visibility: 'engine',
                 source: 'player',
                 payload: { id, bat },
@@ -1434,6 +1712,8 @@ export const useGame = create((set, get) => {
                 set({ loi: [...get().loi, ...ok.errors] });
                 return;
             }
+            if (bat)
+                capNhatLoreTrongState(s, log, 'Lorebook vừa được bật và các neo đã được hiện thực hóa.');
             dongBo();
             void get().luuVan();
         },
@@ -1618,6 +1898,7 @@ export const useGame = create((set, get) => {
             let lyDoDung = 'chạy hết số lượt đã đặt';
             try {
                 for (; luot < cauHinh.soLuot; luot++) {
+                    let kyVongVuaLech = [];
                     const buoc = TICK_MOI_NHIP[cauHinh.nhipMoiLuot];
                     for (let i = 0; i < buoc; i++) {
                         const r = motTick(s, { tuning: TUNING_MAC_DINH, tienTrinhNen: chayTienTrinhNen });
@@ -1641,6 +1922,7 @@ export const useGame = create((set, get) => {
                             });
                         }
                     }
+                    kyVongVuaLech = capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau một lượt Diễn Hóa.');
                     /*
                      * Đường ống chạy SAU khi engine đã tua xong lượt này.
                      *
@@ -1667,6 +1949,7 @@ export const useGame = create((set, get) => {
                         luotDaChay: luot + 1,
                         soCall: soCallWorkflow,
                         tokenDaDung: 0,
+                        kyVongVuaLech,
                         realityTruoc: truoc.reality,
                     });
                     if (dung !== null) {

@@ -215,7 +215,7 @@ export const useAi = create((set, get) => {
             themNhatKy({ loai: 'quet', ok: false, ma: r.ma, thongDiep: r.thongDiep, soKyTuVao: 0, soKyTuRa: 0 });
         },
         async thu(ten) {
-            set({ dangDo: true, tinNhan: 'Đang thử đường…' });
+            set({ dangDo: true, tinNhan: 'Đang kiểm tra kết nối…' });
             const r = await thuDuong(get().cfg[ten]);
             const cfg = capNhat(ten, {
                 probe: ProbeResultSchema.parse({
@@ -233,7 +233,7 @@ export const useAi = create((set, get) => {
                 // Thử đường thành công đóng luôn ngắt mạch: người chơi vừa chứng minh
                 // đường đã thông, bắt họ bấm thêm một nút nữa là vô nghĩa.
                 mach: r.thong ? dongMach(get().mach) : get().mach,
-                tinNhan: r.thong ? `Thông. ${NHAN_ENDPOINT[ten]} đã sẵn sàng.` : r.thongDiep,
+                tinNhan: r.thong ? `Kết nối thành công. ${NHAN_ENDPOINT[ten]} đã sẵn sàng.` : r.thongDiep,
             });
             themNhatKy({
                 loai: 'thu',

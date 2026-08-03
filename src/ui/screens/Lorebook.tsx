@@ -24,6 +24,7 @@ import { bangDoiSoat, doiSoatEntry } from '../../core/lore/doiSoat.js';
 import type { EntryCoNguon } from '../../core/lore/doiSoat.js';
 import { banDoDiBiet } from '../../core/lore/kyVong.js';
 import { duocNap } from '../../core/lore/tinCay.js';
+import { giaiDoanLore } from '../../core/lore/ejs.js';
 import type { NguonLorebook, TrangThaiKyVong } from '../../core/lore/schema.js';
 import { nut, nhanNho, the } from '../design/kieu.js';
 
@@ -58,6 +59,7 @@ export function Lorebook(): JSX.Element {
   const bat = useGame((s) => s.batLorebook);
   const oFile = useRef<HTMLInputElement>(null);
   const [tin, setTin] = useState('');
+  const [dangThemDungSan, setDangThemDungSan] = useState(false);
 
   const sach = useMemo(() => (state === null ? [] : [...state.lorebooks.values()]), [state]);
 
@@ -91,7 +93,12 @@ export function Lorebook(): JSX.Element {
 
   const banDo = useMemo(() => {
     if (state === null) return null;
-    return banDoDiBiet([...state.loreExpectations.values()], [...state.diBan.values()], state);
+    const dangBat = new Set([...state.lorebooks.values()].filter((lb) => lb.bat).map((lb) => lb.id));
+    return banDoDiBiet(
+      [...state.loreExpectations.values()].filter((kv) => dangBat.has(kv.lorebookId)),
+      [...state.diBan.values()],
+      state,
+    );
   }, [state]);
 
   if (state === null) {
@@ -125,6 +132,39 @@ export function Lorebook(): JSX.Element {
         phu={`${sach.length} sách trên nhánh này · ${sach.filter((s) => s.bat).length} đang bật`}
       >
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            style={nut(false)}
+            disabled={dangThemDungSan}
+            onClick={() => {
+              if (sach.some((lb) => lb.ten.trim().toLowerCase() === 'thần thoại ấn độ')) {
+                setTin('“Thần thoại Ấn Độ” đã có trong ván này. Bạn chỉ cần bật công tắc của sách.');
+                return;
+              }
+              void (async () => {
+                setDangThemDungSan(true);
+                try {
+                  const url = `${import.meta.env.BASE_URL}lorebooks/than-thoai-an-do.json`;
+                  const response = await fetch(url);
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                  const ok = await nhap(await response.text(), 'Thần thoại Ấn Độ');
+                  setTin(
+                    ok
+                      ? 'Đã thêm “Thần thoại Ấn Độ”. Sách đang tắt; bật khi bạn muốn thế giới bắt đầu chịu lực hút.'
+                      : 'Không thêm được “Thần thoại Ấn Độ” — xem lỗi ở Tự Chẩn Đoán.',
+                  );
+                } catch (error) {
+                  setTin(
+                    `Không đọc được Lorebook dựng sẵn: ${error instanceof Error ? error.message : String(error)}.`,
+                  );
+                } finally {
+                  setDangThemDungSan(false);
+                }
+              })();
+            }}
+          >
+            {dangThemDungSan ? 'Đang thêm…' : 'Thêm Thần thoại Ấn Độ'}
+          </button>
           <button type="button" style={nut(true)} onClick={() => oFile.current?.click()}>
             Nhập lorebook (.json)
           </button>
@@ -158,6 +198,7 @@ export function Lorebook(): JSX.Element {
             {sach.map((lb) => {
               const soNap = lb.entries.filter((e) => duocNap(e)).length;
               const soChe = lb.entries.filter((e) => e.trangThai === 'bi_che').length;
+              const giaiDoan = giaiDoanLore(lb, state.world.tick);
               return (
                 <li key={lb.id} style={{ ...the, display: 'grid', gap: 8 }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -191,6 +232,11 @@ export function Lorebook(): JSX.Element {
                     <span>
                       lực hấp dẫn <b style={{ fontFamily: 'var(--chu-so)' }}>{lb.lucHapDan}</b>
                     </span>
+                    {lb.bat && (
+                      <span>
+                        đang mở lớp <b style={{ fontFamily: 'var(--chu-so)' }}>{Math.min(4, giaiDoan)}</b>/4
+                      </span>
+                    )}
                   </div>
                 </li>
               );

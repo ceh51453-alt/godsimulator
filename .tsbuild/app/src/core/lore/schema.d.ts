@@ -71,6 +71,9 @@ export declare const LorebookEntrySchema: z.ZodObject<{
     deQuy: z.ZodPrefault<z.ZodBoolean>;
     uocLuongToken: z.ZodPrefault<z.ZodNumber>;
     kyVong: z.ZodPrefault<z.ZodArray<z.ZodString>>;
+    nhomKichHoat: z.ZodPrefault<z.ZodString>;
+    giaiDoanMo: z.ZodPrefault<z.ZodNumber>;
+    triHoanHienThuc: z.ZodPrefault<z.ZodBoolean>;
     trangThai: z.ZodPrefault<z.ZodEnum<{
         hoat_dong: "hoat_dong";
         bi_che: "bi_che";
@@ -122,6 +125,9 @@ export declare const LorebookSchema: z.ZodObject<{
         song_song: "song_song";
         tranh_doat: "tranh_doat";
     }>>;
+    nhipMoGiaiDoan: z.ZodPrefault<z.ZodNumber>;
+    soDiemHutMoiLuot: z.ZodPrefault<z.ZodNumber>;
+    tickBat: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
     entries: z.ZodPrefault<z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         ten: z.ZodString;
@@ -145,6 +151,9 @@ export declare const LorebookSchema: z.ZodObject<{
         deQuy: z.ZodPrefault<z.ZodBoolean>;
         uocLuongToken: z.ZodPrefault<z.ZodNumber>;
         kyVong: z.ZodPrefault<z.ZodArray<z.ZodString>>;
+        nhomKichHoat: z.ZodPrefault<z.ZodString>;
+        giaiDoanMo: z.ZodPrefault<z.ZodNumber>;
+        triHoanHienThuc: z.ZodPrefault<z.ZodBoolean>;
         trangThai: z.ZodPrefault<z.ZodEnum<{
             hoat_dong: "hoat_dong";
             bi_che: "bi_che";
@@ -203,12 +212,14 @@ export declare const LoreExpectationSchema: z.ZodObject<{
     dieuKien: z.ZodObject<{
         kieu: z.ZodEnum<{
             ton_tai_kind: "ton_tai_kind";
+            ton_tai_ten: "ton_tai_ten";
             ton_tai_tag: "ton_tai_tag";
             ton_tai_link: "ton_tai_link";
             luat_co_the_tag: "luat_co_the_tag";
             khai_niem_ket_tinh: "khai_niem_ket_tinh";
         }>;
         kind: z.ZodPrefault<z.ZodString>;
+        ten: z.ZodPrefault<z.ZodString>;
         tag: z.ZodPrefault<z.ZodString>;
         quanHe: z.ZodPrefault<z.ZodString>;
         nguong: z.ZodPrefault<z.ZodNumber>;
@@ -223,6 +234,7 @@ export declare const LoreExpectationSchema: z.ZodObject<{
     doUuTien: z.ZodPrefault<z.ZodNumber>;
     lyDoLech: z.ZodPrefault<z.ZodString>;
     tickLech: z.ZodPrefault<z.ZodNullable<z.ZodNumber>>;
+    thoaBoiId: z.ZodPrefault<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
 export type LoreExpectation = z.infer<typeof LoreExpectationSchema>;
 /**

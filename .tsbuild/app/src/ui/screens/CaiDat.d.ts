@@ -1,7 +1,7 @@
 declare const TAB: readonly [{
     readonly id: "proxy";
     readonly ten: "Proxy AI";
-    readonly phu: "Ba điểm cuối, model, thử đường";
+    readonly phu: "Ba kênh kết nối, model, kiểm tra";
 }, {
     readonly id: "preset";
     readonly ten: "Preset";

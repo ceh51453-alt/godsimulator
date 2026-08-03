@@ -73,6 +73,12 @@ export type NguLieuKe = {
         loai: string;
         noiDung: string;
     }[];
+    /**
+     * Tóm tắt diễn biến phiên chơi gần đây — dựng từ scene history dài hơn
+     * `canhGanDay`. Khi không có mạch truyện đang chiếu, đây là nguồn duy nhất
+     * giúp model nối mạch tự sự giữa các lượt.
+     */
+    readonly tomTatPhien?: string;
     /** Câu người chơi vừa gõ; rỗng khi đây là lượt thời gian trôi. */
     readonly cauNguoiChoi: string;
     /**

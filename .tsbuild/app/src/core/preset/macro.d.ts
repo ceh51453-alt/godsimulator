@@ -10,7 +10,7 @@ export type NutMacro = {
     readonly raw: string;
 };
 /** Macro có ánh xạ native — 63.5. Mọi thứ ngoài danh sách này là `needs_adapter`. */
-export declare const MACRO_BIET: readonly ["char", "user", "persona", "description", "lastusermessage", "trim", "newline", "random", "pick", "setvar", "getvar", "addvar", "incvar", "setglobalvar", "getglobalvar", "addglobalvar", "noop"];
+export declare const MACRO_BIET: readonly ["char", "user", "persona", "description", "lastusermessage", "trim", "newline", "random", "pick", "setvar", "getvar", "addvar", "incvar", "setglobalvar", "getglobalvar", "addglobalvar", "noop", "roll", "macro"];
 /**
  * Tách một chuỗi thành cây macro.
  *

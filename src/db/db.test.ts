@@ -38,6 +38,7 @@ import { DEXIE_VERSION_HIEN_TAI } from './schema.js';
 import { luatNenMacDinh } from '../core/vatly/luatNen.js';
 import { LorebookSchema } from '../core/lore/schema.js';
 import { CoCheRowSchema } from '../core/vatly/schema.js';
+import { capNhatUiState, docUiState, ghiUiState } from './preset.js';
 
 let db: ThienDienDb;
 let kho: KhoDexie;
@@ -899,5 +900,38 @@ describe('[BB] Phase 9 + 10 — Dexie v8 thêm bảng mà không đụng save c�
     // Nhập lại đúng file cũ ghi đè chính nó thay vì nhân đôi blob (65.5).
     await db.presetRaw.put({ ref: 'sha256:AB', sourceName: 'x.json', bytes: 2, noiDung: '{}' });
     expect(await db.presetRaw.count()).toBe(1);
+  });
+});
+
+describe('[BB] trạng thái giao diện theo save không được xóa lịch sử chat', () => {
+  it('lưu tab sau scene vẫn giữ nguyên scene', async () => {
+    const scene = [{ id: 'd0', tick: 10, loai: 'ket_qua', noiDung: 'Lời kể cũ.' }];
+    await capNhatUiState(db, 'w1', GOC, { scene });
+
+    await ghiUiState(db, {
+      saveId: 'w1',
+      branchId: GOC,
+      anhBang: null,
+      tabThongTin: 'nhan_vat',
+      theoDoiMachIds: ['mach-1'],
+      ghimTongQuan: [],
+    });
+
+    const daLuu = await docUiState(db, 'w1', GOC);
+    expect(daLuu?.scene).toEqual(scene);
+    expect(daLuu?.tabThongTin).toBe('nhan_vat');
+  });
+
+  it('hai bản vá nối tiếp chỉ đổi phần của mình', async () => {
+    await Promise.all([
+      capNhatUiState(db, 'w1', GOC, {
+        scene: [{ id: 'd0', tick: 10, loai: 'nguoi_choi', noiDung: 'Ta lên đường.' }],
+      }),
+      capNhatUiState(db, 'w1', GOC, { ghimTongQuan: ['place-1'] }),
+    ]);
+
+    const daLuu = await docUiState(db, 'w1', GOC);
+    expect(daLuu?.scene).toHaveLength(1);
+    expect(daLuu?.ghimTongQuan).toEqual(['place-1']);
   });
 });

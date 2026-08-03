@@ -138,12 +138,15 @@ export function thieuGiOEndpoint(ep) {
         ra.push({ truong: 'modelId', thongDiep: 'Chưa chọn model. Quét danh sách rồi chọn một cái.' });
     }
     if (!ep.probe.daDo) {
-        ra.push({ truong: 'probe', thongDiep: 'Chưa thử đường. Bấm "Thử đường" để chắc là model trả lời được.' });
+        ra.push({
+            truong: 'probe',
+            thongDiep: 'Chưa kiểm tra kết nối. Bấm "Kiểm tra kết nối" để chắc là model trả lời được.',
+        });
     }
     else if (!ep.probe.thong) {
         ra.push({
             truong: 'probe',
-            thongDiep: ep.probe.thongDiep.trim() === '' ? 'Lần thử gần nhất không thông.' : ep.probe.thongDiep,
+            thongDiep: ep.probe.thongDiep.trim() === '' ? 'Lần kiểm tra gần nhất không thành công.' : ep.probe.thongDiep,
         });
     }
     return ra;

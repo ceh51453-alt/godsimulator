@@ -60,6 +60,7 @@ export function bienSoanLuot(ng) {
         canhGanDay: ng.nguLieu.canhGanDay,
         moTaPersona: ng.moTaPersona,
         tenPersona: ng.tenPersona,
+        lichSuDaDinhDang: ng.lichSuDaDinhDang,
     });
     const compiled = bienDichPromptPreset({
         pack,

@@ -2,12 +2,15 @@ import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wiza
 import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
+import type { CapturedData, PromptMessageLike } from '../core/preset/adapterMerge.js';
 import type { ImportIssue } from '../core/contracts/primitives.js';
 export type TrangThaiPreset = {
     /** Mọi bản đã nhập, mới nhất trước. */
     thuVien: readonly PresetPackRow[];
     /** Activation đang chạy trên nhánh hiện tại, khóa theo `packId`. */
     dangBat: Readonly<Record<string, PresetActivation>>;
+    /** Thứ tự chồng pack, cũ trước mới sau. */
+    thuTuBat: readonly string[];
     /** Biến của từng pack trên nhánh hiện tại. */
     bien: Readonly<Record<string, Record<string, unknown>>>;
     wizard: TrangThaiWizard;
@@ -24,6 +27,10 @@ export type TrangThaiPreset = {
     baoCao: BaoCaoNhap | null;
     /** Lỗi lint của lần bấm "Bật" gần nhất — hiện tại chỗ, không nuốt. */
     loiBat: readonly ImportIssue[];
+    /** Dữ liệu đã capture từ output AI bởi adapter kemini_noass. */
+    capturedData: CapturedData;
+    /** Regex nguồn đã vượt trần trong phiên; không chạy lại cho tới khi nạp lại. */
+    regexDaTat: readonly string[];
     branchId: string;
     daNap: boolean;
     napTuDia(branchId: string): Promise<void>;
@@ -47,7 +54,26 @@ export type TrangThaiPreset = {
     /** Transform hiển thị của các pack đang bật — 64.3, chạy trên BẢN SAO. */
     transformDangBat(): readonly TransformDef[];
     /** Áp transform lên một dòng văn để hiển thị. Không đụng dữ liệu gốc. */
-    hienThi(vanBan: string): string;
+    hienThi(vanBan: string, ctx?: {
+        user?: string;
+        sceneId?: string;
+        turn?: number;
+    }): string;
+    /** Áp regex promptOnly lên chuỗi prompt trước khi gửi AI. */
+    transformPrompt(vanBan: string, placement?: 1 | 2, depth?: number): string;
+    /** Dựng slot chatHistory theo adapter merge của preset đang bật. */
+    lichSuChoPrompt(canh: readonly {
+        loai: string;
+        noiDung: string;
+    }[]): string;
+    /** Port phần dọn output/stop marker của helper script đang bật. */
+    xuLyOutput(vanBan: string): string;
+    /** Áp adapter merge: in-prompt regex + tag replace. */
+    apAdapter(vanBan: string): string;
+    /** Áp adapter lên module nhập, giữ nguyên mọi message `td:*` của engine. */
+    apAdapterMessages(messages: readonly PromptMessageLike[]): readonly PromptMessageLike[];
+    /** Bắt dữ liệu từ output AI theo capture rules của preset. */
+    captureOutput(output: string, tick?: number): void;
     /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
     apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<void>;
 };

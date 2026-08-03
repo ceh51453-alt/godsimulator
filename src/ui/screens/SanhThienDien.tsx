@@ -37,6 +37,7 @@ import type { DivineIdentity, DomainState } from '../../core/schema/aspect/thanV
 import type { Venerable } from '../../core/schema/aspect/divine.js';
 import { CACH_DAP_DI_HOA } from '../../core/schema/aspect/thanVi.js';
 import LuaChon from '../components/LuaChon.js';
+import { NoiDungPreset } from '../components/NoiDungPreset.js';
 
 const TEN_TANG: Record<ViewMode, string> = {
   sang_the: 'Sáng Thế Thần',
@@ -519,7 +520,7 @@ export function SanhThienDien(): JSX.Element | null {
 
         {khoi === 'canh' &&
           scene.map((d) => (
-            <p
+            <div
               key={d.id}
               style={{
                 margin: '0 0 12px',
@@ -536,8 +537,8 @@ export function SanhThienDien(): JSX.Element | null {
                 paddingLeft: d.loai === 'nguoi_choi' ? 12 : 0,
               }}
             >
-              {d.noiDung}
-            </p>
+              {d.dinhDang === 'html' ? <NoiDungPreset html={d.noiDung} /> : d.noiDung}
+            </div>
           ))}
 
         {khoi === 'lanh_dia' &&
@@ -668,10 +669,16 @@ export function SanhThienDien(): JSX.Element | null {
               </div>
             )}
             <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
-              <button style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => void tick(1)}>
+              <button
+                style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => void tick(1)}
+              >
                 <Icon ten="nhip" co={14} /> Trôi 1 nhịp
               </button>
-              <button style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => void tick(30)}>
+              <button
+                style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => void tick(30)}
+              >
                 <Icon ten="ban_do" co={14} /> Trôi 30 nhịp
               </button>
             </div>

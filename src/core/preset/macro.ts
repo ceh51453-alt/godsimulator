@@ -10,7 +10,7 @@
  *
  * ── Ba luật của file này ──
  *
- * 1. Macro không biết thì **giữ nguyên raw** và khai `needs_adapter`. Không đoán.
+ * 1. Macro không biết thì **giữ nguyên raw** và ghi cảnh báo. Không làm tắt cả module.
  * 2. Biến nằm trong namespace `preset.<packId>` — [BB] không chạm World.
  * 3. `{{random::…}}` seeded theo `sceneId + moduleId + turn`, không `Math.random`.
  */
@@ -48,6 +48,8 @@ export const MACRO_BIET = [
   'getglobalvar',
   'addglobalvar',
   'noop',
+  'roll',
+  'macro',
 ] as const;
 
 const BIET = new Set<string>(MACRO_BIET);
@@ -126,7 +128,13 @@ function dungNutMacro(than: string, raw: string): NutMacro {
     return { loai: 'macro', ten: 'noop', doiSo: [], raw };
   }
   const phan = tachTheoHaiHaiCham(than);
-  const ten = (phan[0] ?? '').trim().toLowerCase();
+  let ten = (phan[0] ?? '').trim().toLowerCase();
+  // SillyTavern chấp nhận cả {{roll:d100}} và {{roll 1d9}}.
+  const roll = /^roll(?:\s+|:)(.+)$/i.exec(ten);
+  if (roll !== null) {
+    ten = 'roll';
+    phan.splice(1, 0, roll[1] ?? '');
+  }
   const doiSo = phan.slice(1).map((p) => docMacro(p));
   return { loai: 'macro', ten, doiSo, raw };
 }
@@ -295,11 +303,37 @@ export function giaiMacro(text: string, ctx: NguCanhMacro): KetQuaGiai {
 
       case 'random':
       case 'pick': {
-        const lua = n.doiSo.map((_, i) => doiSoThanhChuoi(n, i, sau + 1, dangGiai));
+        let lua = n.doiSo.map((_, i) => doiSoThanhChuoi(n, i, sau + 1, dangGiai));
+        if (lua.length === 1 && lua[0]?.includes(',')) lua = lua[0].split(',').map((s) => s.trim());
         if (lua.length === 0) return '';
         // [BB] Seeded theo scene + module + turn + số thứ tự lần rút trong module.
         const rng = taoRng(`${ctx.sceneId}#${ctx.moduleId}#${ctx.turn}#${demRandom++}`);
         return lua[rng.nguyen(lua.length)] ?? '';
+      }
+
+      case 'roll': {
+        const raw = doiSoThanhChuoi(n, 0, sau + 1, dangGiai)
+          .trim()
+          .toLowerCase();
+        const xucXac = /^(?:(\d+)d)?(\d+)(?:\s*([+-])\s*(\d+))?$/.exec(raw.replace(/^d/, '1d'));
+        if (xucXac === null) return n.raw;
+        const soVien = Math.max(1, Math.min(100, Number(xucXac[1] ?? 1)));
+        const soMat = Math.max(1, Math.min(1_000_000, Number(xucXac[2] ?? 1)));
+        const bu = Number(xucXac[4] ?? 0) * (xucXac[3] === '-' ? -1 : 1);
+        const rng = taoRng(`${ctx.sceneId}#${ctx.moduleId}#${ctx.turn}#roll#${demRandom++}`);
+        let tong = bu;
+        for (let i = 0; i < soVien; i++) tong += rng.nguyen(soMat) + 1;
+        return String(tong);
+      }
+
+      case 'macro': {
+        // {{macro::summon_writer::Tên}} là macro mở rộng dùng trong Ako. Runtime
+        // không triệu hồi agent/script; nội dung phong cách vẫn được giữ trong prompt.
+        const loai = doiSoThanhChuoi(n, 0, sau + 1, dangGiai)
+          .trim()
+          .toLowerCase();
+        if (loai === 'summon_writer') return doiSoThanhChuoi(n, 1, sau + 1, dangGiai);
+        return n.raw;
       }
 
       case 'setvar': {

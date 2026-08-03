@@ -36,20 +36,20 @@ export function ChanDoan() {
             ten: 'Cổng AI',
             gia: NHAN_TRANG_THAI_CONG[cong.trangThai],
             hong: !cong.choPhepChoi,
-            lam: 'Mở Cài Đặt AI, điền proxy và model, rồi bấm "Thử đường".',
+            lam: 'Mở Cài Đặt AI, điền proxy và model, rồi bấm "Kiểm tra kết nối".',
         },
         {
             ten: 'Tỉ lệ gọi hỏng',
             gia: `${Math.round(tyLeHong * 100)}%`,
             hong: tyLeHong > 0.15,
-            lam: 'Đường mạng hoặc proxy đang chập chờn. Thử đường lại, hoặc đổi endpoint dự phòng.',
+            lam: 'Mạng hoặc proxy không ổn định. Hãy kiểm tra kết nối, hoặc chuyển sang endpoint dự phòng.',
         },
         {
             // Mục 27 của bảng 46.2 — hỏng khi vượt 15%.
             ten: 'Patch AI bị từ chối ở lượt gần nhất',
             gia: String(soPatchTruot),
             hong: tyLeTruot > 0.15,
-            lam: 'Bật "Cập Nhật Biến" thành một điểm cuối riêng: model viết văn và xuất JSON cùng lúc thì JSON hay ẩu.',
+            lam: 'Tách "Cập Nhật Biến" thành endpoint riêng — model vừa viết văn vừa xuất JSON thì JSON dễ sai.',
         },
         {
             ten: 'Cảnh báo ngân sách token',
@@ -65,7 +65,7 @@ export function ChanDoan() {
              * file copy-paste hoàn toàn vô hại. Nhưng nó cũng không phải chuyện im
              * lặng được, vì ký tự đảo chiều văn bản thì luôn là cố ý.
              */
-            ten: 'Lần bộ vệ sinh phải lọc văn bản',
+            ten: 'Số lần bộ lọc vệ sinh phải can thiệp',
             gia: String(vetVeSinh.length),
             hong: vetVeSinh.length > 0,
             lam: vetVeSinh[vetVeSinh.length - 1] ?? '',

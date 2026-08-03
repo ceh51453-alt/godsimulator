@@ -51,6 +51,12 @@ export const LorebookEntrySchema = z
     deQuy: z.boolean().prefault(false),
     uocLuongToken: z.number().prefault(0),
     kyVong: z.array(z.string()).prefault([]),
+    /** Các entry cùng nhóm cạnh tranh ngân sách truy hồi thay vì cùng tràn vào một cảnh. */
+    nhomKichHoat: z.string().prefault(''),
+    /** Giai đoạn mở tự nhiên; người chơi vẫn có thể gọi đích danh entry ở giai đoạn muộn. */
+    giaiDoanMo: z.number().int().min(0).max(9).prefault(0),
+    /** Không tạo entity ngay lúc bật sách; Narrator chỉ hiện thực hóa khi entry đi vào truy hồi. */
+    triHoanHienThuc: z.boolean().prefault(false),
     // ── 51.3: che không phải xóa ──
     trangThai: z.enum(['hoat_dong', 'bi_che', 'da_xoa']).prefault('hoat_dong'),
     biCheBoiId: z.string().nullable().prefault(null),
@@ -103,6 +109,12 @@ export const LorebookSchema = z
     version: z.string().prefault('1.0'),
     nguon: z.enum(NGUON_LOREBOOK).prefault('nguoi_dung'),
     conflictPolicy: z.enum(CONFLICT_POLICY).prefault('song_song'),
+    /** Số tick để mở thêm một lớp thần thoại. */
+    nhipMoGiaiDoan: z.number().int().min(1).max(10_000).prefault(8),
+    /** Số điểm hút được chủ động gợi mỗi lượt; entry được gọi đích danh không chịu trần này. */
+    soDiemHutMoiLuot: z.number().int().min(1).max(8).prefault(3),
+    /** Tick bắt đầu lần bật hiện tại; null khi sách đang tắt. */
+    tickBat: z.number().int().nullable().prefault(null),
     entries: z.array(LorebookEntrySchema).prefault([]),
 })
     .strict();
@@ -129,12 +141,14 @@ export const LoreExpectationSchema = z
         .object({
         kieu: z.enum([
             'ton_tai_kind',
+            'ton_tai_ten',
             'ton_tai_tag',
             'ton_tai_link',
             'luat_co_the_tag',
             'khai_niem_ket_tinh',
         ]),
         kind: z.string().prefault(''),
+        ten: z.string().prefault(''),
         tag: z.string().prefault(''),
         quanHe: z.string().prefault(''),
         /** Ngưỡng phụ, ví dụ `domainStrength > 70`. */
@@ -146,6 +160,8 @@ export const LoreExpectationSchema = z
     doUuTien: z.number().min(0).max(100).prefault(50),
     lyDoLech: z.string().prefault(''),
     tickLech: z.number().nullable().prefault(null),
+    /** Entity/link gần nhất đã thỏa; lưu trong state để phát hiện khi nó biến mất. */
+    thoaBoiId: z.string().nullable().prefault(null),
 })
     .strict();
 /**

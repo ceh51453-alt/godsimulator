@@ -14,6 +14,7 @@
  * [BB] Adapter KHÔNG có quyền: chạm WorldState, sửa Event, gọi model, hay chạy
  * code tùy ý. Nó chỉ biến đổi CHUỖI VĂN BẢN trong pipeline prompt/output.
  */
+import { bienRegex, MAX_KY_TU } from './sandbox.js';
 
 // ─────────────────────────────────────────── in-prompt regex
 
@@ -29,7 +30,7 @@
  * prompt của game đã qua pipeline riêng.
  */
 const REGEX_BLOCK_RE =
-  /<regex(?: +order *= *(\d))?>[\s]*"(\/?)(.*)\\1(.*?)"[\s]*:[\s]*"(.*?)"[\s]*<\/regex>/gm;
+  /<regex(?:\s+order\s*=\s*(\d))?\s*>\s*"\/((?:\\.|[^"/\r\n])*)\/([gimsuy]*)"\s*:\s*"((?:\\.|[^"\r\n])*)"\s*<\/regex>/gm;
 const REGEX_CLEAN_RE = /<regex(?: +order *= *\d)?>[^]*?<\/regex>/gm;
 
 export type InPromptRegexResult = {
@@ -38,40 +39,67 @@ export type InPromptRegexResult = {
   readonly errors: readonly string[];
 };
 
-export function apInPromptRegex(text: string): InPromptRegexResult {
+type RegexBlock = { order: number; pattern: string; flags: string; replacement: string };
+
+function docBlocks(text: string): RegexBlock[] {
+  const blocks: RegexBlock[] = [];
+  for (const m of text.matchAll(REGEX_BLOCK_RE)) {
+    blocks.push({
+      order: parseInt(m[1] ?? '2', 10),
+      pattern: m[2] ?? '',
+      flags: m[3] ?? '',
+      replacement: m[4] ?? '',
+    });
+  }
+  return blocks;
+}
+
+function docReplacement(raw: string): string {
+  try {
+    return JSON.parse(`"${raw.replace(/\\?"/g, '\\"')}"`) as string;
+  } catch {
+    return raw;
+  }
+}
+
+export function apInPromptRegex(
+  text: string,
+  tuyChon: { maxRegexMs?: number; dongHo?: () => number } = {},
+): InPromptRegexResult {
   const errors: string[] = [];
   let applied = 0;
-
-  // Collect regex blocks grouped by order
-  const blocks: { order: number; pattern: string; flags: string; replacement: string }[] = [];
-
-  for (const m of text.matchAll(REGEX_BLOCK_RE)) {
-    const order = parseInt(m[1] ?? '2', 10);
-    const pattern = m[3] ?? '';
-    const flags = m[4] ?? '';
-    const replacement = m[5] ?? '';
-    blocks.push({ order, pattern, flags, replacement });
-  }
+  const blocks = docBlocks(text);
 
   if (blocks.length === 0) return { text, applied: 0, errors: [] };
+  if (text.length > MAX_KY_TU) {
+    return { text, applied: 0, errors: [`Prompt vượt trần regex ${MAX_KY_TU} ký tự; giữ nguyên.`] };
+  }
 
   // Remove all regex blocks from text first
   let result = text.replace(REGEX_CLEAN_RE, '');
+  const dongHo = tuyChon.dongHo ?? (() => 0);
+  const tran = tuyChon.maxRegexMs ?? Number.POSITIVE_INFINITY;
 
   // Apply by order: 1, 2, 3
   for (const ord of [1, 2, 3]) {
     for (const b of blocks) {
       if (b.order !== ord) continue;
       try {
-        // Parse the replacement string (handle escaped sequences)
-        let repl: string;
-        try {
-          repl = JSON.parse(`"${b.replacement.replace(/\\?"/g, '\\"')}"`);
-        } catch {
-          repl = b.replacement;
+        const daBien = bienRegex(`/${b.pattern}/${b.flags}`);
+        if (daBien === null) {
+          errors.push(`Regex order=${b.order} bị từ chối vì cú pháp hoặc hình dạng quay lui nguy hiểm.`);
+          continue;
         }
-        const re = new RegExp(b.pattern, b.flags);
-        result = result.replace(re, repl);
+        const truoc = result;
+        const batDau = dongHo();
+        const sau = result.replace(daBien.re, docReplacement(b.replacement));
+        const ms = dongHo() - batDau;
+        if (ms > tran) {
+          result = truoc;
+          errors.push(`Regex order=${b.order} chạy ${ms} ms, vượt trần ${tran} ms; giữ bản gốc.`);
+          continue;
+        }
+        result = sau;
         applied++;
       } catch (e) {
         errors.push(`Regex order=${b.order} lỗi: ${e instanceof Error ? e.message : String(e)}`);
@@ -80,6 +108,64 @@ export function apInPromptRegex(text: string): InPromptRegexResult {
   }
 
   return { text: result, applied, errors };
+}
+
+export type PromptMessageLike = Readonly<{
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  moduleId: string;
+  lane: string;
+}>;
+
+/**
+ * Chạy regex nội tuyến chỉ trên module nhập. Message `td:*` là hợp đồng lõi và
+ * không bao giờ được đưa vào biểu thức chính quy của preset.
+ */
+export function apInPromptRegexMessages(
+  messages: readonly PromptMessageLike[],
+  tuyChon: { maxRegexMs?: number; dongHo?: () => number } = {},
+): { messages: readonly PromptMessageLike[]; applied: number; errors: readonly string[] } {
+  const mutable = (m: PromptMessageLike): boolean => !m.moduleId.startsWith('td:');
+  const blocks = messages.flatMap((m) => (mutable(m) ? docBlocks(m.content) : []));
+  if (blocks.length === 0) return { messages, applied: 0, errors: [] };
+
+  const errors: string[] = [];
+  let applied = 0;
+  let ra = messages.map((m) => (mutable(m) ? { ...m, content: m.content.replace(REGEX_CLEAN_RE, '') } : m));
+  if (ra.reduce((n, m) => n + m.content.length, 0) > MAX_KY_TU) {
+    return { messages, applied: 0, errors: [`Prompt vượt trần regex ${MAX_KY_TU} ký tự; giữ nguyên.`] };
+  }
+
+  const dongHo = tuyChon.dongHo ?? (() => 0);
+  const tran = tuyChon.maxRegexMs ?? Number.POSITIVE_INFINITY;
+  for (const ord of [1, 2, 3]) {
+    for (const b of blocks) {
+      if (b.order !== ord) continue;
+      const daBien = bienRegex(`/${b.pattern}/${b.flags}`);
+      if (daBien === null) {
+        errors.push(`Regex order=${b.order} bị từ chối vì cú pháp hoặc hình dạng quay lui nguy hiểm.`);
+        continue;
+      }
+      const truoc = ra;
+      const batDau = dongHo();
+      try {
+        const repl = docReplacement(b.replacement);
+        const sau = ra.map((m) => (mutable(m) ? { ...m, content: m.content.replace(daBien.re, repl) } : m));
+        const ms = dongHo() - batDau;
+        if (ms > tran) {
+          errors.push(`Regex order=${b.order} chạy ${ms} ms, vượt trần ${tran} ms; giữ bản gốc.`);
+          ra = truoc;
+          continue;
+        }
+        ra = sau;
+        applied++;
+      } catch (e) {
+        ra = truoc;
+        errors.push(`Regex order=${b.order} lỗi: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+  return { messages: ra, applied, errors };
 }
 
 // ─────────────────────────────────────────── capture + tag replace

@@ -1,0 +1,19 @@
+{
+  "label": "D",
+  "sourceSha256": "0CCE1505CAFFEC545FB39CED40B7BD2F73416A353823DB9FF3F2367620FCDCB6",
+  "sourceBytes": 700057,
+  "format": "sillytavern_openai_preset",
+  "counts": {
+    "prompts": 184,
+    "orderBlocks": 1,
+    "orderEntries": 177,
+    "effectiveEnabled": 88,
+    "enabledMismatch": 4,
+    "unordered": 7,
+    "regexScripts": 8,
+    "regexSourceEnabled": 4,
+    "helperScripts": 5,
+    "helperSourceEnabled": 3,
+    "markers": 8
+  }
+}

@@ -30,6 +30,8 @@ import { ThanhThienTuong } from '../panels/ThanhThienTuong.js';
 import { BangThienDien } from './BangThienDien.js';
 import { BangThongTin } from './BangThongTin.js';
 import { CACH_DAP_DI_HOA } from '../../core/schema/aspect/thanVi.js';
+import LuaChon from '../components/LuaChon.js';
+import { NoiDungPreset } from '../components/NoiDungPreset.js';
 const TEN_TANG = {
     sang_the: 'Sáng Thế Thần',
     than: 'Thần',
@@ -93,6 +95,7 @@ export function SanhThienDien() {
     const roiVan = useGame((s) => s.roiVan);
     const luotChuaKe = useGame((s) => s.luotChuaKe);
     const keLai = useGame((s) => s.keLai);
+    const luaChon = useGame((s) => s.luaChon);
     const machDangChieu = useMemo(() => {
         if (ongKinh.dangChieu.loai !== 'mach')
             return null;
@@ -287,8 +290,6 @@ export function SanhThienDien() {
             onChon: () => setKhoi('lanh_dia'),
         },
         { id: 'kenh', icon: 'than', nhan: 'Kênh can thiệp', bat: khoi === 'kenh', onChon: () => setKhoi('kenh') },
-        { id: 'nhip', icon: 'nhip', nhan: 'Trôi một nhịp', onChon: () => void tick(1) },
-        { id: 'nhip30', icon: 'ban_do', nhan: 'Trôi ba mươi nhịp', onChon: () => void tick(30) },
         // ── Phase 11: cửa vào các màn toàn trang. Món nợ từ Phase 8 đã trả. ──
         {
             id: 'thong_tin',
@@ -338,7 +339,7 @@ export function SanhThienDien() {
                                             setChonTang(null);
                                             void chonHienDien(StartingPresenceDraftSchema.parse({ mode: m, name: '', useExistingEntityId: null })).then(setDiff);
                                         }, children: "D\u1EF1ng m\u1ED9t th\u00E2n ph\u1EADn m\u1EDBi" }), _jsx("button", { style: nut(), onClick: () => setChonTang(null), children: "Th\u00F4i, \u1EDF l\u1EA1i \u0111\u00E2y" })] })] })), diff && (_jsxs("div", { className: "kinh", style: { padding: 14, marginBottom: 14 }, children: [_jsx("strong", { style: { fontSize: 14 }, children: "Th\u1EBF gi\u1EDBi v\u1EEBa ghi nh\u1EADn:" }), _jsx("ul", { style: { margin: '8px 0 0', paddingLeft: 18, color: 'var(--tro)', fontSize: 13 }, children: [...diff.engineQuyet, ...diff.khongCapThang].map((x) => (_jsx("li", { children: x }, x))) }), _jsx("button", { style: { ...nut(), marginTop: 10 }, onClick: () => setDiff(null), children: "\u0110\u00E3 r\u00F5" })] })), tinhHuong && (_jsxs("div", { className: "kinh", style: { padding: 14, marginBottom: 14, borderLeft: '2px solid var(--hoi)' }, children: [_jsxs("div", { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }, children: [_jsx(Icon, { ten: "di_hoa", co: 15, style: { color: 'var(--hoi)' } }), _jsx("span", { style: nhanNho, children: "\u00C1P L\u1EF0C D\u1ECA H\u00D3A" })] }), _jsx("p", { style: { margin: '0 0 12px', fontFamily: 'var(--chu-hien)', fontSize: 18, lineHeight: 1.45 }, children: tinhHuong.moTa }), _jsx("div", { style: { display: 'flex', gap: 7, flexWrap: 'wrap' }, children: CACH_DAP_DI_HOA.map((c) => (_jsx("button", { style: nut(), onClick: () => void dapApLuc(tinhHuong.id, c), children: NHAN_CACH_DAP[c] }, c))) })] })), khoi === 'canh' &&
-                        scene.map((d) => (_jsx("p", { style: {
+                        scene.map((d) => (_jsx("div", { style: {
                                 margin: '0 0 12px',
                                 fontSize: d.loai === 'nguoi_choi' ? 15 : 14,
                                 lineHeight: 1.65,
@@ -350,7 +351,7 @@ export function SanhThienDien() {
                                 fontStyle: d.loai === 'he_thong' ? 'italic' : 'normal',
                                 borderLeft: d.loai === 'nguoi_choi' ? '2px solid var(--kinh-vien)' : 'none',
                                 paddingLeft: d.loai === 'nguoi_choi' ? 12 : 0,
-                            }, children: d.noiDung }, d.id))), khoi === 'lanh_dia' &&
+                            }, children: d.dinhDang === 'html' ? _jsx(NoiDungPreset, { html: d.noiDung }) : d.noiDung }, d.id))), khoi === 'lanh_dia' &&
                         (lanhDia ? (_jsx("div", { style: { maxWidth: 460 }, children: _jsx(BangLanhDia, { du: lanhDia }) })) : (_jsx("p", { style: { color: 'var(--mo)', fontSize: 14 }, children: "L\u00E3nh \u0111\u1ECBa ch\u1EC9 c\u00F3 ngh\u0129a khi ng\u01B0\u01A1i \u0111ang l\u00E0 m\u1ED9t v\u1ECB th\u1EA7n. H\u00E3y chuy\u1EC3n sang t\u1EA7ng Th\u1EA7n." }))), khoi === 'kenh' && (_jsx("div", { style: { display: 'grid', gap: 10, maxWidth: 560 }, children: KENH_DUNG_SAN.map((k) => (_jsxs("button", { className: "kinh--cap2", onClick: () => setCau(`${k.ten}: `), style: {
                                 textAlign: 'left',
                                 padding: 12,
@@ -374,14 +375,17 @@ export function SanhThienDien() {
                             borderRadius: 'var(--r-sm)',
                             padding: '10px 14px',
                             marginBottom: 10,
-                        }, children: [_jsxs("p", { style: { margin: '0 0 8px', fontSize: 13, color: 'var(--tro)' }, children: [_jsx("strong", { style: { color: 'var(--hoi)' }, children: "Nh\u1ECBp n\u00E0y ch\u01B0a ai k\u1EC3." }), " Th\u1EBF gi\u1EDBi \u0111\u00E3 \u0111i ti\u1EBFp, nh\u01B0ng b\u1EA1n ch\u01B0a \u0111\u01B0\u1EE3c \u0111\u1ECDc n\u00F3. N\u1ED1i l\u1EA1i \u0111\u01B0\u1EDDng t\u1EDBi model r\u1ED3i k\u1EC3 l\u1EA1i \u2014 tr\u00F2 ch\u01A1i d\u1EEBng \u1EDF \u0111\u00E2y t\u1EDBi l\u00FAc \u0111\u00F3."] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsx("button", { style: nut(true), disabled: dangKe, onClick: () => void keLai(), children: dangKe ? 'Đang kể lại…' : 'Kể lại nhịp này' }), _jsx("button", { style: nut(), onClick: () => doiMan('cai_dat'), children: "M\u1EDF C\u00E0i \u0110\u1EB7t \u00B7 Proxy AI" })] })] })), choXacNhan ? (_jsxs("div", { role: "alertdialog", "aria-label": "X\u00E1c nh\u1EADn h\u00E0nh \u0111\u1ED9ng kh\u00F4ng th\u1EC3 ho\u00E0n t\u00E1c", children: [_jsxs("p", { style: { margin: '0 0 10px', fontSize: 14 }, children: [_jsx("strong", { children: "Kh\u00F4ng th\u1EC3 ho\u00E0n t\u00E1c." }), " \u201C", choXacNhan.cau, "\u201D"] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: nut(true), onClick: () => void xacNhan(true), children: "Ta ch\u1EA5p nh\u1EADn h\u1EADu qu\u1EA3" }), _jsx("button", { style: nut(), onClick: () => void xacNhan(false), children: "D\u1EEBng l\u1EA1i" })] })] })) : (_jsxs(_Fragment, { children: [goiY.length > 0 && (_jsx("div", { style: { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }, children: goiY.slice(0, 4).map((a) => (_jsx(ChipHanhDong, { nhan: a.nhan, icon: "quy_ket", onChon: () => setCau(a.nhan) }, a.id))) })), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("label", { htmlFor: "oNhap", style: { position: 'absolute', left: -9999 }, children: "H\u00E0nh \u0111\u1ED9ng c\u1EE7a ng\u01B0\u01A1i" }), _jsx("input", { id: "oNhap", value: cau, disabled: khoaNhap, onChange: (e) => setCau(e.target.value), onKeyDown: (e) => {
+                        }, children: [_jsxs("p", { style: { margin: '0 0 8px', fontSize: 13, color: 'var(--tro)' }, children: [_jsx("strong", { style: { color: 'var(--hoi)' }, children: "L\u01B0\u1EE3t n\u00E0y ch\u01B0a ai k\u1EC3." }), " Th\u1EBF gi\u1EDBi \u0111\u00E3 \u0111i ti\u1EBFp, nh\u01B0ng b\u1EA1n ch\u01B0a \u0111\u01B0\u1EE3c \u0111\u1ECDc n\u00F3. N\u1ED1i l\u1EA1i \u0111\u01B0\u1EDDng t\u1EDBi model r\u1ED3i k\u1EC3 l\u1EA1i \u2014 tr\u00F2 ch\u01A1i d\u1EEBng \u1EDF \u0111\u00E2y t\u1EDBi l\u00FAc \u0111\u00F3."] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsx("button", { style: nut(true), disabled: dangKe, onClick: () => void keLai(), children: dangKe ? 'Đang kể lại…' : 'Kể lại lượt này' }), _jsx("button", { style: nut(), onClick: () => doiMan('cai_dat'), children: "M\u1EDF C\u00E0i \u0110\u1EB7t \u00B7 Proxy AI" })] })] })), choXacNhan ? (_jsxs("div", { role: "alertdialog", "aria-label": "X\u00E1c nh\u1EADn h\u00E0nh \u0111\u1ED9ng kh\u00F4ng th\u1EC3 ho\u00E0n t\u00E1c", children: [_jsxs("p", { style: { margin: '0 0 10px', fontSize: 14 }, children: [_jsx("strong", { children: "Kh\u00F4ng th\u1EC3 ho\u00E0n t\u00E1c." }), " \u201C", choXacNhan.cau, "\u201D"] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("button", { style: nut(true), onClick: () => void xacNhan(true), children: "Ta ch\u1EA5p nh\u1EADn h\u1EADu qu\u1EA3" }), _jsx("button", { style: nut(), onClick: () => void xacNhan(false), children: "D\u1EEBng l\u1EA1i" })] })] })) : (_jsxs(_Fragment, { children: [goiY.length > 0 && (_jsx("div", { style: { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }, children: goiY.slice(0, 4).map((a) => (_jsx(ChipHanhDong, { nhan: a.nhan, icon: "quy_ket", onChon: () => setCau(a.nhan) }, a.id))) })), luaChon.length > 0 && (_jsx("div", { style: { marginBottom: 10 }, children: _jsx(LuaChon, { luaChon: luaChon, dangKe: dangKe, onChon: (text) => {
+                                        setCau(text);
+                                        void gui(text);
+                                    } }) })), _jsxs("div", { style: { display: 'flex', gap: 7, marginBottom: 10 }, children: [_jsxs("button", { style: { ...nut(), display: 'flex', alignItems: 'center', gap: 6 }, onClick: () => void tick(1), children: [_jsx(Icon, { ten: "nhip", co: 14 }), " Tr\u00F4i 1 nh\u1ECBp"] }), _jsxs("button", { style: { ...nut(), display: 'flex', alignItems: 'center', gap: 6 }, onClick: () => void tick(30), children: [_jsx(Icon, { ten: "ban_do", co: 14 }), " Tr\u00F4i 30 nh\u1ECBp"] })] }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("label", { htmlFor: "oNhap", style: { position: 'absolute', left: -9999 }, children: "H\u00E0nh \u0111\u1ED9ng c\u1EE7a ng\u01B0\u01A1i" }), _jsx("input", { id: "oNhap", value: cau, disabled: khoaNhap, onChange: (e) => setCau(e.target.value), onKeyDown: (e) => {
                                             if (e.key === 'Enter')
                                                 guiCau();
                                         }, placeholder: dangKe
                                             ? 'Đang có người kể…'
                                             : cong.choPhepChoi
                                                 ? 'Hành động của ngươi...'
-                                                : 'Chưa nối được AI — không ai kể được nhịp này.', className: "kinh--cap2", style: {
+                                                : 'Chưa nối được AI — không ai kể được lượt này.', className: "kinh--cap2", style: {
                                             flex: 1,
                                             color: khoaNhap ? 'var(--mo)' : 'var(--sang)',
                                             border: '1px solid var(--kinh-vien)',
@@ -440,7 +444,11 @@ tỉ lệ hỏng   ${Math.round(tyLeHongAi * 100)}%` }), patchBiTuChoi.length > 
              * danh sách khai tay. Thêm một chỉ số mới vào Bảng là nó tự có mặt ở
              * đây, và không ai phải nhớ cập nhật chỗ thứ hai.
              */
-            ghimDuoc: (bang.dangTheNao ?? []).map((c) => ({ khoa: c.khoa, nhan: c.nhan })), dangGhim: anhBang?.ghim ?? [], loiGhim: loiGhim, onMoBang: () => batBangThienDien(view), onGhim: ghimThienTuong, onBoGhim: boGhimThienTuong })), lopPhu: lopPhu === 'bang_thien_dien' && bang !== null ? (_jsx(BangThienDien, { bang: bang, onDong: () => dongLopPhu(view), onXuLy: (m) => xuLyCanChuY(m.dich) })) : lopPhu === 'thong_tin' && bangThongTin !== null ? (_jsx(BangThongTin, { du: bangThongTin, tab: tab, tim: timBang, theoDoiMachIds: theoDoiMachIds, onDoiTab: doiTabBang, onTim: datTimBang, onGhimMach: ghimMach, onDong: () => dongLopPhu(view) })) : undefined, dauTrang: _jsxs(_Fragment, { children: [_jsxs("span", { className: "chu-so", style: { ...nhanNho, color: 'var(--tro)' }, children: ["nh\u1ECBp ", state.world.tick, " \u00B7 n\u0103m ", state.world.year] }), _jsxs("span", { title: cong.lyDo.join(' '), style: {
+            ghimDuoc: (bang.dangTheNao ?? []).map((c) => ({ khoa: c.khoa, nhan: c.nhan })), dangGhim: anhBang?.ghim ?? [], loiGhim: loiGhim, onMoBang: () => batBangThienDien(view), onGhim: ghimThienTuong, onBoGhim: boGhimThienTuong })), lopPhu: lopPhu === 'bang_thien_dien' && bang !== null ? (_jsx(BangThienDien, { bang: bang, onDong: () => dongLopPhu(view), onXuLy: (m) => xuLyCanChuY(m.dich) })) : lopPhu === 'thong_tin' && bangThongTin !== null ? (_jsx(BangThongTin, { du: bangThongTin, tab: tab, tim: timBang, theoDoiMachIds: theoDoiMachIds, onDoiTab: doiTabBang, onTim: datTimBang, onGhimMach: ghimMach, onDong: () => dongLopPhu(view) })) : undefined, dauTrang: _jsxs(_Fragment, { children: [_jsx("span", { className: "chu-so", style: { ...nhanNho, color: 'var(--tro)' }, children: state.world.tick === 0
+                        ? 'Tích Tắc Đầu Tiên'
+                        : mode === 'pham_nhan'
+                            ? `năm ${state.world.year}`
+                            : `nhịp ${state.world.tick} · năm ${state.world.year}` }), _jsxs("span", { title: cong.lyDo.join(' '), style: {
                         ...nhanNho,
                         display: 'inline-flex',
                         alignItems: 'center',

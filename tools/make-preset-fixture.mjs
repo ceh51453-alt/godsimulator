@@ -106,5 +106,15 @@ function build(label, src) {
   return meta;
 }
 
-const metas = [build('A', process.argv[2]), build('B', process.argv[3])];
+const args = process.argv.slice(2);
+let labels = ['A', 'B'];
+let files = args;
+if (args[0] === '--labels') {
+  labels = (args[1] ?? '').split(',').filter(Boolean);
+  files = args.slice(2);
+}
+if (files.length === 0 || files.length !== labels.length) {
+  throw new Error('Dùng: node tools/make-preset-fixture.mjs [--labels C,D,E] <file...>');
+}
+const metas = files.map((src, i) => build(labels[i], src));
 console.log(JSON.stringify(metas, null, 2));
