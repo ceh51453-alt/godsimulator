@@ -1,3 +1,4 @@
+import type { NormalizedGenParams } from '../core/schema/ai.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
 import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
@@ -43,6 +44,10 @@ export type TrangThaiPreset = {
     datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
     /** Bật/tắt module, regex hoặc adapter script trong cấu hình của đúng pack/nhánh. */
     datTinhNang(packId: string, loai: 'module' | 'regex' | 'script', id: string, bat: boolean, tick: number): Promise<void>;
+    /** Thông số thực sự dùng cho lượt kể sau khi chồng các preset đang bật. */
+    thamSoHieuLuc(nen?: NormalizedGenParams): NormalizedGenParams;
+    /** Chỉnh ngay lớp hiệu lực; có preset thì lưu theo preset/nhánh, không có thì sửa cấu hình máy. */
+    datThamSoHieuLuc(thayDoi: Partial<NormalizedGenParams>): Promise<void>;
     /** Pack đang bật, dạng `bienSoanLuot()` nhận. */
     packChoLuot(): readonly PackDangBat[];
     /** Transform hiển thị của các pack đang bật — 64.3, chạy trên BẢN SAO. */

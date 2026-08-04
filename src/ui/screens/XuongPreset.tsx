@@ -9,6 +9,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
+import { useAi } from '../../store/ai.js';
+import { ThongSoSinh } from './ThongSoSinh.js';
 import type {
   PresetPackRow,
   PromptModule,
@@ -112,6 +114,9 @@ export function XuongPreset(): JSX.Element {
   const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
   const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
   const datTinhNang = usePreset((s) => s.datTinhNang);
+  const thamSoHieuLuc = usePreset((s) => s.thamSoHieuLuc);
+  const datThamSoHieuLuc = usePreset((s) => s.datThamSoHieuLuc);
+  const paramsNen = useAi((s) => s.cfg.narrator.params);
 
   const state = useGame((s) => s.state);
   const presetTrace = useGame((s) => s.presetTrace);
@@ -169,6 +174,10 @@ export function XuongPreset(): JSX.Element {
   };
 
   const loiNhap = wizard.ketQua?.issues.filter((i) => i.severity === 'error') ?? [];
+  const paramsHieuLuc = thamSoHieuLuc(paramsNen);
+  const tenPresetDangBat = packs
+    .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+    .map((row) => row.pack.envelope.sourceName);
 
   return (
     <main style={{ padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 18 }}>
@@ -220,6 +229,23 @@ export function XuongPreset(): JSX.Element {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="kinh" style={{ padding: 18, display: 'grid', gap: 8 }}>
+        <div>
+          <h2 style={{ margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }}>Thông số sinh đang dùng</h2>
+          <p style={{ ...phu, margin: '5px 0 0', lineHeight: 1.5 }}>
+            {tenPresetDangBat.length > 0
+              ? `Đã áp thông số từ ${tenPresetDangBat.join(', ')}. Chỉnh tại đây sẽ được lưu cho preset đang ưu tiên trên nhánh này.`
+              : 'Chưa có preset đang bật. Thay đổi tại đây dùng chung với Tường Thuật và được lưu trên máy.'}
+          </p>
+        </div>
+        <ThongSoSinh
+          params={paramsHieuLuc}
+          tat={false}
+          moMacDinh
+          onThayDoi={(thayDoi) => void datThamSoHieuLuc(thayDoi)}
+        />
       </section>
 
       <section style={{ display: 'grid', gap: 10 }}>

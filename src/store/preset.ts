@@ -24,6 +24,7 @@ import type { KetQuaNhap } from '../core/preset/nhap.js';
 import { viewGia, sceneGia } from '../core/preset/giaLap.js';
 import { R } from '../core/registry/index.js';
 import type { ModelProfile, NormalizedGenParams } from '../core/schema/ai.js';
+import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
 import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
@@ -43,6 +44,7 @@ import type { ImportIssue } from '../core/contracts/primitives.js';
 import { docChiThiScene } from '../core/preset/scriptAdapter.js';
 import { giaiMacro } from '../core/preset/macro.js';
 import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
+import { gopThamSoSinhPreset, KHOA_GHI_DE_THAM_SO } from '../core/preset/thamSo.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import {
   ghiPack,
@@ -103,6 +105,11 @@ export type TrangThaiPreset = {
     bat: boolean,
     tick: number,
   ): Promise<void>;
+
+  /** Thông số thực sự dùng cho lượt kể sau khi chồng các preset đang bật. */
+  thamSoHieuLuc(nen?: NormalizedGenParams): NormalizedGenParams;
+  /** Chỉnh ngay lớp hiệu lực; có preset thì lưu theo preset/nhánh, không có thì sửa cấu hình máy. */
+  datThamSoHieuLuc(thayDoi: Partial<NormalizedGenParams>): Promise<void>;
 
   /** Pack đang bật, dạng `bienSoanLuot()` nhận. */
   packChoLuot(): readonly PackDangBat[];
@@ -232,56 +239,6 @@ function adapterDangBat(row: PresetPackRow, bienPack: Readonly<Record<string, un
   );
 }
 
-const TRUONG_GEN = [
-  'temperature',
-  'topP',
-  'topK',
-  'topA',
-  'minP',
-  'repetitionPenalty',
-  'presencePenalty',
-  'frequencyPenalty',
-  'maxOutputTokens',
-  'stopSequences',
-  'seed',
-  'continuePrefill',
-  'reasoningEffort',
-  'verbosity',
-] as const;
-
-function apThongSoPack(
-  thuVien: readonly PresetPackRow[],
-  dangBat: Readonly<Record<string, PresetActivation>>,
-  thuTuBat: readonly string[],
-  nen: NormalizedGenParams,
-): void {
-  const gop: Record<string, unknown> = { ...nen };
-  for (const row of rowsDangBat(thuVien, dangBat, thuTuBat)) {
-    const gen = row.pack.generation;
-    if (!gen) continue;
-    for (const k of TRUONG_GEN) {
-      const v = (gen as Record<string, unknown>)[k];
-      if (v !== undefined) gop[k] = v;
-    }
-    if (gen.maxContext !== undefined) gop['contextLimit'] = gen.maxContext;
-  }
-  useAi.getState().suaEndpoint('narrator', { params: gop as NormalizedGenParams });
-}
-
-function paramsNenCua(
-  dangBat: Readonly<Record<string, PresetActivation>>,
-  thuTuBat: readonly string[],
-): NormalizedGenParams {
-  for (const id of thuTuBat) {
-    const p = dangBat[id]?.normalizedParams;
-    if (p !== undefined) return { ...p };
-  }
-  const p = Object.values(dangBat)
-    .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
-    .find((a) => a.normalizedParams !== undefined)?.normalizedParams;
-  return { ...(p ?? useAi.getState().cfg.narrator.params) };
-}
-
 export const usePreset = create<TrangThaiPreset>((set, get) => ({
   thuVien: [],
   dangBat: {},
@@ -328,7 +285,6 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         daNap: true,
         regexDaTat: [],
       });
-      if (acts.length > 0) apThongSoPack(thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
     } catch {
       // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
       set({ thuVien: [], dangBat: {}, thuTuBat: [], bien: {}, branchId, daNap: true, regexDaTat: [] });
@@ -454,8 +410,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
 
     const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
-    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
-    const activation: PresetActivation = { ...kq.activation, normalizedParams: nen };
+    const activation: PresetActivation = { ...kq.activation, normalizedParams: undefined };
 
     if (coIndexedDb()) {
       try {
@@ -490,13 +445,10 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     const dangBatMoi = { ...get().dangBat, [packId]: activation };
     // Mọi lớp (module, transform, adapter, generation) dùng cùng một thứ tự.
     set({ dangBat: dangBatMoi, thuTuBat });
-    apThongSoPack(get().thuVien, dangBatMoi, thuTuBat, nen);
-
     return true;
   },
 
   async tat(packId) {
-    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
     if (coIndexedDb()) {
       try {
         await goKichHoat(layDb(), packId, get().branchId);
@@ -510,7 +462,6 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     // [BB] 65.4 — tắt pack trả về prompt native. Biến KHÔNG bị xóa: bật lại thì
     // trạng thái cũ còn đó, và mất nó là mất tiến trình chơi của người dùng.
     set({ dangBat: con, thuTuBat, loiBat: [] });
-    apThongSoPack(get().thuVien, con, thuTuBat, nen);
   },
 
   async luiMotBuoc(packId) {
@@ -531,14 +482,12 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       const dangBat = { ...get().dangBat, [packId]: truoc };
       const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
       set({ dangBat, thuTuBat });
-      apThongSoPack(get().thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
     } catch {
       /* bỏ qua */
     }
   },
 
   async xoaKhoiThuVien(packId) {
-    const nen = paramsNenCua(get().dangBat, get().thuTuBat);
     if (coIndexedDb()) {
       try {
         await xoaPack(layDb(), packId);
@@ -559,7 +508,6 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     } catch {
       /* lựa chọn trong bộ nhớ vẫn phản ánh đúng thư viện hiện tại */
     }
-    apThongSoPack(thuVien, con, thuTuBat, nen);
   },
 
   async datChonChoVanMoi(packId, chon) {
@@ -593,6 +541,41 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       await ghiBienPack(layDb(), packId, get().branchId, bienPack, tick);
     } catch {
       // Cấu hình trong phiên vẫn có hiệu lực; lỗi đĩa không chặn quản lý preset.
+    }
+  },
+
+  thamSoHieuLuc(nen) {
+    const base = nen ?? useAi.getState().cfg.narrator.params;
+    return gopThamSoSinhPreset(base, get().packChoLuot(), profileHienTai());
+  },
+
+  async datThamSoHieuLuc(thayDoi) {
+    const packId = [...get().thuTuBat].reverse().find((id) => get().dangBat[id] !== undefined);
+    if (packId === undefined) {
+      const ep = useAi.getState().cfg.narrator;
+      useAi.getState().suaEndpoint('narrator', { params: { ...ep.params, ...thayDoi } });
+      return;
+    }
+
+    const act = get().dangBat[packId];
+    if (act === undefined) return;
+    const cu = act.conflictResolutions[KHOA_GHI_DE_THAM_SO];
+    const ghiDe = cu !== null && typeof cu === 'object' && !Array.isArray(cu) ? { ...cu } : {};
+    const hieuLuc = get().thamSoHieuLuc();
+    const daChuan = NormalizedGenParamsSchema.parse({ ...hieuLuc, ...thayDoi });
+    for (const key of Object.keys(thayDoi) as (keyof NormalizedGenParams)[]) {
+      (ghiDe as Record<string, unknown>)[key] = daChuan[key];
+    }
+    const activation: PresetActivation = {
+      ...act,
+      conflictResolutions: { ...act.conflictResolutions, [KHOA_GHI_DE_THAM_SO]: ghiDe },
+    };
+    set({ dangBat: { ...get().dangBat, [packId]: activation } });
+    if (!coIndexedDb()) return;
+    try {
+      await ghiKichHoat(layDb(), activation);
+    } catch {
+      // Ghi đè trong phiên vẫn có hiệu lực; lỗi đĩa không khóa lượt chơi.
     }
   },
 

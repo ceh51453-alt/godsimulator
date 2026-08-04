@@ -310,12 +310,15 @@ export function ThongSoSinh({
   params,
   tat,
   onThayDoi,
+  moMacDinh = false,
 }: {
   params: GenParams;
   tat: boolean;
   onThayDoi: (thayDoi: Partial<GenParams>) => void;
+  /** Màn cấu hình chính có thể mở sẵn; trong cột endpoint vẫn gập để tiết kiệm chỗ. */
+  moMacDinh?: boolean;
 }): JSX.Element {
-  const [moRong, setMoRong] = useState(false);
+  const [moRong, setMoRong] = useState(moMacDinh);
   const presetHienTai = useMemo(() => doPresetHienTai(params), [params]);
 
   const doiPreset = useCallback(

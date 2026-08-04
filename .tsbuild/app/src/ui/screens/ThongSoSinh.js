@@ -215,8 +215,8 @@ function DongSlider({ ten, giaTri, tat, onChange, }) {
                         } })] }), _jsxs("div", { style: { gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between' }, children: [_jsx("span", { style: { fontSize: 10, color: 'var(--mo)' }, children: laFloat ? gh.min.toFixed(2) : gh.min.toLocaleString() }), _jsx("span", { style: { fontSize: 10, color: 'var(--mo)' }, children: laFloat ? gh.max.toFixed(2) : gh.max.toLocaleString() })] })] }));
 }
 // ─────────────────────────────────────────── component chính
-export function ThongSoSinh({ params, tat, onThayDoi, }) {
-    const [moRong, setMoRong] = useState(false);
+export function ThongSoSinh({ params, tat, onThayDoi, moMacDinh = false, }) {
+    const [moRong, setMoRong] = useState(moMacDinh);
     const presetHienTai = useMemo(() => doPresetHienTai(params), [params]);
     const doiPreset = useCallback((ten) => {
         if (ten === 'tuy_chinh')

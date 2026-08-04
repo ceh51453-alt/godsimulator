@@ -253,9 +253,10 @@ export const useAi = create((set, get) => {
         moLaiMach() {
             set({ mach: dongMach(get().mach), tinNhan: '' });
         },
-        async ke(prompt) {
+        async ke(prompt, params) {
             set({ dangKe: true });
-            const r = await goiKe(get().cfg.narrator, prompt);
+            const narrator = get().cfg.narrator;
+            const r = await goiKe(params === undefined ? narrator : { ...narrator, params }, prompt);
             set({
                 dangKe: false,
                 mach: r.ok ? machSauKhiThanhCong(get().mach) : machSauKhiHong(get().mach, r.ma, r.thongDiep),

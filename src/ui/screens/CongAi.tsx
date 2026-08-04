@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useAi, NHAN_ENDPOINT } from '../../store/ai.js';
+import { usePreset } from '../../store/preset.js';
 import { doCauHinhRerank } from '../../core/schema/rerank.js';
 import type { TenEndpoint } from '../../store/ai.js';
 import { DIALECTS } from '../../core/schema/ai.js';
@@ -74,16 +75,32 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
   const quet = useAi((s) => s.quet);
   const thu = useAi((s) => s.thu);
 
+  // Preset-effective params: narrator dùng thamSoHieuLuc (đã gộp preset),
+  // các endpoint khác dùng params riêng vì preset không tác động.
+  const thamSoHieuLuc = usePreset((s) => s.thamSoHieuLuc);
+  const datThamSoHieuLuc = usePreset((s) => s.datThamSoHieuLuc);
+  const thuTuBat = usePreset((s) => s.thuTuBat);
+  const dangBat = usePreset((s) => s.dangBat);
+  const coPresetBat = ten === 'narrator' && thuTuBat.some((id) => dangBat[id] !== undefined);
+
   const ep = cfg[ten];
   const batRieng = ten === 'narrator' ? true : (cfg[ten] as { batRieng: boolean }).batRieng;
   const tat = !batRieng;
   const thieu = thieuGiOEndpoint(ep);
 
+  // Narrator: hiện thông số hiệu lực (đã gộp preset) và ghi qua datThamSoHieuLuc.
+  // Endpoint khác: hiện thông số riêng và ghi trực tiếp vào cấu hình endpoint.
+  const paramsHienThi = ten === 'narrator' ? thamSoHieuLuc(ep.params) : ep.params;
+
   const doiParams = useCallback(
     (thayDoi: Partial<GenParams>) => {
-      sua(ten, { params: { ...ep.params, ...thayDoi } });
+      if (ten === 'narrator') {
+        void datThamSoHieuLuc(thayDoi);
+      } else {
+        sua(ten, { params: { ...ep.params, ...thayDoi } });
+      }
     },
-    [sua, ten, ep.params],
+    [sua, ten, ep.params, datThamSoHieuLuc],
   );
 
   return (
@@ -182,7 +199,13 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
       </div>
 
       {/* Thông số sinh — slider + preset, gập mặc định để không lấn chỗ. */}
-      <ThongSoSinh params={ep.params} tat={tat} onThayDoi={doiParams} />
+      <ThongSoSinh params={paramsHienThi} tat={tat} onThayDoi={doiParams} />
+      {coPresetBat && (
+        <p style={{ ...nhanNho, margin: 0, color: 'var(--ngoc)', lineHeight: 1.4 }}>
+          Preset đang bật — thông số hiện tại đã gộp giá trị từ preset. Chỉnh ở đây sẽ lưu theo
+          preset/nhánh, giống mục Preset.
+        </p>
+      )}
 
       {/* Bằng chứng, không phải lời hứa: hiện đúng thứ lần thử vừa rồi trả về. */}
       <div style={{ ...nhanNho, display: 'grid', gap: 3 }}>

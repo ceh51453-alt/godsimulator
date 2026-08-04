@@ -22,6 +22,7 @@ import { TUNING_MAC_DINH } from '../core/tuning/schema.js';
 import { nhapPreset } from '../core/preset/nhap.js';
 import { viewGia, sceneGia } from '../core/preset/giaLap.js';
 import { R } from '../core/registry/index.js';
+import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
 import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
@@ -30,6 +31,7 @@ import { apInPromptRegex, apInPromptRegexMessages, captureFromOutput, replaceTag
 import { docChiThiScene } from '../core/preset/scriptAdapter.js';
 import { giaiMacro } from '../core/preset/macro.js';
 import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
+import { gopThamSoSinhPreset, KHOA_GHI_DE_THAM_SO } from '../core/preset/thamSo.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
 import { ghiPack, docThuVien, xoaPack, ghiKichHoat, docKichHoatDangChay, goKichHoat, docBienPack, ghiBienPack, } from '../db/preset.js';
 /**
@@ -129,49 +131,6 @@ export function tinhNangPresetDangBat(bienPack, loai, id, macDinh) {
 function adapterDangBat(row, bienPack) {
     return (row.scriptAdapters ?? []).filter((a) => tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon));
 }
-const TRUONG_GEN = [
-    'temperature',
-    'topP',
-    'topK',
-    'topA',
-    'minP',
-    'repetitionPenalty',
-    'presencePenalty',
-    'frequencyPenalty',
-    'maxOutputTokens',
-    'stopSequences',
-    'seed',
-    'continuePrefill',
-    'reasoningEffort',
-    'verbosity',
-];
-function apThongSoPack(thuVien, dangBat, thuTuBat, nen) {
-    const gop = { ...nen };
-    for (const row of rowsDangBat(thuVien, dangBat, thuTuBat)) {
-        const gen = row.pack.generation;
-        if (!gen)
-            continue;
-        for (const k of TRUONG_GEN) {
-            const v = gen[k];
-            if (v !== undefined)
-                gop[k] = v;
-        }
-        if (gen.maxContext !== undefined)
-            gop['contextLimit'] = gen.maxContext;
-    }
-    useAi.getState().suaEndpoint('narrator', { params: gop });
-}
-function paramsNenCua(dangBat, thuTuBat) {
-    for (const id of thuTuBat) {
-        const p = dangBat[id]?.normalizedParams;
-        if (p !== undefined)
-            return { ...p };
-    }
-    const p = Object.values(dangBat)
-        .sort((a, b) => a.activatedAt - b.activatedAt || a.id.localeCompare(b.id))
-        .find((a) => a.normalizedParams !== undefined)?.normalizedParams;
-    return { ...(p ?? useAi.getState().cfg.narrator.params) };
-}
 export const usePreset = create((set, get) => ({
     thuVien: [],
     dangBat: {},
@@ -218,8 +177,6 @@ export const usePreset = create((set, get) => ({
                 daNap: true,
                 regexDaTat: [],
             });
-            if (acts.length > 0)
-                apThongSoPack(thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
         }
         catch {
             // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
@@ -336,8 +293,7 @@ export const usePreset = create((set, get) => ({
             return false;
         }
         const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
-        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
-        const activation = { ...kq.activation, normalizedParams: nen };
+        const activation = { ...kq.activation, normalizedParams: undefined };
         if (coIndexedDb()) {
             try {
                 await ghiKichHoat(layDb(), activation);
@@ -369,11 +325,9 @@ export const usePreset = create((set, get) => ({
         const dangBatMoi = { ...get().dangBat, [packId]: activation };
         // Mọi lớp (module, transform, adapter, generation) dùng cùng một thứ tự.
         set({ dangBat: dangBatMoi, thuTuBat });
-        apThongSoPack(get().thuVien, dangBatMoi, thuTuBat, nen);
         return true;
     },
     async tat(packId) {
-        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
         if (coIndexedDb()) {
             try {
                 await goKichHoat(layDb(), packId, get().branchId);
@@ -388,7 +342,6 @@ export const usePreset = create((set, get) => ({
         // [BB] 65.4 — tắt pack trả về prompt native. Biến KHÔNG bị xóa: bật lại thì
         // trạng thái cũ còn đó, và mất nó là mất tiến trình chơi của người dùng.
         set({ dangBat: con, thuTuBat, loiBat: [] });
-        apThongSoPack(get().thuVien, con, thuTuBat, nen);
     },
     async luiMotBuoc(packId) {
         const act = get().dangBat[packId];
@@ -409,14 +362,12 @@ export const usePreset = create((set, get) => ({
             const dangBat = { ...get().dangBat, [packId]: truoc };
             const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
             set({ dangBat, thuTuBat });
-            apThongSoPack(get().thuVien, dangBat, thuTuBat, paramsNenCua(dangBat, thuTuBat));
         }
         catch {
             /* bỏ qua */
         }
     },
     async xoaKhoiThuVien(packId) {
-        const nen = paramsNenCua(get().dangBat, get().thuTuBat);
         if (coIndexedDb()) {
             try {
                 await xoaPack(layDb(), packId);
@@ -439,7 +390,6 @@ export const usePreset = create((set, get) => ({
         catch {
             /* lựa chọn trong bộ nhớ vẫn phản ánh đúng thư viện hiện tại */
         }
-        apThongSoPack(thuVien, con, thuTuBat, nen);
     },
     async datChonChoVanMoi(packId, chon) {
         if (!get().thuVien.some((row) => row.packId === packId))
@@ -473,6 +423,41 @@ export const usePreset = create((set, get) => ({
         }
         catch {
             // Cấu hình trong phiên vẫn có hiệu lực; lỗi đĩa không chặn quản lý preset.
+        }
+    },
+    thamSoHieuLuc(nen) {
+        const base = nen ?? useAi.getState().cfg.narrator.params;
+        return gopThamSoSinhPreset(base, get().packChoLuot(), profileHienTai());
+    },
+    async datThamSoHieuLuc(thayDoi) {
+        const packId = [...get().thuTuBat].reverse().find((id) => get().dangBat[id] !== undefined);
+        if (packId === undefined) {
+            const ep = useAi.getState().cfg.narrator;
+            useAi.getState().suaEndpoint('narrator', { params: { ...ep.params, ...thayDoi } });
+            return;
+        }
+        const act = get().dangBat[packId];
+        if (act === undefined)
+            return;
+        const cu = act.conflictResolutions[KHOA_GHI_DE_THAM_SO];
+        const ghiDe = cu !== null && typeof cu === 'object' && !Array.isArray(cu) ? { ...cu } : {};
+        const hieuLuc = get().thamSoHieuLuc();
+        const daChuan = NormalizedGenParamsSchema.parse({ ...hieuLuc, ...thayDoi });
+        for (const key of Object.keys(thayDoi)) {
+            ghiDe[key] = daChuan[key];
+        }
+        const activation = {
+            ...act,
+            conflictResolutions: { ...act.conflictResolutions, [KHOA_GHI_DE_THAM_SO]: ghiDe },
+        };
+        set({ dangBat: { ...get().dangBat, [packId]: activation } });
+        if (!coIndexedDb())
+            return;
+        try {
+            await ghiKichHoat(layDb(), activation);
+        }
+        catch {
+            // Ghi đè trong phiên vẫn có hiệu lực; lỗi đĩa không khóa lượt chơi.
         }
     },
     packChoLuot() {

@@ -9,6 +9,8 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
+import { useAi } from '../../store/ai.js';
+import { ThongSoSinh } from './ThongSoSinh.js';
 const nhan = {
     color: 'var(--mo)',
     fontSize: 11,
@@ -72,6 +74,9 @@ export function XuongPreset() {
     const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
     const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
     const datTinhNang = usePreset((s) => s.datTinhNang);
+    const thamSoHieuLuc = usePreset((s) => s.thamSoHieuLuc);
+    const datThamSoHieuLuc = usePreset((s) => s.datThamSoHieuLuc);
+    const paramsNen = useAi((s) => s.cfg.narrator.params);
     const state = useGame((s) => s.state);
     const presetTrace = useGame((s) => s.presetTrace);
     const branchId = state?.world.branchId ?? '';
@@ -126,11 +131,17 @@ export function XuongPreset() {
         });
     };
     const loiNhap = wizard.ketQua?.issues.filter((i) => i.severity === 'error') ?? [];
+    const paramsHieuLuc = thamSoHieuLuc(paramsNen);
+    const tenPresetDangBat = packs
+        .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+        .map((row) => row.pack.envelope.sourceName);
     return (_jsxs("main", { style: { padding: '22px 24px 60px', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 18 }, children: [_jsxs("header", { children: [_jsx("p", { style: { ...nhan, margin: 0 }, children: "C\u1EA5u h\u00ECnh \u00B7 Preset" }), _jsx("h1", { className: "chu-hien", style: { margin: '4px 0 5px', fontSize: 28, fontWeight: 500 }, children: "Qu\u1EA3n l\u00FD Preset" }), _jsx("p", { style: { ...phu, margin: 0, maxWidth: 720 }, children: "Preset \u0111\u01B0\u1EE3c nh\u1EADp th\u1EB3ng v\u00E0o th\u01B0 vi\u1EC7n. C\u00E1c ph\u1EA7n c\u00F9ng t\u00E1c \u0111\u1ED9ng \u0111\u01B0\u1EE3c gh\u00E9p theo th\u1EE9 t\u1EF1 c\u1EE7a ch\u00EDnh file; b\u1EA1n kh\u00F4ng c\u00F2n ph\u1EA3i ch\u1ECDn th\u1EE7 c\u00F4ng m\u1ED9t b\u00EAn xung \u0111\u1ED9t." })] }), _jsxs("section", { className: "kinh", style: { padding: 18, display: 'grid', gap: 10 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }, children: [_jsx("button", { type: "button", style: nut(true, dangDoc), disabled: dangDoc, onClick: () => oFile.current?.click(), children: dangDoc ? 'Đang nhập…' : 'Nhập preset (.json)' }), _jsx("input", { ref: oFile, type: "file", accept: ".json,application/json", style: { position: 'absolute', left: -9999 }, onChange: (e) => {
                                     const file = e.currentTarget.files?.[0];
                                     e.currentTarget.value = '';
                                     void chonFile(file);
-                                } }), _jsx("span", { style: phu, children: "H\u1ED7 tr\u1EE3 preset SillyTavern v\u00E0 \u0111\u1ECBnh d\u1EA1ng Thi\u00EAn Di\u1EC5n." })] }), tin !== '' && (_jsx("p", { role: "status", style: { ...so, margin: 0 }, children: tin })), loiNhap.length > 0 && (_jsx("div", { role: "alert", style: { display: 'grid', gap: 3 }, children: loiNhap.slice(0, 8).map((i, n) => (_jsx("span", { style: { ...phu, color: 'var(--hoi)' }, children: i.message }, `${i.code}:${n}`))) }))] }), _jsxs("section", { style: { display: 'grid', gap: 10 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }, children: [_jsx("h2", { style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }, children: "Preset \u0111\u00E3 nh\u1EADp" }), _jsxs("span", { style: phu, children: [packs.length, " preset tr\u00EAn m\u00E1y"] })] }), !daNap ? (_jsx("p", { style: phu, children: "\u0110ang \u0111\u1ECDc th\u01B0 vi\u1EC7n preset\u2026" })) : packs.length === 0 ? (_jsx("div", { className: "kinh", style: { padding: 18 }, children: _jsx("p", { style: { ...phu, margin: 0 }, children: "Ch\u01B0a c\u00F3 preset. Tr\u00F2 ch\u01A1i \u0111ang d\u00F9ng c\u1EA5u h\u00ECnh v\u00E0 prompt m\u1EB7c \u0111\u1ECBnh." }) })) : (packs.map((row) => {
+                                } }), _jsx("span", { style: phu, children: "H\u1ED7 tr\u1EE3 preset SillyTavern v\u00E0 \u0111\u1ECBnh d\u1EA1ng Thi\u00EAn Di\u1EC5n." })] }), tin !== '' && (_jsx("p", { role: "status", style: { ...so, margin: 0 }, children: tin })), loiNhap.length > 0 && (_jsx("div", { role: "alert", style: { display: 'grid', gap: 3 }, children: loiNhap.slice(0, 8).map((i, n) => (_jsx("span", { style: { ...phu, color: 'var(--hoi)' }, children: i.message }, `${i.code}:${n}`))) }))] }), _jsxs("section", { className: "kinh", style: { padding: 18, display: 'grid', gap: 8 }, children: [_jsxs("div", { children: [_jsx("h2", { style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }, children: "Th\u00F4ng s\u1ED1 sinh \u0111ang d\u00F9ng" }), _jsx("p", { style: { ...phu, margin: '5px 0 0', lineHeight: 1.5 }, children: tenPresetDangBat.length > 0
+                                    ? `Đã áp thông số từ ${tenPresetDangBat.join(', ')}. Chỉnh tại đây sẽ được lưu cho preset đang ưu tiên trên nhánh này.`
+                                    : 'Chưa có preset đang bật. Thay đổi tại đây dùng chung với Tường Thuật và được lưu trên máy.' })] }), _jsx(ThongSoSinh, { params: paramsHieuLuc, tat: false, moMacDinh: true, onThayDoi: (thayDoi) => void datThamSoHieuLuc(thayDoi) })] }), _jsxs("section", { style: { display: 'grid', gap: 10 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }, children: [_jsx("h2", { style: { margin: 0, fontFamily: 'var(--chu-hien)', fontSize: 21 }, children: "Preset \u0111\u00E3 nh\u1EADp" }), _jsxs("span", { style: phu, children: [packs.length, " preset tr\u00EAn m\u00E1y"] })] }), !daNap ? (_jsx("p", { style: phu, children: "\u0110ang \u0111\u1ECDc th\u01B0 vi\u1EC7n preset\u2026" })) : packs.length === 0 ? (_jsx("div", { className: "kinh", style: { padding: 18 }, children: _jsx("p", { style: { ...phu, margin: 0 }, children: "Ch\u01B0a c\u00F3 preset. Tr\u00F2 ch\u01A1i \u0111ang d\u00F9ng c\u1EA5u h\u00ECnh v\u00E0 prompt m\u1EB7c \u0111\u1ECBnh." }) })) : (packs.map((row) => {
                         const act = dangBat[row.packId];
                         const daBat = act?.packVersion === row.version;
                         const dangMo = moRong.has(row.packId);

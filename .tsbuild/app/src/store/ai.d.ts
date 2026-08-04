@@ -86,7 +86,7 @@ export type TrangThaiAi = {
      * Gọi Tường Thuật. Đây là hàm `useGame` dùng; nó tự cập nhật ngắt mạch, nên
      * ba lần hỏng liên tiếp sẽ tự đóng cổng mà không ai phải nhớ gọi thêm gì.
      */
-    ke(prompt: PromptGoi): Promise<KetQuaGoi>;
+    ke(prompt: PromptGoi, params?: AiEndpoint['params']): Promise<KetQuaGoi>;
 };
 export declare const useAi: import("zustand").UseBoundStore<import("zustand").StoreApi<TrangThaiAi>>;
 /** Đọc cổng ngoài React — `useGame` dùng cái này, không dùng hook. */

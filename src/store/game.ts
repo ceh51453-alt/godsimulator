@@ -24,7 +24,6 @@ import { SceneSchema } from '../core/contracts/core.js';
 import type { Scene } from '../core/contracts/core.js';
 import { bienSoanLuot } from '../core/preset/hopNhat.js';
 import { parseChoice } from '../core/ai/choice.js';
-import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
 import { packDangBat, usePreset } from './preset.js';
 import { taoState, taoEventLog, hashState } from '../core/engine/state.js';
 import { apDungChuoi, apDungEvent } from '../core/engine/transaction.js';
@@ -957,11 +956,12 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       chunkBiCat: th?.biCat ?? [],
     };
 
+    const paramsHieuLuc = usePreset.getState().thamSoHieuLuc(useAi.getState().cfg.narrator.params);
     const hopNhat = bienSoanLuot({
       nguLieu,
       scene: sceneHienTai(s),
       packs: packDangBat(),
-      params: NormalizedGenParamsSchema.parse({}),
+      params: paramsHieuLuc,
       nganSachToken: nganSachInput('ke_canh', null),
       tenPersona: get().persona?.displayName ?? 'Người Chơi',
       // [BB] 78.11 — persona ĐÃ CHIẾU. `PlayerProfile` không có đường tới đây.
@@ -1010,7 +1010,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     });
 
     set({ dangKe: true });
-    const r = await useAi.getState().ke(prompt);
+    const r = await useAi.getState().ke(prompt, paramsHieuLuc);
     set({ dangKe: false });
 
     if (!r.ok) {
