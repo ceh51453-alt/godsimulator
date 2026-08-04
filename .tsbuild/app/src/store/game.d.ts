@@ -68,6 +68,8 @@ export type TrangThaiGame = {
     luaChon: readonly string[];
     /** Đang chờ Narrator viết xong. UI khóa ô nhập trong lúc này. */
     dangKe: boolean;
+    /** Đang gọi AI rà soát trạng thái theo yêu cầu của người chơi. */
+    dangCapNhatBien: boolean;
     /**
      * Lượt đã xảy ra trong engine nhưng CHƯA ai kể — [BB] ADR-0028 + ADR-0056.
      *
@@ -220,6 +222,11 @@ export type TrangThaiGame = {
     suaHoSo(hoSo: PlayerProfile, danhTinh: CreatorIdentity | null): void;
     chonHienDien(draft: StartingPresenceDraft): Promise<CanonDiff | null>;
     chuyenTang(mode: ViewMode, chuTheId: string | null): Promise<void>;
+    /**
+     * Rà lại diễn biến gần đây bằng AI, áp các patch hợp lệ rồi nối khái niệm nền
+     * đủ điều kiện với bảy trục Luật Nền. Không làm thời gian trôi.
+     */
+    capNhatBienNgay(): Promise<void>;
     gui(cau: string): Promise<void>;
     xacNhan(dongY: boolean): Promise<void>;
     tick(soLan?: number): Promise<void>;

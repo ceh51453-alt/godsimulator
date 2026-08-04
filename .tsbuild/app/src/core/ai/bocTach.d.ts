@@ -42,6 +42,14 @@ export type KetQuaBocTach = {
      */
     readonly bienPack: readonly BienPackDoi[];
 };
+/**
+ * Hợp nhất lời khai của Narrator với Updater riêng.
+ *
+ * Updater thắng khi cả hai chạm đúng một đích, nhưng không được làm biến mất
+ * một thực thể Narrator đã tạo chỉ vì nó trả khối rỗng. Đây là hành vi gần với
+ * vòng MVU: mỗi nguồn đề nghị delta, engine gom rồi mới transaction.
+ */
+export declare function hopNhatCapNhat(goc: KetQuaBocTach, updater: KetQuaBocTach): KetQuaBocTach;
 export type NgocCanhBocTach = {
     readonly eventId: string;
     /** Id entity đang tồn tại — patch trỏ ra ngoài tập này bị từ chối. */

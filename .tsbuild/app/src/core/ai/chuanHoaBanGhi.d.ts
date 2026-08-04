@@ -13,4 +13,4 @@ export type KetQuaChuanHoa = {
  * `sourceEventId` (để model tự khai là mở cửa cho nó ghi sang dòng thời gian
  * khác).
  */
-export declare function chuanHoaBanGhiMoi(bang: string, tho: unknown, branchId: string): KetQuaChuanHoa;
+export declare function chuanHoaBanGhiMoi(bang: string, tho: unknown, branchId: string, targetId?: string): KetQuaChuanHoa;

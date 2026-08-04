@@ -23,6 +23,36 @@ import { chuanHoaBanGhiMoi } from './chuanHoaBanGhi.js';
 import { bieuThucKhoi, bieuThucCatKhoi, docKhoiCapNhat } from './mvu.js';
 import { catSuyLuanNoiBo } from './suyLuan.js';
 /**
+ * Hợp nhất lời khai của Narrator với Updater riêng.
+ *
+ * Updater thắng khi cả hai chạm đúng một đích, nhưng không được làm biến mất
+ * một thực thể Narrator đã tạo chỉ vì nó trả khối rỗng. Đây là hành vi gần với
+ * vòng MVU: mỗi nguồn đề nghị delta, engine gom rồi mới transaction.
+ */
+export function hopNhatCapNhat(goc, updater) {
+    if (!updater.coKhoiCapNhat)
+        return goc;
+    const patches = new Map();
+    for (const p of [...goc.patches, ...updater.patches]) {
+        patches.set(`${p.target.table}\u0000${p.target.id}\u0000${p.target.path}`, p);
+    }
+    const phucBut = new Map();
+    for (const f of [...goc.phucBut, ...updater.phucBut])
+        phucBut.set(`${f.loai}\u0000${f.noiDung}`, f);
+    const bienPack = new Map();
+    for (const b of [...goc.bienPack, ...updater.bienPack])
+        bienPack.set(`${b.phep}\u0000${b.duong}`, b);
+    return Object.freeze({
+        loiKe: goc.loiKe,
+        patches: Object.freeze([...patches.values()]),
+        biTuChoi: Object.freeze([...goc.biTuChoi, ...updater.biTuChoi]),
+        coKhoiCapNhat: goc.coKhoiCapNhat || updater.coKhoiCapNhat,
+        phucBut: Object.freeze([...phucBut.values()]),
+        chuaChungThuc: Object.freeze([...new Set([...goc.chuaChungThuc, ...updater.chuaChungThuc])]),
+        bienPack: Object.freeze([...bienPack.values()]),
+    });
+}
+/**
  * Bảng trắng: bảng nào model được chạm.
  *
  * `worlds` vắng mặt có chủ ý — tầng chơi, chủ thể và `setupCompleted` là chuyện
@@ -253,7 +283,7 @@ export function bocTach(raw, nc) {
          * Model **làm treo được engine** cho tới khi bước này có mặt.
          */
         if (p.op === 'link') {
-            const ch = chuanHoaBanGhiMoi(p.target.table, p.value, nc.branchId ?? '');
+            const ch = chuanHoaBanGhiMoi(p.target.table, p.value, nc.branchId ?? '', p.target.id);
             if (!ch.ok) {
                 biTuChoi.push({ ma: 'SAI_SCHEMA', thongDiep: ch.vi, nguyenVan });
                 continue;

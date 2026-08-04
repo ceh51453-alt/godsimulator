@@ -105,8 +105,14 @@ export type TrangThaiAi = {
     fallbackReason: string;
     forbiddenCount: number;
   }): void;
-  /** Gọi Cập Nhật Biến riêng — 46.1. Trả `null` khi endpoint chưa bật. */
-  capNhatBien(prompt: { heThong: string; nguoiDung: string }): Promise<KetQuaGoi | null>;
+  /**
+   * Gọi Cập Nhật Biến — 46.1. Trả `null` khi endpoint chưa bật, trừ khi thao
+   * tác thủ công cho phép dùng cấu hình Tường Thuật làm đường dự phòng.
+   */
+  capNhatBien(
+    prompt: { heThong: string; nguoiDung: string },
+    dungTuongThuatKhiTat?: boolean,
+  ): Promise<KetQuaGoi | null>;
 
   napTuDia(): Promise<void>;
   suaEndpoint(ten: TenEndpoint, thayDoi: Partial<AiEndpoint>): void;
@@ -265,10 +271,15 @@ export const useAi = create<TrangThaiAi>((set, get) => {
      * tức hành vi Phase 6b. Updater HỎNG cũng chỉ mất phần cập nhật, không mất
      * lời kể — vì thế nó KHÔNG đụng tới `mach` của cổng chơi.
      */
-    async capNhatBien(prompt) {
+    async capNhatBien(prompt, dungTuongThuatKhiTat = false) {
       const up = get().cfg.updater;
-      if (!updaterChayRieng(up)) return null;
-      const r = await goiCapNhat(up, prompt);
+      const chayRieng = updaterChayRieng(up);
+      if (!chayRieng && !dungTuongThuatKhiTat) return null;
+      // Nút rà soát phải dùng được ngay cả khi người chơi chọn chế độ gộp cập
+      // nhật vào Narrator. Nó vẫn gọi model như một Updater (không yêu cầu kể),
+      // chỉ mượn địa chỉ/model đã được cấu hình và kiểm tra của Tường Thuật.
+      const endpoint = chayRieng ? up : get().cfg.narrator;
+      const r = await goiCapNhat(endpoint, prompt);
       if (r.ok) {
         const soKyTu = prompt.heThong.length + prompt.nguoiDung.length;
         hieuChinh('tick_t2', Math.ceil(soKyTu / 3.2), r.promptTokens, r.finishReason, soKyTu);

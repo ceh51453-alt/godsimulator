@@ -29,7 +29,21 @@ export type NguLieuCapNhat = {
     /** Id entity đang tồn tại — model chỉ được nhắc tới những id này. */
     readonly idHopLe: readonly string[];
     readonly tyLeToken: number;
+    /**
+     * Rà soát do người chơi chủ động yêu cầu, thay vì chỉ rút trạng thái từ đúng
+     * một lượt kể vừa xong. Chế độ này được phép tạo bản ghi còn thiếu bằng
+     * `link`, nhưng vẫn đi qua cùng bảng trắng và transaction như mọi patch AI.
+     */
+    readonly thuCong?: boolean;
 };
+/**
+ * Hợp đồng tạo thực thể dùng chung cho Narrator và Updater.
+ *
+ * Đặt ở một chỗ để hai model không được học hai cách ghi state khác nhau. Đây
+ * là phần tương đương "variables + update rule" của thẻ MVU/inTAVern: model
+ * luôn thấy đúng cú pháp tạo bản ghi và hai kind dễ bị khai sai nhất.
+ */
+export declare function huongDanTaoThucTheMoi(tick: number): readonly string[];
 /**
  * Prompt Updater.
  *

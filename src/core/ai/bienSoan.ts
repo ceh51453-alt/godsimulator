@@ -21,6 +21,7 @@ import type { Prayer } from '../schema/than.js';
 import type { ViewMode } from '../contracts/primitives.js';
 import { phanBoSauTang, catTheoTran, uocLuong } from './nganSach.js';
 import type { VetCat } from './nganSach.js';
+import { huongDanTaoThucTheMoi } from './capNhat.js';
 
 /** Bảy quy tắc của 29.2 — [BB] tầng lõi bất biến, người dùng KHÔNG xóa được. */
 export const BAY_QUY_TAC_NARRATOR: readonly string[] = Object.freeze([
@@ -155,6 +156,10 @@ function tang1(mode: ViewMode): string {
     '',
     'ENGINE GIỮ SỔ:',
     so,
+    '',
+    'CÚ PHÁP GHI SỔ BẮT BUỘC:',
+    '- Thứ mới thật sự xuất hiện phải được tạo bằng op "link" trong <CapNhat>; target.id phải trùng value.id.',
+    '- Vị thần dùng kind "deity". Một trục Thời Gian/Không Gian mới dùng kind "concept" với conceptual.giaiDoan "thanh_hinh" và tag nền phù hợp; không dùng kind "law" cho chính trục nền.',
     '',
     'LIÊN KẾT TỰ SỰ:',
     '- Mỗi cảnh phải nối mạch từ cảnh trước: nhắc lại ít nhất một chi tiết, nhân vật hoặc sự kiện đã xảy ra trong phần VÀI NHỊP TRƯỚC.',
@@ -390,6 +395,8 @@ function tang6(ng: NguLieuKe): string {
     'Nếu cảnh bạn vừa kể làm đổi một điều gì đó trong thế giới, thêm khối sau ở CUỐI, ngoài văn xuôi:',
   );
   dong.push('<CapNhat>{"patches":[]}</CapNhat>');
+  dong.push('HỢP ĐỒNG CẬP NHẬT (cùng cú pháp với bộ Cập Nhật Biến):');
+  dong.push(...huongDanTaoThucTheMoi(ng.view.tick));
   dong.push('Không có gì đổi thì bỏ hẳn khối đó. Đừng giải thích khối đó bằng lời.');
   // [BB] 30.2 — Updater được yêu cầu trả khối này khi Narrator GIEO thứ gì có vẻ
   // quan trọng. Engine kiểm hạn; model chỉ cần khai đã gieo cái gì.

@@ -23,7 +23,7 @@ import { napBatBienTangThan } from '../world/batBienThan.js';
 import { chieu } from '../project/chieu.js';
 import { StorylineSchema } from '../schema/truyen.js';
 import { bienSoanPromptKe, BAY_QUY_TAC_NARRATOR } from './bienSoan.js';
-import { bocTach } from './bocTach.js';
+import { bocTach, hopNhatCapNhat } from './bocTach.js';
 import { bienSoanPromptCapNhat, updaterChayRieng } from './capNhat.js';
 import { NGAN_SACH_MAC_DINH, calibMoi, uocLuong, nganSachInput, tuHieuChinh, phanBoSauTang, catTheoTran, } from './nganSach.js';
 beforeEach(() => {
@@ -295,6 +295,13 @@ describe('[BB] 46.1 — Cập Nhật Biến có điểm cuối riêng', () => {
             expect(p.heThong).not.toContain(q);
         expect(p.heThong).toContain('Bạn KHÔNG viết văn');
     });
+    it('Narrator luôn nhận hợp đồng tạo deity/khái niệm nền ở tầng lõi ổn định', () => {
+        const { state } = theGioi();
+        const p = bienSoanPromptKe(nguLieu(chieu(state, 'sang_the', null)));
+        expect(p.heThong).toContain('CÚ PHÁP GHI SỔ BẮT BUỘC');
+        expect(p.heThong).toContain('kind "deity"');
+        expect(p.heThong).toContain('conceptual.giaiDoan "thanh_hinh"');
+    });
     it('prompt Updater khai đúng bảng trắng và danh sách id hợp lệ', () => {
         const { state } = theGioi();
         const p = bienSoanPromptCapNhat({
@@ -308,10 +315,57 @@ describe('[BB] 46.1 — Cập Nhật Biến có điểm cuối riêng', () => {
         expect(p.nguoiDung).toContain('mortal_1');
         expect(p.nguoiDung).toContain('deity_1');
     });
+    it('prompt mỗi lượt mang state hiện tại và cho tạo đúng khái niệm nền/thần mới', () => {
+        const { state } = theGioi();
+        const p = bienSoanPromptCapNhat({
+            view: chieu(state, 'sang_the', null),
+            loiKe: 'Thời Gian thành hình. Một vị thần mới bước ra.',
+            ketQuaEngine: [],
+            idHopLe: [...state.entities.keys()],
+            tyLeToken: 3.2,
+        });
+        expect(p.heThong).toContain('Id mới chỉ hợp lệ khi dùng op "link"');
+        expect(p.heThong).toContain('"kind":"concept"');
+        expect(p.heThong).toContain('"kind":"deity"');
+        expect(p.heThong).toContain('"truoc_sau"');
+        expect(p.nguoiDung).toContain('TRẠNG THÁI HIỆN TẠI');
+        expect(p.nguoiDung).toContain('"kind":"deity"');
+    });
+    it('rà soát thủ công cho phép khôi phục khái niệm nền và thần đã có trong lời kể', () => {
+        const { state } = theGioi();
+        const p = bienSoanPromptCapNhat({
+            view: chieu(state, 'sang_the', null),
+            loiKe: '[Lời kể] Thời Gian thành hình và một vị thần bước ra.',
+            ketQuaEngine: [],
+            idHopLe: [...state.entities.keys()],
+            tyLeToken: 3.2,
+            thuCong: true,
+        });
+        expect(p.heThong).toContain('RÀ SOÁT THỦ CÔNG');
+        expect(p.heThong).toContain('conceptual.giaiDoan = "thanh_hinh"');
+        expect(p.heThong).toContain('kind "deity"');
+        expect(p.nguoiDung).toContain('DIỄN BIẾN GẦN ĐÂY CẦN RÀ SOÁT');
+    });
     it('Updater vẫn bị `bocTach` duyệt — có điểm cuối riêng không có thẩm quyền riêng', () => {
         const kq = bocTach('<CapNhat>{"patches":[{"op":"set","target":{"table":"entities","id":"mortal_1","path":"aspects.ban_nga.coreSelf.tuBi_tanNhan"},"value":99}]}</CapNhat>', { eventId: 'e', idHopLe: new Set(['mortal_1']) });
         expect(kq.patches).toHaveLength(0);
         expect(kq.biTuChoi[0]?.ma).toBe('DUONG_DAN_CAM');
+    });
+    it('Updater riêng không làm mất entity Narrator vừa tạo khi trả khối rỗng', () => {
+        const goc = bocTach('<CapNhat>{"patches":[{"op":"link","target":{"table":"entities","id":"deity_moi","path":""},"value":{"id":"deity_moi","kind":"deity","ten":"Thần Mới","tickSinh":0}}]}</CapNhat>', { eventId: 'e', idHopLe: new Set(), branchId: 'br_goc' });
+        const updater = bocTach('<CapNhat>{"patches":[]}</CapNhat>', {
+            eventId: 'e',
+            idHopLe: new Set(),
+            branchId: 'br_goc',
+        });
+        const kq = hopNhatCapNhat(goc, updater);
+        expect(kq.patches).toHaveLength(1);
+        expect((kq.patches[0]?.value).kind).toBe('deity');
+    });
+    it('link lệch id được ép theo target để không rollback cả lượt', () => {
+        const kq = bocTach('<CapNhat>{"patches":[{"op":"link","target":{"table":"entities","id":"deity_dung","path":""},"value":{"id":"deity_sai","kind":"deity","ten":"Thần","tickSinh":0}}]}</CapNhat>', { eventId: 'e', idHopLe: new Set(), branchId: 'br_goc' });
+        expect(kq.patches).toHaveLength(1);
+        expect((kq.patches[0]?.value).id).toBe('deity_dung');
     });
 });
 // ─────────────────────────────────────────── mạch truyện trong view

@@ -69,23 +69,29 @@ function chuanHoaAspects(tho) {
  * `sourceEventId` (để model tự khai là mở cửa cho nó ghi sang dòng thời gian
  * khác).
  */
-export function chuanHoaBanGhiMoi(bang, tho, branchId) {
+export function chuanHoaBanGhiMoi(bang, tho, branchId, targetId) {
     if (!laObj(tho))
         return { ok: false, vi: 'Bản ghi mới phải là một đối tượng.' };
+    const canhBaoId = targetId !== undefined && typeof tho['id'] === 'string' && tho['id'] !== targetId
+        ? [`Đã sửa id trong value từ "${tho['id']}" thành target.id "${targetId}".`]
+        : [];
+    // target.id là khóa transaction đã qua PatchOpSchema. Ép value.id theo khóa
+    // loại bỏ một lỗi LLM rất thường gặp mà nếu để tới invariant sẽ rollback cả lô.
+    const coIdDung = targetId === undefined ? tho : { ...tho, id: targetId };
     if (bang === 'entities') {
-        const { aspects, canhBao } = chuanHoaAspects(tho['aspects']);
-        const r = EntitySchema.safeParse({ ...tho, branchId, aspects });
+        const { aspects, canhBao } = chuanHoaAspects(coIdDung['aspects']);
+        const r = EntitySchema.safeParse({ ...coIdDung, branchId, aspects });
         if (!r.success) {
             return { ok: false, vi: r.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`).join('; ') };
         }
-        return { ok: true, value: r.data, canhBao };
+        return { ok: true, value: r.data, canhBao: [...canhBaoId, ...canhBao] };
     }
     const schema = bang === 'links' ? LinkSchema : bang === 'gaps' ? GapSchema : bang === 'prayers' ? PrayerSchema : null;
     if (schema === null)
         return { ok: false, vi: `Không có schema cho bảng "${bang}".` };
-    const r = schema.safeParse({ ...tho, branchId });
+    const r = schema.safeParse({ ...coIdDung, branchId });
     if (!r.success) {
         return { ok: false, vi: r.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`).join('; ') };
     }
-    return { ok: true, value: r.data, canhBao: [] };
+    return { ok: true, value: r.data, canhBao: canhBaoId };
 }

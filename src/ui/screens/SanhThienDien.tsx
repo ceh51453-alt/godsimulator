@@ -102,6 +102,8 @@ export function SanhThienDien(): JSX.Element | null {
   const chayDanhGiaTruyHoi = useGame((s) => s.chayDanhGiaTruyHoi);
   const gui = useGame((s) => s.gui);
   const tick = useGame((s) => s.tick);
+  const dangCapNhatBien = useGame((s) => s.dangCapNhatBien);
+  const capNhatBienNgay = useGame((s) => s.capNhatBienNgay);
   const chuyenTang = useGame((s) => s.chuyenTang);
   const chonHienDien = useGame((s) => s.chonHienDien);
   const xacNhan = useGame((s) => s.xacNhan);
@@ -182,7 +184,7 @@ export function SanhThienDien(): JSX.Element | null {
   // [BB] ADR-0028 — không có AI thì không gõ được. Khóa ô nhập là cách trung
   // thực nhất để nói điều đó; để người chơi gõ rồi nuốt câu của họ thì không.
   // [BB] ADR-0056 — một nhịp chưa được kể cũng khóa, vì đi tiếp sẽ chôn nó.
-  const khoaNhap = dangKe || !cong.choPhepChoi || luotChuaKe !== null;
+  const khoaNhap = dangKe || dangCapNhatBien || !cong.choPhepChoi || luotChuaKe !== null;
 
   useEffect(() => {
     cuoiScene.current?.scrollIntoView({ block: 'end' });
@@ -670,13 +672,24 @@ export function SanhThienDien(): JSX.Element | null {
             )}
             <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
               <button
+                style={{ ...nut(true), display: 'flex', alignItems: 'center', gap: 6 }}
+                disabled={khoaNhap}
+                title="Nhờ AI đối chiếu diễn biến gần đây với trạng thái thật; không làm thời gian trôi."
+                onClick={() => void capNhatBienNgay()}
+              >
+                <Icon ten="khai_niem" co={14} />
+                {dangCapNhatBien ? 'Đang cập nhật biến…' : 'Cập nhật biến'}
+              </button>
+              <button
                 style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }}
+                disabled={khoaNhap}
                 onClick={() => void tick(1)}
               >
                 <Icon ten="nhip" co={14} /> Trôi 1 nhịp
               </button>
               <button
                 style={{ ...nut(), display: 'flex', alignItems: 'center', gap: 6 }}
+                disabled={khoaNhap}
                 onClick={() => void tick(30)}
               >
                 <Icon ten="ban_do" co={14} /> Trôi 30 nhịp

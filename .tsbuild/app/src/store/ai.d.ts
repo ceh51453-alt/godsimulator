@@ -67,11 +67,14 @@ export type TrangThaiAi = {
         fallbackReason: string;
         forbiddenCount: number;
     }): void;
-    /** Gọi Cập Nhật Biến riêng — 46.1. Trả `null` khi endpoint chưa bật. */
+    /**
+     * Gọi Cập Nhật Biến — 46.1. Trả `null` khi endpoint chưa bật, trừ khi thao
+     * tác thủ công cho phép dùng cấu hình Tường Thuật làm đường dự phòng.
+     */
     capNhatBien(prompt: {
         heThong: string;
         nguoiDung: string;
-    }): Promise<KetQuaGoi | null>;
+    }, dungTuongThuatKhiTat?: boolean): Promise<KetQuaGoi | null>;
     napTuDia(): Promise<void>;
     suaEndpoint(ten: TenEndpoint, thayDoi: Partial<AiEndpoint>): void;
     sao(tu: TenEndpoint, den: TenEndpoint): void;

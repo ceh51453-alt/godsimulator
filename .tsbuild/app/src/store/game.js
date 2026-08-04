@@ -56,7 +56,7 @@ import { xinHoc } from '../core/pham/sinhKe.js';
 import { lapHo } from '../core/pham/ho.js';
 import { anhLinhHoaThan, duongDiTiep } from '../core/pham/caiChet.js';
 import { noiOCua } from '../core/pham/lich.js';
-import { bocTach } from '../core/ai/bocTach.js';
+import { bocTach, hopNhatCapNhat } from '../core/ai/bocTach.js';
 import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
 import { bienSoanPromptCapNhat } from '../core/ai/capNhat.js';
 import { nganSachInput, uocLuong } from '../core/ai/nganSach.js';
@@ -79,6 +79,7 @@ import { capNhatUiState, docUiState } from '../db/preset.js';
 import { veSinh, coVet, moTaVet } from '../core/anToan/veSinh.js';
 import { datTenTruc, luatNenMacDinh } from '../core/vatly/luatNen.js';
 import { quetCoChe } from '../core/vatly/coChe.js';
+import { KHAI_NIEM_NEN_CUA_TRUC, TRUC_NEN } from '../core/vatly/schema.js';
 import { BranchSchema } from '../core/contracts/branch.js';
 import { chayDuongOng } from '../core/workflow/chay.js';
 import { bienSoanTacVu } from '../core/workflow/bienSoanTacVu.js';
@@ -94,6 +95,7 @@ let demIntent = 0;
 let demKe = 0;
 let demQuetCoChe = 0;
 let demLore = 0;
+let demCapNhatThuCong = 0;
 /**
  * Hàng đợi ghi đĩa — mọi lần `luuVan()` nối đuôi nhau, không chồng nhau.
  *
@@ -532,6 +534,34 @@ export const useGame = create((set, get) => {
         void ghiRunXuongDia(kq.run);
         return kq;
     };
+    /**
+     * Nối khái niệm nền AI vừa ghi nhận với bảy trục vật lý.
+     *
+     * AI chỉ khai bằng chứng (concept + giai đoạn + tag). Engine vẫn gọi đúng
+     * validator `datTenTruc` theo thứ tự phụ thuộc, nên một câu văn không thể tự
+     * vượt qua luật Nhân Quả/Vận Mệnh.
+     */
+    const datTenCacTrucDaDuNen = (s) => {
+        let soTruc = 0;
+        for (const truc of TRUC_NEN) {
+            if ([...s.substrateLaws.values()].some((ln) => ln.truc === truc && ln.trangThai === 'co_ten'))
+                continue;
+            const hopLe = KHAI_NIEM_NEN_CUA_TRUC[truc];
+            const ungVien = [...s.entities.values()]
+                .filter((e) => {
+                if (e.kind !== 'concept' || e.tickDiet !== null)
+                    return false;
+                const c = e.aspects['conceptual'];
+                if (c?.giaiDoan !== 'thanh_hinh' && c?.giaiDoan !== 'ket_tinh')
+                    return false;
+                return hopLe.some((h) => e.id.includes(h) || e.tags.includes(h));
+            })
+                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+            if (ungVien && get().datTenTrucNen(truc, ungVien.id).length === 0)
+                soTruc++;
+        }
+        return soTruc;
+    };
     const keLuot = async (cauNguoiChoi, ketQuaEngine) => {
         const s = get().state;
         const log = get().log;
@@ -696,7 +726,9 @@ export const useGame = create((set, get) => {
                 branchId: s.world.branchId,
             });
             // Văn của Updater bị bỏ hẳn: nó không phải người kể chuyện (46.2).
-            kq = { ...rieng, loiKe: kq.loiKe };
+            // Patch của nó được hợp nhất, không thay thế: một khối rỗng không còn làm
+            // mất vị thần/khái niệm mà Narrator vừa tạo đúng hợp đồng.
+            kq = hopNhatCapNhat(kq, rieng);
         }
         /*
          * [BB] 64.3 — transform hiển thị chạy trên BẢN SAO.
@@ -851,6 +883,10 @@ export const useGame = create((set, get) => {
             if (!okNen.ok)
                 set({ loi: [...get().loi, ...okNen.errors] });
         }
+        // Khái niệm Thời Gian/Không Gian vừa được tạo không còn nằm mãi ở sổ Tạo
+        // Vật trong khi trục tương ứng vẫn "vô danh". Validator engine quyết việc
+        // đặt tên ngay trong cùng lượt kể.
+        datTenCacTrucDaDuNen(s);
         capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau lượt kể.');
         dongBo();
         /**
@@ -1103,6 +1139,7 @@ export const useGame = create((set, get) => {
         patchBiTuChoi: [],
         vetVeSinh: [],
         dangKe: false,
+        dangCapNhatBien: false,
         luaChon: [],
         luotChuaKe: null,
         danhSachVan: [],
@@ -1202,6 +1239,127 @@ export const useGame = create((set, get) => {
                     ? 'Góc nhìn vừa đổi lên tầng Sáng Thế: cùng một thế giới, khác thứ nhìn thấy được.'
                     : `Góc nhìn vừa đổi sang ${ten}.`,
             ]);
+        },
+        async capNhatBienNgay() {
+            if (get().dangCapNhatBien || get().dangKe)
+                return;
+            if (!doiCong())
+                return;
+            const s = get().state;
+            const log = get().log;
+            const view = get().view;
+            if (!s || !log || !view)
+                return;
+            const dienBien = get()
+                .scene.filter((d) => d.loai === 'nguoi_choi' || d.loai === 'ket_qua')
+                .slice(-30)
+                .map((d) => `${d.loai === 'nguoi_choi' ? '[Người chơi]' : '[Lời kể]'} ${d.noiDungGoc ?? d.noiDung}`)
+                .join('\n');
+            if (dienBien.trim() === '') {
+                themDong('he_thong', 'Chưa có diễn biến nào để AI rà soát và cập nhật.');
+                return;
+            }
+            set({ dangCapNhatBien: true });
+            try {
+                const truocThan = [...s.entities.values()].filter((e) => e.kind === 'deity' && e.tickDiet === null).length;
+                const prompt = bienSoanPromptCapNhat({
+                    view,
+                    loiKe: dienBien,
+                    ketQuaEngine: [
+                        'Đây là lần rà soát thủ công; không có hành động mới và thời gian không trôi.',
+                        'Chỉ đồng bộ những gì diễn biến gần đây đã xác lập rõ nhưng trạng thái hiện tại còn thiếu.',
+                    ],
+                    idHopLe: [...s.entities.keys()],
+                    tyLeToken: TY_LE_TOKEN,
+                    thuCong: true,
+                });
+                // Khi Updater riêng đang tắt, nút vẫn dùng model Tường Thuật đã nối làm
+                // đường dự phòng. Output vẫn bị bóc tách và kiểm transaction như thường.
+                const goi = await useAi.getState().capNhatBien(prompt, true);
+                if (goi === null || !goi.ok) {
+                    const thongDiep = goi === null ? 'Chưa có model nào dùng được để cập nhật.' : goi.thongDiep;
+                    set({
+                        loi: [
+                            ...get().loi,
+                            loi('ai', goi === null ? 'CAP_NHAT_CHUA_CAU_HINH' : goi.ma, `Cập nhật biến: ${thongDiep}`, {
+                                recoverable: true,
+                            }),
+                        ],
+                    });
+                    themDong('he_thong', `Cập nhật biến chưa hoàn tất: ${thongDiep}`);
+                    return;
+                }
+                demCapNhatThuCong++;
+                const evId = `ev_cap_nhat_thu_cong_${s.world.branchId}_${s.world.tick}_${demCapNhatThuCong}`;
+                const kq = bocTach(goi.vanBan, {
+                    eventId: evId,
+                    idHopLe: new Set(s.entities.keys()),
+                    branchId: s.world.branchId,
+                });
+                set({ patchBiTuChoi: kq.biTuChoi });
+                if (!kq.coKhoiCapNhat) {
+                    set({
+                        loi: [
+                            ...get().loi,
+                            loi('ai', 'CAP_NHAT_THIEU_KHOI', 'AI không trả về khối <CapNhat>; trạng thái chưa bị thay đổi.', { recoverable: true }),
+                        ],
+                    });
+                    themDong('he_thong', 'AI đã trả lời nhưng không có khối cập nhật hợp lệ. Hãy bấm cập nhật lại.');
+                    return;
+                }
+                let soPatchDaAp = 0;
+                if (kq.patches.length > 0) {
+                    const ev = taoEvent({
+                        id: evId,
+                        branchId: s.world.branchId,
+                        tick: s.world.tick,
+                        loai: 'cap_nhat_bien_thu_cong',
+                        actorIds: s.world.playerState.chuTheId ? [s.world.playerState.chuTheId] : [],
+                        targetIds: [],
+                        causeEventIds: [],
+                        locationId: null,
+                        patches: [...kq.patches],
+                        visibility: 'engine',
+                        source: 'ai_validated',
+                        payload: { soPatch: kq.patches.length, soTuChoi: kq.biTuChoi.length },
+                    });
+                    const ap = apDungEvent(s, ev, log);
+                    if (!ap.ok) {
+                        set({ loi: [...get().loi, ...ap.errors] });
+                    }
+                    else {
+                        soPatchDaAp = kq.patches.length;
+                    }
+                }
+                if (kq.bienPack.length > 0) {
+                    await usePreset.getState().apBienPack(kq.bienPack, s.world.tick);
+                }
+                // Entity mới cũng phải được gieo các mặt nền giống entity sinh ở một
+                // lượt kể bình thường; nếu không một nơi mới có thể đứng hình mãi mãi.
+                if (soPatchDaAp > 0) {
+                    const evNen = eventGieoNen(s, `:capnhat${demCapNhatThuCong}`);
+                    if (evNen) {
+                        const apNen = apDungEvent(s, evNen, log);
+                        if (!apNen.ok)
+                            set({ loi: [...get().loi, ...apNen.errors] });
+                    }
+                }
+                dongBo();
+                const soTrucDatTen = datTenCacTrucDaDuNen(s);
+                const sauThan = [...s.entities.values()].filter((e) => e.kind === 'deity' && e.tickDiet === null).length;
+                const phanThan = sauThan > truocThan ? ` · thêm ${sauThan - truocThan} vị thần có thể nhập` : '';
+                const phanTruc = soTrucDatTen > 0 ? ` · đặt tên ${soTrucDatTen} trục Luật Nền` : '';
+                const phanTuChoi = kq.biTuChoi.length > 0 ? ` · bỏ ${kq.biTuChoi.length} đề nghị không hợp lệ` : '';
+                themDong('he_thong', soPatchDaAp === 0 && soTrucDatTen === 0
+                    ? `AI đã rà soát: không thấy thay đổi trạng thái hợp lệ nào còn thiếu${phanTuChoi}.`
+                    : `Đã cập nhật ${soPatchDaAp} thay đổi${phanTruc}${phanThan}${phanTuChoi}.`);
+                capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau lần cập nhật biến thủ công.');
+                dongBo();
+                await get().luuVan();
+            }
+            finally {
+                set({ dangCapNhatBien: false });
+            }
         },
         async gui(cau) {
             if (cau.trim() === '')
