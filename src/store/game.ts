@@ -1598,10 +1598,26 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     },
 
     async chuyenTang(mode, chuTheId) {
-      if (!doiCong()) return;
+      /*
+       * Chuyển tầng là hành động XEM, không phải hành động chơi — nó không làm
+       * thời gian trôi và không cần AI kể lại. Vì vậy:
+       *
+       * 1. Sang `sang_the` KHÔNG qua `doiCong()`: người chơi luôn có quyền lùi
+       *    về góc nhìn toàn năng, kể cả khi AI chết hay có lượt chưa kể.
+       * 2. Sang `than`/`pham_nhan` vẫn cần thế giới hợp lệ nhưng KHÔNG gọi
+       *    `keLuot()`: chuyển tầng không phải một lượt, và nếu `keLuot` hỏng
+       *    thì `luotChuaKe` sẽ khoá người chơi lại — một cái bẫy không lối
+       *    thoát vì chính hành động sửa chữa (chuyển tầng) cũng bị chặn.
+       *
+       * Thay vào đó, dùng `themDong` để ghi một dòng hệ thống — không cần AI.
+       */
       const s = get().state;
       const log = get().log;
       if (!s || !log) return;
+
+      // Sang tầng khác sang_the vẫn cần thế giới hợp lệ nhưng không chặn bằng
+      // doiCong(): doiCong() chặn khi luotChuaKe, mà chuyển tầng không sinh
+      // lượt mới nên không nên bị chặn bởi luotChuaKe.
 
       // [BB] Giới hạn Phase 6 đã đóng: chủ thể do bộ chọn quyết, không còn là
       // "entity `deity` đầu tiên trong view". Bấm "Thần" mà rơi vào Phàm Nhân là
@@ -1632,11 +1648,13 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       }
       dongBo();
       const ten = chon ? (get().view?.entities.get(chon)?.ten ?? chon) : null;
-      await keLuot('', [
+      // Ghi dòng hệ thống thay vì gọi keLuot — chuyển tầng không phải một lượt.
+      themDong(
+        'he_thong',
         ten === null
           ? 'Góc nhìn vừa đổi lên tầng Sáng Thế: cùng một thế giới, khác thứ nhìn thấy được.'
           : `Góc nhìn vừa đổi sang ${ten}.`,
-      ]);
+      );
     },
 
     async capNhatBienNgay() {
