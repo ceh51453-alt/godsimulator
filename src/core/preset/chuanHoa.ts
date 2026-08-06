@@ -36,6 +36,14 @@ import { NormalizedGenParamsSchema } from '../schema/ai.js';
 import type { NormalizedGenParams } from '../schema/ai.js';
 import { bam } from '../engine/hash.js';
 
+/**
+ * `sourceIdentifier` dành riêng cho module dựng từ trường `assistant_prefill`.
+ *
+ * File nguồn hầu như không bao giờ có `prompts[]` mang identifier này; nếu có thì
+ * mục thật của người dùng thắng và ta không dựng thêm bản trùng.
+ */
+export const KHOA_PREFILL = 'assistant_prefill';
+
 // ─────────────────────────────────────────── marker → lane (63.4)
 
 export const MARKER_SANG_LANE: Readonly<Record<string, ModuleLane>> = Object.freeze({
@@ -362,6 +370,71 @@ export function chuanHoaSillyTavern(input: {
     });
   });
 
+  /*
+   * ── `assistant_prefill` cấp cao ──
+   *
+   * SillyTavern gửi chuỗi này làm message `assistant` CUỐI CÙNG để mồi định dạng
+   * cho model. Nó không nằm trong `prompts[]`, nên vòng lặp trên không thấy nó và
+   * trước đây nó chỉ rơi vào `generation.unknown`: dữ liệu còn nguyên, nhưng không
+   * lượt kể nào nhận được nó. Preset nào dùng prefill để mở sẵn một khối định dạng
+   * sẽ mất phần mở đầu ấy — và mất im lặng, vì "đã nhập đủ" là đúng theo nghĩa lưu trữ.
+   *
+   * Dựng nó thành một module `prefill` bình thường để nó đi đúng tầng 6 của 63.6:
+   * vẫn bị bỏ kèm issue `PREFILL_KHONG_HO_TRO` khi model không nhận prefill, và vẫn
+   * chịu chung luật lọc pipeline như mọi module ngoài.
+   */
+  const prefillNguon = chuoi(goc['assistant_prefill']).trim();
+  if (prefillNguon !== '' && !theoId.has(KHOA_PREFILL)) {
+    const macroLa = macroChuaHoTro(prefillNguon);
+    const activation = chonActivation([], macroLa, false);
+    demTheoTrangThai[activation]++;
+    const phuThuoc = suyPhuThuoc({
+      content: prefillNguon,
+      kind: 'assistant_prefill',
+      lane: 'prefill',
+    });
+    modules.push({
+      id: `${packId}/${KHOA_PREFILL}`,
+      packId,
+      sourceIdentifier: KHOA_PREFILL,
+      name: 'Assistant prefill',
+      role: 'assistant',
+      kind: 'assistant_prefill',
+      enabled: activation !== 'quarantined' && activation !== 'disabled',
+      lane: 'prefill',
+      // Sau mọi module đến từ `prompts[]`, kể cả mục ngoài order (900_000 + i).
+      order: 990_000,
+      depth: 0,
+      content: prefillNguon,
+      macroRefs: macroTrongChuoi(prefillNguon),
+      provides: phuThuoc.provides,
+      requires: phuThuoc.requires,
+      conflictKeys: suyConflictKeys({
+        content: prefillNguon,
+        kind: 'assistant_prefill',
+        lane: 'prefill',
+      }),
+      activation,
+      targetPipelines: ['narrator'],
+      sourceMeta: {
+        // Không đến từ `prompts[]`. Giao diện cần phân biệt để không mời người dùng
+        // đi sửa một mục không tồn tại dưới tên đó trong file nguồn.
+        nguonTruong: 'assistant_prefill',
+        marker: false,
+        system_prompt: false,
+        injection_position: 0,
+        injection_order: 0,
+        forbid_overrides: false,
+        enabledONguon: true,
+        enabledHieuLucNguon: true,
+        trongOrder: false,
+        nhanRuiRo: [],
+        macroCanAdapter: macroLa,
+        nguonNativeCuaSlot: '',
+      },
+    });
+  }
+
   // ── extensions ──
   const ext = (goc['extensions'] ?? {}) as Record<string, unknown>;
   const regexTho = Array.isArray(ext['regex_scripts'])
@@ -547,6 +620,9 @@ export function docThamSoNguon(goc: Record<string, unknown>): GenerationCandidat
   for (const k of Object.keys(goc)) {
     if (daDung.has(k)) continue;
     if (k === 'prompts' || k === 'prompt_order' || k === 'extensions') continue;
+    // `assistant_prefill` đã thành module prefill — để nó nằm trong bảng "tham số
+    // không hỗ trợ" nữa là nói sai về thứ đang thật sự được dùng.
+    if (k === KHOA_PREFILL) continue;
     const v = goc[k];
     if (v === null || typeof v === 'object') continue;
     la[k] = v;

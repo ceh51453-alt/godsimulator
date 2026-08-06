@@ -23,6 +23,7 @@ import type { WorldState, EventLog } from '../core/engine/state.js';
 import { SceneSchema } from '../core/contracts/core.js';
 import type { Scene } from '../core/contracts/core.js';
 import { bienSoanLuot } from '../core/preset/hopNhat.js';
+import type { OmitReason } from '../core/preset/schema.js';
 import { parseChoice } from '../core/ai/choice.js';
 import { packDangBat, usePreset } from './preset.js';
 import { taoState, taoEventLog, hashState } from '../core/engine/state.js';
@@ -384,6 +385,8 @@ export type TrangThaiGame = {
   presetTrace: {
     packDaDung: readonly string[];
     moduleBiBo: readonly string[];
+    /** `moduleId → lý do` — chẩn đoán phải nói ĐÚNG nguyên nhân, không gộp rổ. */
+    lyDoBiBo: Readonly<Record<string, OmitReason>>;
     macroChuaGiai: readonly string[];
     issues: readonly string[];
   };
@@ -1485,6 +1488,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       presetTrace: {
         packDaDung: hopNhat.packDaDung,
         moduleBiBo: hopNhat.moduleBiBo,
+        lyDoBiBo: hopNhat.lyDoBiBo,
         macroChuaGiai: hopNhat.macroChuaGiai,
         issues: hopNhat.issues.map((i) => `${i.code}: ${i.message}`),
       },
@@ -2326,7 +2330,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     vangMat: hanNgachVangMat([]),
     truyHoiCuoi: null,
     vetCatToken: [],
-    presetTrace: { packDaDung: [], moduleBiBo: [], macroChuaGiai: [], issues: [] },
+    presetTrace: { packDaDung: [], moduleBiBo: [], lyDoBiBo: {}, macroChuaGiai: [], issues: [] },
     danhGiaTruyHoi: null,
     dangDanhGia: false,
 

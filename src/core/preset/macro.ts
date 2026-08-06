@@ -40,13 +40,17 @@ export const MACRO_BIET = [
   'newline',
   'random',
   'pick',
+  'reverse',
   'setvar',
   'getvar',
   'addvar',
   'incvar',
+  'decvar',
   'setglobalvar',
   'getglobalvar',
   'addglobalvar',
+  'incglobalvar',
+  'decglobalvar',
   'noop',
   'roll',
   'macro',
@@ -59,7 +63,19 @@ const GLOBAL_SANG_PACK: Readonly<Record<string, string>> = Object.freeze({
   setglobalvar: 'setvar',
   getglobalvar: 'getvar',
   addglobalvar: 'addvar',
+  incglobalvar: 'incvar',
+  decglobalvar: 'decvar',
 });
+
+/**
+ * Macro mà SillyTavern cho viết `{{tên:đối}}` hoặc `{{tên đối}}`, không chỉ `{{tên::đối}}`.
+ *
+ * Nguồn: `macros.js` dùng `/{{random\s?::?([^}]+)}}/`, `/{{pick\s?::?([^}]+)}}/`,
+ * `/{{roll[ : ]([^}]+)}}/`, `/{{reverse:(.+?)}}/`. Dạng một dấu hai chấm là dạng
+ * viết phổ biến nhất trong preset thật, nên không nhận nó nghĩa là cả macro rơi
+ * xuống nhánh "chưa hỗ trợ" và ở lại nguyên văn trong prompt.
+ */
+const MACRO_DINH_DOI_SO: ReadonlySet<string> = new Set(['roll', 'random', 'pick', 'reverse']);
 
 /**
  * Tách một chuỗi thành cây macro.
@@ -128,15 +144,59 @@ function dungNutMacro(than: string, raw: string): NutMacro {
     return { loai: 'macro', ten: 'noop', doiSo: [], raw };
   }
   const phan = tachTheoHaiHaiCham(than);
-  let ten = (phan[0] ?? '').trim().toLowerCase();
-  // SillyTavern chấp nhận cả {{roll:d100}} và {{roll 1d9}}.
-  const roll = /^roll(?:\s+|:)(.+)$/i.exec(ten);
-  if (roll !== null) {
-    ten = 'roll';
-    phan.splice(1, 0, roll[1] ?? '');
+  const dau = (phan[0] ?? '').trim();
+  let ten = dau.toLowerCase();
+  /*
+   * Tách `{{roll:d100}}` · `{{roll 1d9}}` · `{{random:a,b}}` thành tên + đối số.
+   *
+   * Cắt từ `dau` (chuỗi GỐC) chứ không từ `ten`: cắt từ bản đã viết thường sẽ
+   * biến `{{random:Nguyệt,Tướng}}` thành hai lựa chọn `nguyệt` và `tướng`.
+   */
+  const dinh = /^([a-z_][a-z0-9_]*)[\s:]([\s\S]+)$/i.exec(dau);
+  if (dinh !== null && MACRO_DINH_DOI_SO.has((dinh[1] as string).toLowerCase())) {
+    ten = (dinh[1] as string).toLowerCase();
+    phan.splice(1, 0, dinh[2] as string);
   }
   const doiSo = phan.slice(1).map((p) => docMacro(p));
   return { loai: 'macro', ten, doiSo, raw };
+}
+
+/** Mảng JSON (hoặc mảng thật) — `addvar` của ST push vào nó thay vì cộng. */
+function laMang(v: unknown): unknown[] | null {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== 'string') return null;
+  try {
+    const p: unknown = JSON.parse(v);
+    return Array.isArray(p) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cộng dồn biến theo đúng `addLocalVariable` của SillyTavern: mảng JSON thì push,
+ * hai vế đều đọc được thành số thì cộng số, **còn lại thì nối chuỗi**.
+ *
+ * Ép số vô điều kiện là chỗ từng làm hỏng preset thật mà không ai thấy. Fixture A
+ * gọi `{{addvar::…}}` 64 lần và **62 lần giá trị là văn bản** — kiểu
+ * `{{addvar::output_language::Tiếng Việt}}` hay cả một khối luật nhiều dòng. Ép số
+ * biến từng khối ấy thành `0`, rồi `{{getvar}}` in ra "0": preset vẫn chạy, prompt
+ * vẫn gửi đi, và toàn bộ nội dung tác giả gom vào biến đã bốc hơi.
+ */
+function congBien(cu: unknown, them: string): unknown {
+  const mang = laMang(cu);
+  if (mang !== null) return [...mang, them];
+  const soThem = Number(them);
+  const soCu = Number(cu ?? 0);
+  if (Number.isNaN(soThem) || Number.isNaN(soCu))
+    return `${cu === undefined || cu === null ? '' : String(cu)}${them}`;
+  return soCu + soThem;
+}
+
+/** Biến in ra prompt: chuỗi giữ nguyên, thứ khác về JSON — dùng chung getvar/incvar. */
+function inBien(gt: unknown): string {
+  if (gt === undefined || gt === null) return '';
+  return typeof gt === 'string' ? gt : JSON.stringify(gt);
 }
 
 /** Tách theo `::` ở mức ngoài cùng — không cắt vào `::` nằm trong macro lồng. */
@@ -301,10 +361,17 @@ export function giaiMacro(text: string, ctx: NguCanhMacro): KetQuaGiai {
       case 'newline':
         return '\n';
 
+      case 'reverse':
+        return [...doiSoThanhChuoi(n, 0, sau + 1, dangGiai)].reverse().join('');
+
       case 'random':
       case 'pick': {
         let lua = n.doiSo.map((_, i) => doiSoThanhChuoi(n, i, sau + 1, dangGiai));
-        if (lua.length === 1 && lua[0]?.includes(',')) lua = lua[0].split(',').map((s) => s.trim());
+        // ST: một đối số duy nhất có dấu phẩy thì tách theo phẩy và cắt khoảng
+        // trắng hai đầu; `\,` là dấu phẩy thật, không phải dấu tách.
+        if (lua.length === 1 && (lua[0] as string).includes(',')) {
+          lua = (lua[0] as string).split(/(?<!\\),/).map((s) => s.trim().replace(/\\,/g, ','));
+        }
         if (lua.length === 0) return '';
         // [BB] Seeded theo scene + module + turn + số thứ tự lần rút trong module.
         const rng = taoRng(`${ctx.sceneId}#${ctx.moduleId}#${ctx.turn}#${demRandom++}`);
@@ -342,13 +409,19 @@ export function giaiMacro(text: string, ctx: NguCanhMacro): KetQuaGiai {
         if (khoa !== '') bien[khoa] = gt;
         return '';
       }
-      case 'addvar':
-      case 'incvar': {
+      case 'addvar': {
         const khoa = doiSoThanhChuoi(n, 0, sau + 1, dangGiai).trim();
-        const them = Number(doiSoThanhChuoi(n, 1, sau + 1, dangGiai) || '1');
-        const cu = Number(bien[khoa] ?? 0);
-        bien[khoa] = (Number.isFinite(cu) ? cu : 0) + (Number.isFinite(them) ? them : 0);
-        return '';
+        if (khoa === '') return '';
+        bien[khoa] = congBien(bien[khoa], doiSoThanhChuoi(n, 1, sau + 1, dangGiai));
+        return ''; // ST ghi im lặng: `{{addvar}}` không in gì ra prompt.
+      }
+      case 'incvar':
+      case 'decvar': {
+        const khoa = doiSoThanhChuoi(n, 0, sau + 1, dangGiai).trim();
+        if (khoa === '') return '';
+        bien[khoa] = congBien(bien[khoa], ten === 'incvar' ? '1' : '-1');
+        // Khác `addvar`: ST **in ra** giá trị mới (`incrementLocalVariable` trả về nó).
+        return inBien(bien[khoa]);
       }
       case 'getvar': {
         const khoa = doiSoThanhChuoi(n, 0, sau + 1, dangGiai).trim();
@@ -363,9 +436,8 @@ export function giaiMacro(text: string, ctx: NguCanhMacro): KetQuaGiai {
           });
           return '';
         }
-        const gt = bien[khoa];
-        if (gt === undefined) return '';
-        const s = typeof gt === 'string' ? gt : JSON.stringify(gt);
+        const s = inBien(bien[khoa]);
+        if (s === '') return '';
         // Giá trị biến có thể chứa macro — giải tiếp, có chống vòng.
         return s.includes('{{') ? giaiDs(docMacro(s), sau + 1, [...dangGiai, khoa]) : s;
       }

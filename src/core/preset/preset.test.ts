@@ -33,8 +33,8 @@ import {
   BAC_QUYEN,
 } from './kichHoat.js';
 import { wizardMoi, napKetQua, manKeTiep, manTruocDo, diToi, baoCaoNhap, MAN_WIZARD } from './wizard.js';
-import { ImportEnvelopeSchema, TransformDefSchema } from './schema.js';
-import type { PresetPackRow, TransformDef } from './schema.js';
+import { ImportEnvelopeSchema, OMIT_REASONS, TransformDefSchema } from './schema.js';
+import type { PresetPackRow, PromptModule, TransformDef } from './schema.js';
 
 import { TUNING_MAC_DINH } from '../tuning/schema.js';
 import { ModelProfileSchema } from '../schema/ai.js';
@@ -77,6 +77,62 @@ describe('regex nội tuyến — chỉ được sửa nội dung preset, không
     expect(ketQua.applied).toBe(0);
     expect(ketQua.text.trim()).toBe('aaaa');
     expect(ketQua.errors.join(' ')).toContain('từ chối');
+  });
+
+  /*
+   * Trần ký tự là trần của MỘT khối (`tuning.preset.maxBlockChars`). Cộng dồn cả
+   * mảng rồi hủy tất là đo sai đại lượng: preset Tawa v3.0.3 có 233.928 ký tự
+   * tổng nhưng message dài nhất chỉ 18.554 — vậy mà cả 21 khối `<regex>` của nó
+   * không chạy lần nào, mỗi lượt kể lại ghi một dòng "Prompt vượt trần regex".
+   */
+  it('tổng prompt vượt trần KHÔNG làm chết regex của cả preset', () => {
+    const dai = 'x'.repeat(120_000);
+    const kq = apInPromptRegexMessages([
+      {
+        role: 'system',
+        moduleId: 'pack.a',
+        lane: 'style',
+        content: `${dai}\n<regex>"/x{3}/g" : "Y"</regex>\nxxx`,
+      },
+      { role: 'system', moduleId: 'pack.b', lane: 'style', content: dai },
+    ]);
+    // 240.000 ký tự tổng, mỗi message vẫn dưới trần → regex phải chạy.
+    expect(kq.applied).toBe(1);
+    expect(kq.errors).toEqual([]);
+    expect(kq.messages[0]?.content).toContain('Y');
+  });
+
+  /*
+   * `regexFromString` của ST tham lam tới dấu `/` CUỐI, nên `"/<a>(.*?)</a>/gs"`
+   * là hợp lệ ở SillyTavern. Bộ đọc cũ cấm mọi `/` chưa escape và khối kiểu ấy
+   * biến mất không một tiếng động — Tawa v3.0.3 mất 10 trong 42 khối vì chỗ này.
+   */
+  it('khối có dấu / thô trong mẫu vẫn đọc được, như ST', () => {
+    const kq = apInPromptRegex('<regex>"/<a>(.*?)</a>/gs" : "[$1]"</regex>\n<a>xin</a>');
+    expect(kq.applied).toBe(1);
+    expect(kq.text.trim()).toBe('[xin]');
+  });
+
+  it('khối <regex> sai dạng được BÁO ra, không biến mất im lặng', () => {
+    const kq = apInPromptRegex('<regex>"/abc/g" : "x"</regex>\n<regex>không phải dạng nào cả</regex>\nabc');
+    expect(kq.applied).toBe(1);
+    expect(kq.errors.join(' ')).toContain('không đúng dạng');
+  });
+
+  it('khối vượt trần bị bỏ RIÊNG nó, các khối còn lại vẫn chạy', () => {
+    const kq = apInPromptRegexMessages([
+      { role: 'system', moduleId: 'pack.qua-dai', lane: 'style', content: `${'x'.repeat(200_001)}` },
+      {
+        role: 'system',
+        moduleId: 'pack.thuong',
+        lane: 'style',
+        content: '<regex>"/xxx/g" : "Y"</regex>\nxxx',
+      },
+    ]);
+    expect(kq.applied).toBe(1);
+    expect(kq.messages[1]?.content).toContain('Y');
+    expect(kq.messages[0]?.content.length).toBe(200_001);
+    expect(kq.errors.join(' ')).toContain('vượt trần');
   });
 });
 
@@ -488,6 +544,50 @@ describe('cổng 3 — không script nào chạy', () => {
   });
 });
 
+// ─────────────────────────────────────────── 64.3: chuỗi thay thế bám sát ST
+
+/**
+ * Ba bài này kiểm phần dễ sai nhất của regex preset: không phải "có chạy không"
+ * mà "chạy có GIỐNG SillyTavern không". Sai ở đây không làm hỏng lượt — nó chỉ
+ * cho ra một văn bản khác bản người dùng đã thử ở SillyTavern, và không ai biết.
+ */
+describe('64.3 — cờ và chuỗi thay thế của regex bám sát SillyTavern', () => {
+  const rx = (pattern: string, thayThe: string, extra: Partial<TransformDef> = {}): TransformDef =>
+    TransformDefSchema.parse({
+      id: 'p/rx',
+      packId: 'p',
+      ten: 'rx',
+      pattern,
+      thayThe,
+      activation: 'sandboxed',
+      ...extra,
+    });
+
+  const chay = (text: string, t: TransformDef): string =>
+    apTransform({ text, transforms: [t], maxRegexMs: 200 }).text;
+
+  it('pattern viết trần KHÔNG nhận cờ g ngầm — chỉ thay lần khớp đầu', () => {
+    expect(chay('a a a', rx('a', 'b'))).toBe('b a a');
+    // Dạng /.../g vẫn thay hết: cờ là chuyện người viết preset khai, không phải mặc định của ta.
+    expect(chay('a a a', rx('/a/g', 'b'))).toBe('b b b');
+  });
+
+  it('$& và {{match}} cùng trỏ tới toàn bộ phần khớp', () => {
+    expect(chay('xin chào', rx('/chào/', '[$&|{{match}}]'))).toBe('xin [chào|chào]');
+  });
+
+  it('nhóm không tham gia giữ nguyên $n; $n vượt số nhóm không bốc phải offset hay cả chuỗi', () => {
+    expect(chay('ab', rx('/(a)(z)?(b)/', '$1|$2|$3'))).toBe('a|$2|b');
+    // args = [khớp, p1, p2, offset, chuỗi] — `$4` từng trả về CẢ CHUỖI ĐẦU VÀO.
+    expect(chay('ab', rx('/(a)(b)/', '$1$2|$4'))).toBe('ab|$4');
+  });
+
+  it('nhóm khớp chuỗi rỗng vẫn được chèn, và named group vẫn hoạt động', () => {
+    expect(chay('ab', rx('/(a)(z*)(b)/', '[$2]'))).toBe('[]');
+    expect(chay('ab', rx('/(?<dau>a)b/', '$<dau>!'))).toBe('a!');
+  });
+});
+
 // ─────────────────────────────────────────── cổng 4: không module ngoài vào Updater
 
 describe('cổng 4 — không module ngoài vào Updater mặc định', () => {
@@ -517,6 +617,46 @@ describe('cổng 4 — không module ngoài vào Updater mặc định', () => {
     const loc = locModuleChoPipeline(gian, 'updater');
     expect(loc.giu).toEqual([]);
     expect(loc.bo.length).toBe(gian.length);
+  });
+
+  /*
+   * "102 module bị bỏ vì ngân sách hoặc không tương thích" là câu giao diện từng
+   * in ra cho preset Tawa — và cả hai vế đều sai: 0 vì ngân sách, 0 vì tương
+   * thích. Chúng chỉ đang tắt trong `prompt_order` của chính preset (62) hoặc là
+   * marker/khối rỗng (44). Một pack khỏe mạnh bị báo như đang hỏng.
+   */
+  it('lý do bị bỏ được ghi RIÊNG từng loại, không gộp thành một rổ', () => {
+    const kq = chayNhap(docFixture('A').text, 'A.json');
+    const bd = kq.thuBienDich.narrator;
+    expect(bd).not.toBeNull();
+    const dem: Record<string, number> = {};
+    for (const v of Object.values(bd?.omitReasons ?? {})) dem[v] = (dem[v] ?? 0) + 1;
+    // Mỗi id bị bỏ phải có đúng một lý do — không id nào rơi ra ngoài bảng.
+    expect(Object.keys(bd?.omitReasons ?? {}).length).toBe(bd?.omittedModuleIds.length);
+    expect(dem['tat_trong_preset'] ?? 0).toBeGreaterThan(0);
+    for (const vi of Object.keys(dem)) expect(OMIT_REASONS).toContain(vi);
+  });
+
+  it('module tắt trong prompt_order mang lý do "tat_trong_preset", không phải "khong_tuong_thich"', () => {
+    const goc = {
+      prompts: [
+        { identifier: 'a', role: 'system', content: 'x' },
+        { identifier: 'b', role: 'system', content: 'y' },
+      ],
+      prompt_order: [
+        {
+          character_id: 100001,
+          order: [
+            { identifier: 'a', enabled: true },
+            { identifier: 'b', enabled: false },
+          ],
+        },
+      ],
+    };
+    const kq = chayNhap(JSON.stringify(goc), 'tat.json');
+    const mods = (kq.row as PresetPackRow).pack.modules;
+    const b = mods.find((m) => m.sourceIdentifier === 'b') as PromptModule;
+    expect(kq.thuBienDich.narrator?.omitReasons[b.id]).toBe('tat_trong_preset');
   });
 
   it('không có pipeline nào KHÔNG bị chặn ngoài narrator', () => {
@@ -1003,6 +1143,57 @@ describe('macro — AST, không replace chuỗi (63.5)', () => {
     expect(kq.text).toBe('5');
     expect(kq.bienSau['n']).toBe(5);
   });
+
+  /*
+   * `addvar` với giá trị VĂN BẢN là cách preset thật gom luật vào một biến rồi in
+   * lại bằng `{{getvar}}`. Fixture A làm thế 62 lần. Ép số ở đây không báo lỗi —
+   * nó chỉ biến từng khối luật thành số 0 rồi gửi prompt đi như không có chuyện gì.
+   */
+  it('addvar giá trị văn bản NỐI CHUỖI, không ép về số (ST addLocalVariable)', () => {
+    const kq = giaiMacro(
+      '{{addvar::ngonNgu::Tiếng Việt}}{{addvar::ngonNgu:: và Hán Việt}}{{getvar::ngonNgu}}',
+      ctx,
+    );
+    expect(kq.text).toBe('Tiếng Việt và Hán Việt');
+    expect(kq.bienSau['ngonNgu']).toBe('Tiếng Việt và Hán Việt');
+  });
+
+  it('addvar vào biến đang là số nhưng thêm chuỗi thì chuyển sang nối chuỗi', () => {
+    const kq = giaiMacro('{{setvar::x::2}}{{addvar::x::lần}}{{getvar::x}}', ctx);
+    expect(kq.text).toBe('2lần');
+  });
+
+  it('addvar vào mảng JSON thì push, đúng như ST', () => {
+    const kq = giaiMacro('{{addvar::ds::c}}{{getvar::ds}}', { ...ctx, bien: { ds: '["a","b"]' } });
+    expect(kq.bienSau['ds']).toEqual(['a', 'b', 'c']);
+    expect(kq.text).toBe('["a","b","c"]');
+  });
+
+  it('incvar và decvar IN RA giá trị mới; addvar thì im lặng', () => {
+    expect(giaiMacro('{{setvar::n::4}}{{incvar::n}}', ctx).text).toBe('5');
+    expect(giaiMacro('{{setvar::n::4}}{{decvar::n}}', ctx).text).toBe('3');
+    expect(giaiMacro('{{setvar::n::4}}{{addvar::n::1}}', ctx).text).toBe('');
+    // decvar từng không có trong bảng macro — nó rơi xuống nhánh "chưa hỗ trợ".
+    expect(macroChuaHoTro('{{decvar::n}}')).toEqual([]);
+  });
+
+  it('cú pháp MỘT dấu hai chấm của ST được nhận: {{random:a,b}}, {{roll:d6}}', () => {
+    const r = giaiMacro('{{random:mưa,nắng,gió}}', ctx);
+    expect(['mưa', 'nắng', 'gió']).toContain(r.text);
+    expect(r.chuaGiai).toEqual([]);
+    // Đối số phải giữ nguyên chữ hoa — cắt từ chuỗi đã viết thường là mất tên riêng.
+    expect(['Nguyệt', 'Tướng']).toContain(giaiMacro('{{random:Nguyệt,Tướng}}', ctx).text);
+    expect(Number(giaiMacro('{{roll:d6}}', ctx).text)).toBeGreaterThanOrEqual(1);
+    expect(macroChuaHoTro('{{pick:a,b}} {{reverse:abc}}')).toEqual([]);
+  });
+
+  it('{{random}} tách theo phẩy nhưng `\\,` là phẩy thật', () => {
+    expect(giaiMacro('{{random:một\\, hai}}', ctx).text).toBe('một, hai');
+  });
+
+  it('{{reverse}} đảo chuỗi theo code point', () => {
+    expect(giaiMacro('{{reverse:abc}}', ctx).text).toBe('cba');
+  });
 });
 
 // ─────────────────────────────────────────── xung đột và đồ thị
@@ -1295,6 +1486,66 @@ describe('63.3 quy tắc 3 — không có prompt_order thì mới dùng prompts[
     const ids = (kq.row as PresetPackRow).pack.modules.map((m) => m.id);
     expect(new Set(ids).size).toBe(2);
     expect(ids[1]).toContain('#2');
+  });
+});
+
+// ─────────────────────────────────────────── assistant_prefill cấp cao
+
+/**
+ * `assistant_prefill` không nằm trong `prompts[]`, nên nó từng đi lọt qua toàn bộ
+ * pipeline nhập: được lưu, được export lại, và không bao giờ tới model. Bài này
+ * giữ đường đó mở.
+ */
+describe('assistant_prefill cấp cao tới được model, không nằm lại trong bảng tham số', () => {
+  const goc = {
+    prompts: [{ identifier: 'main', name: 'chính', role: 'system', content: 'Kể chuyện.', enabled: true }],
+    prompt_order: [{ character_id: 100001, order: [{ identifier: 'main', enabled: true }] }],
+    assistant_prefill: '<TruyenKe>',
+  };
+
+  it('thành module lane prefill và ra message assistant CUỐI CÙNG', () => {
+    const kq = chayNhap(JSON.stringify(goc), 'prefill.json');
+    const pf = (kq.row as PresetPackRow).pack.modules.find((m) => m.sourceIdentifier === 'assistant_prefill');
+    expect(pf?.lane).toBe('prefill');
+    expect(pf?.role).toBe('assistant');
+    expect(pf?.kind).toBe('assistant_prefill');
+    expect(pf?.enabled).toBe(true);
+
+    const cuoi = (kq.thuBienDich.narrator?.messages ?? []).at(-1);
+    expect(cuoi?.role).toBe('assistant');
+    expect(cuoi?.content).toBe('<TruyenKe>');
+  });
+
+  it('không còn bị đếm là tham số sinh không hỗ trợ', () => {
+    expect(docThamSoNguon(goc as Record<string, unknown>).unknown['assistant_prefill']).toBeUndefined();
+  });
+
+  it('prefill rỗng hoặc chỉ khoảng trắng không tạo module ma', () => {
+    const kq = chayNhap(JSON.stringify({ ...goc, assistant_prefill: '   ' }), 'prefill-rong.json');
+    const mods = (kq.row as PresetPackRow).pack.modules;
+    expect(mods.some((m) => m.sourceIdentifier === 'assistant_prefill')).toBe(false);
+    expect((kq.thuBienDich.narrator?.messages ?? []).some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('model không nhận prefill thì module bị bỏ kèm issue, không lặng lẽ mất', () => {
+    const khongPrefill = ModelProfileSchema.parse({
+      id: 'p.khong-prefill',
+      ten: 'Model không prefill',
+      gioiHan: { contextMax: 200_000, outputMax: 8_192, topKMax: 64, temperatureMax: 2 },
+      hoTro: { continuePrefill: false, seed: false, topA: false, minP: false },
+    });
+    const kq = nhapPreset({
+      tenNguon: 'prefill-khong-ho-tro.json',
+      noiDung: JSON.stringify(goc),
+      tick: 7,
+      tuning: TUNING_MAC_DINH,
+      profile: khongPrefill,
+      viewGia: viewGia(),
+      sceneGia: sceneGia(),
+    });
+    const bd = kq.thuBienDich.narrator;
+    expect(bd?.messages.some((m) => m.role === 'assistant')).toBe(false);
+    expect(bd?.issues.some((i) => i.code === 'PREFILL_KHONG_HO_TRO')).toBe(true);
   });
 });
 

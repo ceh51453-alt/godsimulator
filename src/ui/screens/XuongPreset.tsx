@@ -9,14 +9,34 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
-import { useAi } from '../../store/ai.js';
+import { useAi, hoSoCuaEndpoint } from '../../store/ai.js';
 import { ThongSoSinh } from './ThongSoSinh.js';
 import type {
+  OmitReason,
   PresetPackRow,
   PromptModule,
   ScriptAdapterDef,
   TransformDef,
 } from '../../core/preset/schema.js';
+import { OMIT_REASON_NHAN } from '../../core/preset/schema.js';
+
+/**
+ * Gộp lý do bị bỏ thành một câu nói đúng sự thật.
+ *
+ * Câu cũ là "bị bỏ vì ngân sách hoặc không tương thích" cho MỌI trường hợp. Với
+ * một preset lớn bình thường thì cả hai vế đều sai: phần lớn module chỉ đang tắt
+ * trong `prompt_order` của chính preset, hoặc là marker chưa có nguồn native.
+ * Người dùng đọc câu ấy rồi tưởng app đang cắt mất preset của mình.
+ */
+function tomTatLyDoBo(lyDo: Readonly<Record<string, OmitReason>>): string {
+  const dem = new Map<OmitReason, number>();
+  for (const vi of Object.values(lyDo)) dem.set(vi, (dem.get(vi) ?? 0) + 1);
+  if (dem.size === 0) return 'không rõ lý do';
+  return [...dem.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([vi, n]) => `${n} ${OMIT_REASON_NHAN[vi]}`)
+    .join(', ');
+}
 
 const nhan: CSSProperties = {
   color: 'var(--mo)',
@@ -117,6 +137,11 @@ export function XuongPreset(): JSX.Element {
   const thamSoHieuLuc = usePreset((s) => s.thamSoHieuLuc);
   const datThamSoHieuLuc = usePreset((s) => s.datThamSoHieuLuc);
   const paramsNen = useAi((s) => s.cfg.narrator.params);
+  // Trần slider phải theo model của Tường Thuật — [BB] 31.2. Theo dõi modelId và
+  // profileId để đổi model xong là trần đổi theo, không phải tải lại màn.
+  const narratorModelId = useAi((s) => s.cfg.narrator.modelId);
+  const narratorProfileId = useAi((s) => s.cfg.narrator.profileId);
+  const hoSoNarrator = useMemo(() => hoSoCuaEndpoint('narrator'), [narratorModelId, narratorProfileId]);
 
   const state = useGame((s) => s.state);
   const presetTrace = useGame((s) => s.presetTrace);
@@ -244,6 +269,7 @@ export function XuongPreset(): JSX.Element {
           params={paramsHieuLuc}
           tat={false}
           moMacDinh
+          hoSo={hoSoNarrator}
           onThayDoi={(thayDoi) => void datThamSoHieuLuc(thayDoi)}
         />
       </section>
@@ -524,7 +550,7 @@ export function XuongPreset(): JSX.Element {
             <span style={so}>Preset đã dùng: {presetTrace.packDaDung.join(', ')}</span>
             {presetTrace.moduleBiBo.length > 0 && (
               <span style={phu}>
-                {presetTrace.moduleBiBo.length} module bị bỏ vì ngân sách hoặc không tương thích.
+                {presetTrace.moduleBiBo.length} module không vào prompt: {tomTatLyDoBo(presetTrace.lyDoBiBo)}.
               </span>
             )}
             {presetTrace.macroChuaGiai.length > 0 && (

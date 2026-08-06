@@ -62,6 +62,15 @@ export type RegexDaBien = {
  * Trả `null` khi không dùng được — người gọi chuyển transform sang `needs_adapter`.
  * Không throw: dữ liệu preset là dữ liệu không tin cậy, và một throw ở đây sẽ nổ
  * giữa đường render.
+ *
+ * ── Vì sao chuỗi trần KHÔNG được thêm cờ `g` ──
+ *
+ * `regexFromString` của SillyTavern biên `"pattern"` thành `new RegExp(pattern)`
+ * **không cờ**; chỉ dạng `/pattern/flags` mới mang cờ. Preset thật dùng mẫu neo
+ * kiểu `^([\s\S]*)$` viết trần, và một cờ `g` ngầm đổi cả ngữ nghĩa: thay mọi lần
+ * khớp thay vì lần đầu. Đó là loại sai không ai thấy — output vẫn ra, chỉ khác
+ * bản chạy ở SillyTavern. `kiemPatternHopLe` trong `chuanHoa.ts` vốn đã kiểm bằng
+ * `new RegExp(pattern)` không cờ, nên hai chỗ giờ nói cùng một thứ.
  */
 export function bienRegex(pattern: string): RegexDaBien | null {
   const s = pattern.trim();
@@ -71,12 +80,16 @@ export function bienRegex(pattern: string): RegexDaBien | null {
   }
   if (coNhanhTrungBiLap(s)) return null;
   const than = /^\/(.*)\/([gimsuy]*)$/s.exec(s);
-  try {
-    if (than) {
+  if (than) {
+    try {
       const co = than[2] ?? '';
       return { re: new RegExp(than[1] as string, co), toanBo: co.includes('g') };
+    } catch {
+      // Tách theo /.../ hỏng thì thử coi cả chuỗi là pattern — đúng đường lùi của ST.
     }
-    return { re: new RegExp(s, 'g'), toanBo: true };
+  }
+  try {
+    return { re: new RegExp(s), toanBo: false };
   } catch {
     return null;
   }
@@ -256,11 +269,17 @@ export function apTransform(input: {
       daBoQua.push({ id: t.id, lyDo: `không áp ở placement ${placement}` });
       continue;
     }
-    if (t.minDepth !== null && depth < t.minDepth) {
+    /*
+     * Chặn dưới `minDepth >= -1` và `maxDepth >= 0` là của ST (`getRegexedString`):
+     * giá trị ngoài khoảng đó nghĩa là "không đặt guard", không phải "chặn tất".
+     * Thiếu chặn dưới thì một preset khai `maxDepth: -1` sẽ tắt im lặng chính
+     * regex của nó ở mọi tin nhắn.
+     */
+    if (t.minDepth !== null && t.minDepth >= -1 && depth < t.minDepth) {
       daBoQua.push({ id: t.id, lyDo: `depth ${depth} nhỏ hơn minDepth ${t.minDepth}` });
       continue;
     }
-    if (t.maxDepth !== null && depth > t.maxDepth) {
+    if (t.maxDepth !== null && t.maxDepth >= 0 && depth > t.maxDepth) {
       daBoQua.push({ id: t.id, lyDo: `depth ${depth} lớn hơn maxDepth ${t.maxDepth}` });
       continue;
     }
@@ -289,19 +308,34 @@ export function apTransform(input: {
     let sau: string;
     try {
       sau = ra.replace(bien.re, (...args: unknown[]) => {
-        const mauThay = t.thayThe.replace(/{{match}}/gi, '$0');
-        const daChenNhom = mauThay.replace(/\$(\d+)|\$<([^>]+)>/g, (_raw, so: string, tenNhom: string) => {
-          const nhom = args.at(-1);
-          const match = so
-            ? args[Number(so)]
-            : nhom !== null && typeof nhom === 'object'
-              ? (nhom as Record<string, unknown>)[tenNhom]
-              : undefined;
-          if (typeof match !== 'string' || match === '') return '';
-          let loc = match;
-          for (const trim of t.trimStrings) loc = loc.split(trim).join('');
-          return loc;
-        });
+        /*
+         * Callback của `String.replace` là `(match, p1..pn, offset, string[, groups])`.
+         * `groups` CHỈ có mặt khi pattern dùng named group, nên phải cắt từ cuối:
+         * đếm từ đầu thì `$3` của một regex hai nhóm bốc phải `offset` hoặc cả chuỗi
+         * đầu vào rồi chèn nó vào output.
+         */
+        const cuoi = args.at(-1);
+        const coNhomTen = typeof cuoi === 'object' && cuoi !== null;
+        const nhomTen = coNhomTen ? (cuoi as Record<string, unknown>) : undefined;
+        /** `[toàn bộ khớp, p1, …, pn]`. */
+        const nhomSo = args.slice(0, args.length - (coNhomTen ? 3 : 2));
+
+        const daChenNhom = t.thayThe.replace(
+          /\{\{match\}\}|\$&|\$(\d{1,2})|\$<([^>]+)>/gi,
+          (raw: string, so: string | undefined, tenNhom: string | undefined): string => {
+            const gt =
+              so !== undefined ? nhomSo[Number(so)] : tenNhom !== undefined ? nhomTen?.[tenNhom] : nhomSo[0]; // `{{match}}` và `$&` — toàn bộ phần khớp.
+            /*
+             * Nhóm không tham gia lần khớp này (`undefined`) thì giữ nguyên `$n`,
+             * đúng như SillyTavern. Trả '' ở đây là nuốt nội dung mà không ai thấy.
+             * Nhóm khớp CHUỖI RỖNG vẫn là chuỗi — nó được chèn bình thường.
+             */
+            if (typeof gt !== 'string') return raw;
+            let loc = gt;
+            for (const trim of t.trimStrings) loc = loc.split(trim).join('');
+            return loc;
+          },
+        );
         return input.thayMacro?.(daChenNhom, t) ?? daChenNhom;
       });
     } catch {

@@ -223,6 +223,33 @@ export const TokenBudgetSchema = z
 
 export type TokenBudget = z.infer<typeof TokenBudgetSchema>;
 
+/** Vì sao một module không có mặt trong prompt cuối. Thứ tự = thứ tự kiểm. */
+export const OMIT_REASONS = [
+  /** `order[].enabled === false` — tác giả preset tự tắt. Đây là chuyện BÌNH THƯỜNG. */
+  'tat_trong_preset',
+  /** `quarantined` / `needs_adapter` / `disabled` — cần adapter mới chạy được. */
+  'khong_tuong_thich',
+  /** Pack ngoài không được vào pipeline này (62.3). */
+  'sai_pipeline',
+  /** Marker chưa có nguồn native, hoặc nội dung rỗng sau khi giải macro. */
+  'rong',
+  /** Bị cắt ở bước ngân sách token. */
+  'ngan_sach',
+  /** Module mồi định dạng nhưng model không nhận assistant prefill. */
+  'model_khong_nhan_prefill',
+] as const;
+export type OmitReason = (typeof OMIT_REASONS)[number];
+
+/** Nhãn tiếng Việt cho giao diện — giữ cạnh danh sách để không lệch nhau. */
+export const OMIT_REASON_NHAN: Readonly<Record<OmitReason, string>> = Object.freeze({
+  tat_trong_preset: 'tắt sẵn trong preset',
+  khong_tuong_thich: 'chưa tương thích',
+  sai_pipeline: 'không thuộc pipeline này',
+  rong: 'rỗng hoặc marker chưa có nguồn',
+  ngan_sach: 'cắt vì ngân sách token',
+  model_khong_nhan_prefill: 'model không nhận prefill',
+});
+
 export const CompiledPromptSchema = z
   .object({
     messages: z.array(
@@ -238,6 +265,16 @@ export const CompiledPromptSchema = z
     params: NormalizedGenParamsSchema,
     budget: TokenBudgetSchema,
     omittedModuleIds: z.array(z.string()).prefault([]),
+    /**
+     * Vì sao từng module bị bỏ — `moduleId → lý do`.
+     *
+     * `omittedModuleIds` gộp bốn nguyên nhân rất khác nhau vào một rổ, và giao
+     * diện từng đọc cả rổ ấy thành "bị bỏ vì ngân sách hoặc không tương thích".
+     * Với preset Tawa v3.0.3 thì câu đó sai cả hai vế: 0 module bị cắt vì ngân
+     * sách, 0 module không tương thích — chúng chỉ đang TẮT trong `prompt_order`
+     * của chính preset, hoặc là marker rỗng. Một pack khỏe mạnh bị báo như đang hỏng.
+     */
+    omitReasons: z.record(z.string(), z.enum(OMIT_REASONS)).prefault({}),
     unresolvedMacros: z.array(z.string()).prefault([]),
     issues: z.array(ImportIssueSchema).prefault([]),
     hash: z.string(),
