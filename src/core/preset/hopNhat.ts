@@ -42,7 +42,13 @@ import { uocLuong } from '../ai/nganSach.js';
 import { bienDichPromptPreset } from './bienDich.js';
 import { dungLoiNative } from './slotNative.js';
 import { apActivation } from './kichHoat.js';
-import type { CompiledPrompt, NormalizedPresetPack, PresetActivation, PresetPackRow } from './schema.js';
+import type {
+  CompiledPrompt,
+  NormalizedPresetPack,
+  OmitReason,
+  PresetActivation,
+  PresetPackRow,
+} from './schema.js';
 import type { NormalizedGenParams } from '../schema/ai.js';
 
 /** Một pack đang bật: bản ghi thư viện + activation trỏ tới nó. */
@@ -74,6 +80,8 @@ export type KetQuaHopNhat = Readonly<{
   issues: readonly ImportIssue[];
   /** Module bị bỏ và macro chưa giải — vào tab chẩn đoán, không im lặng. */
   moduleBiBo: readonly string[];
+  /** `moduleId → lý do`. Không có nó thì chẩn đoán chỉ đếm được, không nói được. */
+  lyDoBiBo: Readonly<Record<string, OmitReason>>;
   macroChuaGiai: readonly string[];
 }>;
 
@@ -129,6 +137,7 @@ export function bienSoanLuot(ng: NguCanhHopNhat): KetQuaHopNhat {
       packDaDung: Object.freeze([]),
       issues: Object.freeze([]),
       moduleBiBo: Object.freeze([]),
+      lyDoBiBo: Object.freeze({}),
       macroChuaGiai: Object.freeze([]),
     });
   }
@@ -164,6 +173,7 @@ export function bienSoanLuot(ng: NguCanhHopNhat): KetQuaHopNhat {
     packDaDung: Object.freeze([...new Set(ng.packs.map((p) => p.row.packId))]),
     issues: Object.freeze([...compiled.issues]),
     moduleBiBo: Object.freeze([...compiled.omittedModuleIds]),
+    lyDoBiBo: Object.freeze({ ...compiled.omitReasons }),
     macroChuaGiai: Object.freeze([...compiled.unresolvedMacros]),
   });
 }

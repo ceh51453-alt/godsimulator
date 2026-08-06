@@ -37,6 +37,7 @@ import { LANE_ORDER } from './schema.js';
 import type {
   CompiledPrompt,
   NormalizedPresetPack,
+  OmitReason,
   PromptModule,
   TargetPipeline,
   TokenBudget,
@@ -112,6 +113,12 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
   const tyLeToken = ng.tyLeToken ?? 3.2;
   const messages: CompiledPrompt['messages'] = [];
   const omitted: string[] = [];
+  /** Lý do bị bỏ, ghi cùng lúc với chính hành động bỏ — không suy lại về sau. */
+  const lyDoBo = new Map<string, OmitReason>();
+  const boQua = (id: string, vi: OmitReason): void => {
+    omitted.push(id);
+    if (!lyDoBo.has(id)) lyDoBo.set(id, vi);
+  };
   const chuaGiai = new Set<string>();
 
   const them = (
@@ -177,7 +184,7 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
 
   let bien: Record<string, unknown> = { ...ng.pack.variables };
 
-  for (const m of ngoai.bo) omitted.push(m.id);
+  for (const m of ngoai.bo) boQua(m.id, ngoai.lyDo.get(m.id) ?? 'khong_tuong_thich');
   for (const i of ngoai.issues) issues.push(i);
 
   for (const m of ngoai.giu) {
@@ -185,7 +192,7 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
     const noiDung = noiDungModule(m, nguonSlot);
     if (noiDung.trim() === '') {
       // [BB] 63.4 — marker rỗng là SLOT, không phải chuỗi rỗng cần gửi model.
-      omitted.push(m.id);
+      boQua(m.id, 'rong');
       continue;
     }
     const kq = giaiMacro(noiDung, { ...ctxMacro, moduleId: m.id, bien });
@@ -193,7 +200,7 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
     for (const c of kq.chuaGiai) chuaGiai.add(c);
     for (const i of kq.issues) if (i.severity === 'error') issues.push(i);
     if (kq.text.trim() === '') {
-      omitted.push(m.id);
+      boQua(m.id, 'rong');
       continue;
     }
     them(m.role, kq.text, m.id, m.lane);
@@ -222,9 +229,9 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
         .filter((s) => s.trim() !== '')
         .join('\n');
       if (gop.trim() !== '') them('assistant', gop, prefill.map((m) => m.id).join('+'), 'prefill');
-      else for (const m of prefill) omitted.push(m.id);
+      else for (const m of prefill) boQua(m.id, 'rong');
     } else {
-      for (const m of prefill) omitted.push(m.id);
+      for (const m of prefill) boQua(m.id, 'model_khong_nhan_prefill');
       issues.push({
         code: 'PREFILL_KHONG_HO_TRO',
         severity: 'info',
@@ -237,7 +244,7 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
 
   // ── ngân sách ──
   const catTheoNganSach = catCuoi(messages, ng.budget, tyLeToken);
-  for (const id of catTheoNganSach.boSung) omitted.push(id);
+  for (const id of catTheoNganSach.boSung) boQua(id, 'ngan_sach');
 
   const daDung = uocLuong(catTheoNganSach.messages.map((m) => m.content).join(''), tyLeToken);
   const budget: TokenBudget = {
@@ -260,6 +267,7 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
     params: NormalizedGenParamsSchema.parse(ng.params),
     budget,
     omittedModuleIds: [...new Set(omitted)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    omitReasons: Object.fromEntries([...lyDoBo.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))),
     unresolvedMacros: [...chuaGiai].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     issues,
     hash: bam(catTheoNganSach.messages.map((m) => `${m.role}|${m.lane}|${m.moduleId}|${m.content}`).join(' ')),
@@ -271,6 +279,8 @@ export function bienDichPromptPreset(ng: NguCanhBienDich): CompiledPrompt {
 type KetQuaLoc = {
   readonly giu: readonly PromptModule[];
   readonly bo: readonly PromptModule[];
+  /** `moduleId → lý do bị bỏ`. Không có nó thì mọi nguyên nhân trông giống nhau. */
+  readonly lyDo: ReadonlyMap<string, OmitReason>;
   readonly issues: readonly ImportIssue[];
 };
 
@@ -284,19 +294,27 @@ type KetQuaLoc = {
 export function locModuleChoPipeline(modules: readonly PromptModule[], pipeline: TargetPipeline): KetQuaLoc {
   const giu: PromptModule[] = [];
   const bo: PromptModule[] = [];
+  const lyDo = new Map<string, OmitReason>();
   const issues: ImportIssue[] = [];
 
+  const loai = (m: PromptModule, vi: OmitReason): void => {
+    bo.push(m);
+    lyDo.set(m.id, vi);
+  };
+
   for (const m of modules) {
+    // Thứ tự kiểm là thứ tự thật: một module tắt trong preset thì lý do của nó
+    // LÀ "tắt trong preset", kể cả khi nó cũng cần adapter.
     if (!m.enabled) {
-      bo.push(m);
+      loai(m, 'tat_trong_preset');
       continue;
     }
     if (m.activation === 'quarantined' || m.activation === 'disabled' || m.activation === 'needs_adapter') {
-      bo.push(m);
+      loai(m, 'khong_tuong_thich');
       continue;
     }
     if (pipeline !== 'narrator') {
-      bo.push(m);
+      loai(m, 'sai_pipeline');
       continue;
     }
     giu.push(m);
@@ -323,7 +341,7 @@ export function locModuleChoPipeline(modules: readonly PromptModule[], pipeline:
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
-  return { giu, bo, issues };
+  return { giu, bo, lyDo, issues };
 }
 
 // ─────────────────────────────────────────── nội dung

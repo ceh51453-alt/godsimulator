@@ -29,8 +29,21 @@ import { bienRegex, MAX_KY_TU } from './sandbox.js';
  * Ở đây ta chạy cả 3 orders trên chuỗi đã phẳng hóa — không cần phân biệt vì
  * prompt của game đã qua pipeline riêng.
  */
+/*
+ * Thân pattern cho phép dấu `/` THÔ.
+ *
+ * `regexFromString` của ST dùng `(.+)` tham lam nên dấu `/` cuối cùng mới là dấu
+ * đóng; preset viết `"/<a>(.*?)</a>/gs"` chạy được ở đó. Bộ đọc cũ cấm mọi `/`
+ * chưa escape trong thân, nên khối kiểu ấy **không khớp và biến mất không một
+ * tiếng động** — không phải lỗi cú pháp, không phải cảnh báo, chỉ là không có gì
+ * xảy ra. Preset Tawa v3.0.3 mất 10 trong 42 khối vì đúng chỗ này.
+ *
+ * `*` tham lam cộng với `\/([gimsuy]*)"` phía sau khiến engine lùi về đúng dấu
+ * `/` cuối — cùng ngữ nghĩa với ST. Thân vẫn cấm `"` và xuống dòng nên một khối
+ * không thể nuốt sang khối kế tiếp.
+ */
 const REGEX_BLOCK_RE =
-  /<regex(?:\s+order\s*=\s*(\d))?\s*>\s*"\/((?:\\.|[^"/\r\n])*)\/([gimsuy]*)"\s*:\s*"((?:\\.|[^"\r\n])*)"\s*<\/regex>/gm;
+  /<regex(?:\s+order\s*=\s*(\d))?\s*>\s*"\/((?:\\.|[^"\r\n])*)\/([gimsuy]*)"\s*:\s*"((?:\\.|[^"\r\n])*)"\s*<\/regex>/gm;
 const REGEX_CLEAN_RE = /<regex(?: +order *= *\d)?>[^]*?<\/regex>/gm;
 
 export type InPromptRegexResult = {
@@ -73,6 +86,12 @@ export function apInPromptRegex(
   if (blocks.length === 0) return { text, applied: 0, errors: [] };
   if (text.length > MAX_KY_TU) {
     return { text, applied: 0, errors: [`Prompt vượt trần regex ${MAX_KY_TU} ký tự; giữ nguyên.`] };
+  }
+  const soThoTuc = [...text.matchAll(/<regex(?: +order *= *\d)?>/g)].length;
+  if (soThoTuc > blocks.length) {
+    errors.push(
+      `${soThoTuc - blocks.length}/${soThoTuc} khối <regex> không đúng dạng "/mẫu/cờ" : "thay thế" nên không chạy.`,
+    );
   }
 
   // Remove all regex blocks from text first
@@ -130,11 +149,44 @@ export function apInPromptRegexMessages(
   if (blocks.length === 0) return { messages, applied: 0, errors: [] };
 
   const errors: string[] = [];
+  /*
+   * Khối `<regex>` có mặt nhưng không đọc được thì phải NÓI RA. Im lặng ở đây là
+   * cách một preset mất dần tính năng mà người dùng chỉ thấy "output hơi khác".
+   */
+  const soThoTuc = messages.reduce(
+    (n, m) => n + (mutable(m) ? [...m.content.matchAll(/<regex(?: +order *= *\d)?>/g)].length : 0),
+    0,
+  );
+  if (soThoTuc > blocks.length) {
+    errors.push(
+      `${soThoTuc - blocks.length}/${soThoTuc} khối <regex> không đúng dạng "/mẫu/cờ" : "thay thế" nên không chạy.`,
+    );
+  }
   let applied = 0;
   let ra = messages.map((m) => (mutable(m) ? { ...m, content: m.content.replace(REGEX_CLEAN_RE, '') } : m));
-  if (ra.reduce((n, m) => n + m.content.length, 0) > MAX_KY_TU) {
-    return { messages, applied: 0, errors: [`Prompt vượt trần regex ${MAX_KY_TU} ký tự; giữ nguyên.`] };
+
+  /*
+   * ── Trần ký tự áp cho TỪNG message, không cho tổng ──
+   *
+   * `MAX_KY_TU` là bản sao của `tuning.preset.maxBlockChars` — một trần cho MỘT
+   * khối văn bản, và mục đích của nó là chặn trên chi phí của một lần chạy regex.
+   * Cộng dồn cả mảng rồi hủy tất là đo sai đại lượng: preset lớn hợp lệ vượt trần
+   * ngay ở tổng dù message dài nhất chỉ vài chục nghìn ký tự.
+   *
+   * Đo trên preset Tawa v3.0.3 của người dùng: 233.928 ký tự tổng → hủy toàn bộ,
+   * **21 khối `<regex>` của preset không chạy lần nào**, và mỗi lượt kể lại ghi
+   * một dòng cảnh báo. Message dài nhất trong đó: 18.554 ký tự.
+   *
+   * Lọc theo từng message giữ nguyên tính chất bảo vệ (mỗi lần chạy vẫn bị chặn
+   * trên bởi cùng con số) mà không giết cả tính năng vì một phép cộng.
+   */
+  const quaDai = new Set(ra.filter((m) => mutable(m) && m.content.length > MAX_KY_TU).map((m) => m.moduleId));
+  if (quaDai.size > 0) {
+    errors.push(
+      `${quaDai.size} khối vượt trần regex ${MAX_KY_TU} ký tự nên bị bỏ qua; các khối còn lại vẫn chạy.`,
+    );
   }
+  const suaDuoc = (m: PromptMessageLike): boolean => mutable(m) && !quaDai.has(m.moduleId);
 
   const dongHo = tuyChon.dongHo ?? (() => 0);
   const tran = tuyChon.maxRegexMs ?? Number.POSITIVE_INFINITY;
@@ -150,7 +202,7 @@ export function apInPromptRegexMessages(
       const batDau = dongHo();
       try {
         const repl = docReplacement(b.replacement);
-        const sau = ra.map((m) => (mutable(m) ? { ...m, content: m.content.replace(daBien.re, repl) } : m));
+        const sau = ra.map((m) => (suaDuoc(m) ? { ...m, content: m.content.replace(daBien.re, repl) } : m));
         const ms = dongHo() - batDau;
         if (ms > tran) {
           errors.push(`Regex order=${b.order} chạy ${ms} ms, vượt trần ${tran} ms; giữ bản gốc.`);
