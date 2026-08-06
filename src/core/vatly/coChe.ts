@@ -20,6 +20,7 @@
 import type { WorldState } from '../engine/state.js';
 import type { Entity } from '../schema/entity.js';
 import type { Conceptual } from '../schema/aspect/conceptual.js';
+import { bacKhaiNiem } from '../schema/aspect/conceptual.js';
 import type { Lawful } from '../schema/aspect/lawful.js';
 import type { Tuning } from '../tuning/schema.js';
 import { CoCheRowSchema } from './schema.js';
@@ -44,7 +45,8 @@ export type DinhNghiaCoChe = {
   readonly moTaKhiCo: string;
 };
 
-const THU_TU_GIAI_DOAN: readonly Conceptual['giaiDoan'][] = ['hu_danh', 'manh_nha', 'thanh_hinh', 'ket_tinh'];
+// Thang bậc đọc từ `conceptual.ts` — chép tay ở đây từng làm `luong_lu` rơi ra
+// ngoài mọi phép so sánh khi bậc ấy được nối vào enum.
 
 /** Bốn cơ chế dựng sẵn — 44.3. Người dùng thêm được qua `R.mechanism` [MR]. */
 export const CO_CHE: Readonly<Record<CoCheId, DinhNghiaCoChe>> = Object.freeze({
@@ -132,7 +134,7 @@ export function quetMotCoChe(
       if (e.tickDiet !== null || !e.tags.includes(yc.tag)) return false;
       const c = docConcept(e);
       if (c === undefined) return false;
-      return THU_TU_GIAI_DOAN.indexOf(c.giaiDoan) >= THU_TU_GIAI_DOAN.indexOf(yc.giaiDoanToiThieu);
+      return bacKhaiNiem(c.giaiDoan) >= bacKhaiNiem(yc.giaiDoanToiThieu);
     });
     if (!dat) conThieu.push(`thiếu khái niệm mang tag "${yc.tag}" đã đạt ${yc.giaiDoanToiThieu}`);
   }

@@ -442,7 +442,7 @@ describe('kịch bản tích hợp — cùng pipeline cho ba tầng', () => {
     ] as const) {
       state = dungTheGioi();
       if (mode !== 'sang_the') {
-        apDungEvent(state, eventChuyenTang(state, mode, chuThe, 'test'), log);
+        apDungEvent(state, eventChuyenTang(state, mode, chuThe, 'test', log), log);
       }
       const nc = ngocCanh(mode, chuThe, cau);
       const r = giaiQuyet(nc);

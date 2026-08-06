@@ -56,9 +56,32 @@ export function ghepDuong(goc: string, duoi: string): string {
   return `${g}/${d}`;
 }
 
-/** Tham số phương ngữ nào chấp nhận. Thiếu tên ở đây thì không gửi đi. */
+/**
+ * Tham số phương ngữ nào chấp nhận. Thiếu tên ở đây thì không gửi đi.
+ *
+ * `tu_do` nhận thêm bốn bộ lấy mẫu mở rộng (`top_k`, `min_p`, `top_a`,
+ * `repetition_penalty`). Đó không phải chuyện thẩm mỹ: preset SillyTavern khai
+ * đúng bốn trường ấy, và `tu_do` là đường đi tới OpenRouter · vLLM · SGLang ·
+ * one-api — nơi chúng thật sự có tác dụng. Bỏ chúng khỏi bảng này là cách mà
+ * `top_k: 500` của một preset biến mất mà không ai báo.
+ *
+ * `openai` cố ý KHÔNG có chúng: API chính thức từ chối cả lời gọi khi gặp khóa
+ * lạ, nên gửi thừa ở đó là mất lượt chứ không phải mất tham số.
+ */
 const THAM_SO_HO_TRO: Readonly<Record<Dialect, readonly string[]>> = Object.freeze({
-  tu_do: ['temperature', 'top_p', 'max_tokens', 'presence_penalty', 'frequency_penalty', 'stop', 'seed'],
+  tu_do: [
+    'temperature',
+    'top_p',
+    'top_k',
+    'min_p',
+    'top_a',
+    'repetition_penalty',
+    'max_tokens',
+    'presence_penalty',
+    'frequency_penalty',
+    'stop',
+    'seed',
+  ],
   openai: ['temperature', 'top_p', 'max_tokens', 'presence_penalty', 'frequency_penalty', 'stop', 'seed'],
   anthropic: ['temperature', 'top_p', 'top_k', 'max_tokens', 'stop_sequences'],
   gemini: ['temperature', 'topP', 'topK', 'maxOutputTokens', 'stopSequences', 'candidateCount'],
@@ -162,6 +185,18 @@ export function dacTaGoi(dialect: Dialect, proxyUrl: string, matKhau: string, yc
         frequency_penalty: p.frequencyPenalty,
         stop: p.stopSequences,
         seed: p.seed,
+        /*
+         * Chỉ lên dây khi khác giá trị trung tính.
+         *
+         * `GenParamsSchema` luôn có bốn trường này với mặc định 0/0/0/1, nên gửi
+         * vô điều kiện sẽ đính chúng vào MỌI lời gọi — kể cả tới proxy không
+         * hiểu chúng, và ở đó một khóa lạ đủ để trả 400. Gửi khi người dùng
+         * hoặc preset thật sự đặt một giá trị là đúng cả hai phía.
+         */
+        top_k: p.topK > 0 ? p.topK : undefined,
+        min_p: p.minP > 0 ? p.minP : undefined,
+        top_a: p.topA > 0 ? p.topA : undefined,
+        repetition_penalty: p.repetitionPenalty !== 1 ? p.repetitionPenalty : undefined,
       }),
     },
   };

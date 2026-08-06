@@ -1632,3 +1632,35 @@ fork từ một thế giới ba trăm thực thể: đúng về mặt lưu trữ
 **Hệ quả.** Chiều ngược lại cũng được giữ: một hàng `worlds` mồ côi (bản ghi
 nhánh mất vì crash giữa chừng) vẫn hiện ra, vì trong đó là dữ liệu thật. Mất dữ
 liệu mà không báo là hỏng nặng hơn hiện ra một dòng khó hiểu.
+
+---
+
+## ADR-0062 — Bảng Lãnh Địa thành Bảng Thần Điện; thần khác chỉ có chữ, không có số
+
+**Ngày:** sau Phase 12 · **Trạng thái:** đã áp dụng
+
+**Bối cảnh.** Bảng bên phải của tầng Thần (56.4) đếm tín đồ, đền và hiển thánh,
+kèm hai dòng Dị Hóa "Tín đồ tin ta / Ta thật sự là". Nó trả lời đúng một câu:
+_bao nhiêu người tin ngươi_. Nhưng thứ người chơi hỏi khi đang là một vị thần
+trong một thần điện lại là ba câu khác — **ta ngồi ghế nào, luật nào ràng ta,
+ta mạnh tới đâu** — và không câu nào trong ba có chỗ trên bảng cũ. Hội đồng thần
+(69.3) đã có ghế, phiếu, kế vị và trọng số tiếng nói từ Phase 6, nhưng chưa từng
+hiện lên mặt chơi.
+
+**Quyết định.** Thay bảng cũ bằng **Bảng Thần Điện** với ba khối: VỊ TRÍ (thần hệ,
+ghế, hạng, lối cai trị), QUY LUẬT (luật kế vị, ngưỡng thông qua, lời đã thề, luật
+nền đã có tên), SỨC MẠNH (thẩm quyền được quy cho, so với vị nặng nhất, và từng
+domain). Phép tính chuyển hẳn xuống `core/than/thanDien.ts`; bảng cũ dựng dữ liệu
+ngay trong component nên không có cách nào kiểm nó mà không dựng React.
+
+**Lý do giữ số cho mình mà không giữ cho người khác.** `tiengNoiCua` suy từ tín đồ,
+đền và sức domain — với vị thần khác, đó là dữ liệu NGOÀI lãnh địa người chơi, và
+[BB] 56.4 + 19.1 cấm in số cho thứ ngoài lãnh địa. Nhưng ghế và vai trong hội đồng
+là chuyện công khai của thiết chế, in thẳng được. Nên thần khác nhận vai đầy đủ và
+một chữ so sánh — _nặng hơn, ngang, nhẹ hơn_ — chứ không nhận con số. Kiểu
+`ThanhVienThanDien` không có trường số nào, và test cưỡng chế đúng danh sách trường
+ấy để không ai vô tình mở đường rò rỉ về sau.
+
+**Hệ quả.** Hai dòng Dị Hóa mất chỗ hiển thị. Cơ chế không mất: tình huống Dị Hóa
+(69.1) vẫn nổi lên thành thẻ chọn cách đáp ở cột giữa, tức là người chơi vẫn gặp
+Dị Hóa ở đúng lúc nó có nghĩa — lúc phải chọn — thay vì đọc nó như một chỉ số.

@@ -29,11 +29,25 @@ import type { WorldState } from '../engine/state.js';
 import type { StructuredError } from '../contracts/errors.js';
 import { loi } from '../contracts/errors.js';
 import type { Storyline } from '../schema/truyen.js';
+import { THO_BOI_DAP } from './boiDap.js';
+import { TICK_MOI_BUOC } from './process/catchUp.js';
 
 // ─────────────────────────────────────────── cấu hình
 
 export const NHIP_DIEN_HOA = ['nien', 'the_dai', 'vinh_kiep'] as const;
 export type NhipDienHoa = (typeof NHIP_DIEN_HOA)[number];
+
+/**
+ * Số tick truyện mỗi lượt Diễn Hóa — [BB] ADR-0019: 4 tick một năm.
+ *
+ * `vinh_kiep` cố tình dừng ở một thế kỷ chứ không ở "vô hạn": một lượt tua mà
+ * người chơi không đoán được nó dài bao nhiêu là một lượt tua không ai dám bấm.
+ */
+export const TICK_MOI_LUOT: Readonly<Record<NhipDienHoa, number>> = Object.freeze({
+  nien: 4,
+  the_dai: 4 * 30,
+  vinh_kiep: 4 * 100,
+});
 
 export const DIEU_KIEN_DUNG_DIEN_HOA = [
   'het_luot',
@@ -76,10 +90,149 @@ export const CauHinhDienHoaSchema = z
       .prefault({}),
     dieuKienDung: z.array(z.enum(DIEU_KIEN_DUNG_DIEN_HOA)).prefault([...DIEU_KIEN_DUNG_DIEN_HOA]),
     bacBaoCao: z.enum(['tom_tat', 'bien_nien', 'day_du']).prefault('bien_nien'),
+    /**
+     * Bồi Đắp — thế giới tự dày lên trong lúc tua. Mặc định BẬT.
+     *
+     * Tách khỏi `phamViChoPhep` vì nó không phải một quyền: `phamViChoPhep` nói
+     * Diễn Hóa được phép **phá** tới đâu, còn đây nói nó **xây** bao nhiêu.
+     */
+    boiDap: z
+      .object({
+        bat: z.boolean().prefault(true),
+        /** Số việc mỗi lượt. 0 nghĩa là tắt hẳn mà không phải sửa `bat`. */
+        hanMucMoiLuot: z.number().int().min(0).max(20).prefault(3),
+        tho: z.array(z.enum(THO_BOI_DAP)).prefault([...THO_BOI_DAP]),
+        /**
+         * Số lần hỏi model cho CẢ một lần Diễn Hóa — thợ thứ bảy của `boiDapAi.ts`.
+         *
+         * Đếm theo LẦN CHẠY chứ không theo lượt, và đó là toàn bộ điểm của con
+         * số này: sáu thợ engine chạy mỗi lượt vì chúng miễn phí, còn người thứ
+         * bảy tốn tiền nên phải nói được trước khi bấm là "lần này tốn mấy call".
+         * Nhân nó với `soLuot` sẽ biến một trăm năm tua thành hai trăm call.
+         *
+         * Mặc định 1: đủ để mỗi lần tua dạy thế giới thêm ít chữ và lấp vài chỗ
+         * trống, và là con số mà một người bấm thử lần đầu không thấy tiếc.
+         * 0 nghĩa là Diễn Hóa không gọi model một lần nào — hành vi cũ, vẫn giữ.
+         */
+        soCallAi: z.number().int().min(0).max(5).prefault(1),
+      })
+      .prefault({}),
   })
   .prefault({});
 
 export type CauHinhDienHoa = z.infer<typeof CauHinhDienHoaSchema>;
+
+/**
+ * Diễn Hóa tự động cuối lượt — [BB] 47 gặp ADR-0028.
+ *
+ * ── Vì sao mặc định BẬT và mặc định NGẮN ──
+ *
+ * Bật, vì thế giới đứng im giữa hai câu người chơi gõ là thứ làm mọi trò chơi
+ * loại này chết: mọi thứ chỉ xảy ra khi có người nhìn. Ngắn (một lượt, tức một
+ * năm), vì ADR-0028 nói thế giới KHÔNG được đi tiếp mà người chơi không đọc
+ * được — nên mỗi nhịp nền phải viết ra biên niên sử của chính nó, và một nhịp
+ * dài ba mươi năm thì dòng biên niên ấy không còn kể nổi.
+ */
+export const CauHinhTuDienHoaSchema = z
+  .object({
+    bat: z.boolean().prefault(true),
+    nhip: z.enum(NHIP_DIEN_HOA).prefault('nien'),
+    /** Số lượt tua sau MỖI lần nhịp nền chạy. Trần thấp có chủ đích — xem trên. */
+    soLuot: z.number().int().min(1).max(12).prefault(1),
+    /**
+     * Cứ bao nhiêu lượt KỂ thì nhịp nền chạy một lần. Mặc định 1 — mỗi lượt.
+     *
+     * Tách khỏi `soLuot` vì hai con số trả lời hai câu khác nhau: `soLuot` là
+     * *thế giới đi bao xa mỗi lần*, còn đây là *bao lâu nó đi một lần*. Người
+     * muốn một thế giới trầm hơn đặt số này lên 5 và giữ `soLuot` ở 1; người
+     * muốn thế giới nhảy vọt làm ngược lại. Gộp chúng thành một sẽ mất một nửa
+     * số cách chơi.
+     */
+    moiBaoNhieuLuot: z.number().int().min(1).max(50).prefault(10),
+    hanMucBoiDap: z.number().int().min(0).max(10).prefault(2),
+    /**
+     * Mô phỏng hậu trường — đường ống Workflow chạy cùng nhịp nền.
+     *
+     * ── Vì sao nó ở ĐÂY chứ không ở khối Diễn Hóa thủ công ──
+     *
+     * Vì đây là chỗ nó có nghĩa. Diễn Hóa thủ công là một lần tua có chủ đích:
+     * người chơi bấm, rồi ngồi đọc báo cáo. Mô phỏng hậu trường là thứ ngược
+     * lại — nó chạy trong lúc người chơi đang kể, và thứ nó đẻ ra không đi vào
+     * một báo cáo mà đi vào Sổ Hậu Trường để chính văn kể dần.
+     *
+     * Mặc định BẬT, và mặc định thưa: `moiBaoNhieuLuot` mười lượt. Đây là chỗ
+     * duy nhất nhịp nền tiêu tiền, nên nhịp phải thưa đủ để người chơi kể xong
+     * một cảnh trước khi thế giới lại chuyển mình sau lưng họ.
+     */
+    workflow: z
+      .object({
+        bat: z.boolean().prefault(true),
+        presetId: z.string().prefault('engine_hau_truong'),
+        /** Bỏ qua lịch riêng của từng tác vụ — xem `epChayHet` ở `workflow/chay.ts`. */
+        epChayHet: z.boolean().prefault(true),
+        /** Trần ghi chú lấy từ MỘT tác vụ. Một bản tin dài không được nuốt cả sổ. */
+        soGhiChuMoiTacVu: z.number().int().min(1).max(12).prefault(4),
+      })
+      .prefault({}),
+    /**
+     * Bao nhiêu chuyện hậu trường được dệt vào MỘT lượt kể.
+     *
+     * Ba, và con số nhỏ là toàn bộ điểm của hàng đợi: một lần mô phỏng đẻ ra hai
+     * chục điều, và nhét cả hai chục vào lượt kế tiếp cho ra một bản tin chứ
+     * không ra một cảnh. 0 nghĩa là tắt hẳn phần dệt mà vẫn giữ sổ.
+     */
+    soGhiChuMoiLuotKe: z.number().int().min(0).max(8).prefault(3),
+  })
+  .prefault({});
+
+export type CauHinhTuDienHoa = z.infer<typeof CauHinhTuDienHoaSchema>;
+
+// ─────────────────────────────────────────── ngân sách bước engine
+
+/**
+ * Trần bước engine cho MỘT lần Diễn Hóa.
+ *
+ * Đây là chỗ lỗi treo trình duyệt được đóng lại. Bản cũ chạy `motTick` từng
+ * tick một: `vinh_kiep` × 500 lượt = 200.000 lần gọi scheduler trong một vòng
+ * lặp đồng bộ, tức là tab chết trước khi lượt thứ mười chạy xong.
+ *
+ * Bản này đi qua `tuaThoiGian()`, vốn gộp `TICK_MOI_BUOC[nhịp]` tick vào một
+ * lần gọi. Cùng một trăm năm ấy giờ tốn 1 bước ở `vinh_kiep` thay vì 400. Trần
+ * dưới đây canh phần còn lại: quá trần thì **từ chối tử tế** kèm câu nói rõ
+ * phải đổi gì — cùng chính sách với `TUA_VUOT_NGAN_SACH` của 71.6.
+ */
+export const TRAN_BUOC_DIEN_HOA = 3000;
+
+/** Số bước engine một lượt tua tốn, theo nhịp. */
+export function buocMoiLuot(nhip: NhipDienHoa): number {
+  return Math.max(1, Math.ceil(TICK_MOI_LUOT[nhip] / Math.max(1, TICK_MOI_BUOC[nhip])));
+}
+
+export type UocLuongDienHoa = {
+  readonly soBuoc: number;
+  readonly soTick: number;
+  readonly quaTran: boolean;
+  /** Câu nói với người chơi khi quá trần; rỗng khi chạy được. */
+  readonly loiTuChoi: string;
+};
+
+/** Ước lượng chi phí TRƯỚC khi chạy — người chơi phải biết trước, không sau. */
+export function uocLuongDienHoa(cauHinh: CauHinhDienHoa): UocLuongDienHoa {
+  const soBuoc = cauHinh.soLuot * buocMoiLuot(cauHinh.nhipMoiLuot);
+  const soTick = cauHinh.soLuot * TICK_MOI_LUOT[cauHinh.nhipMoiLuot];
+  if (soBuoc <= TRAN_BUOC_DIEN_HOA) {
+    return { soBuoc, soTick, quaTran: false, loiTuChoi: '' };
+  }
+  const luotToiDa = Math.max(1, Math.floor(TRAN_BUOC_DIEN_HOA / buocMoiLuot(cauHinh.nhipMoiLuot)));
+  return {
+    soBuoc,
+    soTick,
+    quaTran: true,
+    loiTuChoi:
+      `${cauHinh.soLuot} lượt ở nhịp này cần ${soBuoc} bước engine, vượt trần ${TRAN_BUOC_DIEN_HOA}. ` +
+      `Hãy chọn nhịp thô hơn, hoặc hạ xuống ${luotToiDa} lượt.`,
+  };
+}
 
 export const EvolutionLogSchema = z
   .object({
@@ -104,6 +257,17 @@ export const EvolutionLogSchema = z
           .strict(),
       )
       .prefault([]),
+    /**
+     * Thế giới đã dày thêm những gì — mỗi phần tử là một câu biên niên sử.
+     *
+     * Tách khỏi `suKienLon` vì hai thứ này trả lời hai câu hỏi khác nhau: kia là
+     * "chuyện gì đã xảy ra", đây là "thế giới có thêm cái gì". Trộn chung thì
+     * một trăm năm mở ba con đường sẽ đẩy hết những khoảnh khắc đáng xem ra khỏi
+     * bốn mươi mục của báo cáo.
+     */
+    viecBoiDap: z
+      .array(z.object({ tick: z.number(), tho: z.string(), moTa: z.string() }).strict())
+      .prefault([]),
     /** [BB] 47.5 — ảnh chụp TRƯỚC khi chạy. Không có nút lùi thì tính năng này đáng sợ hơn đáng dùng. */
     anhChup: z.string(),
   })
@@ -116,12 +280,22 @@ export type EvolutionLog = z.infer<typeof EvolutionLogSchema>;
 /** Bảng mà Diễn Hóa KHÔNG BAO GIỜ được ghi — 47.4. */
 export const BANG_CAM_DIEN_HOA: readonly string[] = Object.freeze(['substrateLaws', 'branches', 'lorebooks']);
 
-/** Đường dẫn cấm ngay cả trên bảng được phép. */
+/**
+ * Đường dẫn cấm ngay cả trên bảng được phép.
+ *
+ * Bốn dòng cuối là phần đồng bộ với `DUONG_DAN_CAM` của `ai/bocTach.ts`. Hai
+ * danh sách từng lệch nhau — Diễn Hóa cấm `nguongKetTinh` còn Narrator thì
+ * không, Narrator sắp cấm `giaiDoan` còn Diễn Hóa thì không — và một lằn ranh
+ * chỉ canh được một trong hai cửa thì không phải một lằn ranh.
+ */
 export const DUONG_DAN_CAM_DIEN_HOA: readonly string[] = Object.freeze([
-  'aspects.conceptual.nguongKetTinh',
   'playerState',
   'seed',
   'tuningProfileId',
+  'aspects.conceptual.nguongKetTinh',
+  'aspects.conceptual.trongSo',
+  'aspects.conceptual.giaiDoan',
+  'aspects.lawful.hieuLuc',
 ]);
 
 export type KetQuaLocPatch = {
@@ -346,6 +520,8 @@ export type BaoCaoDienHoa = {
   readonly tieuDe: string;
   readonly lyDoDung: string;
   readonly muc: readonly { readonly tick: number; readonly moTa: string; readonly xemDuoc: boolean }[];
+  /** Phần "thế giới dày thêm" — song song với `muc`, không trộn vào nó. */
+  readonly boiDap: readonly { readonly tick: number; readonly moTa: string }[];
   readonly chiSo: readonly string[];
   readonly dong: readonly string[];
 };
@@ -362,6 +538,7 @@ export function baoCaoDienHoa(
     `${log.soLuotChay} lượt · ${log.soCall} call · ${Math.round(log.tokenDaDung / 1000)}k token`;
 
   const muc = log.suKienLon.map((s) => ({ tick: s.tick, moTa: s.moTa, xemDuoc: true }));
+  const boiDap = log.viecBoiDap.map((v) => ({ tick: v.tick, moTa: v.moTa }));
   const chiSo = [
     `Thực tại: ${Math.round(truoc.reality)} → ${Math.round(sau.reality)}`,
     `Sống động: ${Math.round(truoc.songDong)} → ${Math.round(sau.songDong)}`,
@@ -374,6 +551,12 @@ export function baoCaoDienHoa(
     for (const m of muc) dong.push(`  ${m.tick}  ${m.moTa}`);
     dong.push('');
   }
+  if (boiDap.length > 0) {
+    dong.push(`Và thế giới dày thêm ${boiDap.length} chỗ:`);
+    dong.push('');
+    for (const b of boiDap) dong.push(`  ${b.tick}  ${b.moTa}`);
+    dong.push('');
+  }
   dong.push(chiSo.join('        '));
-  return { tieuDe, lyDoDung: log.lyDoDung, muc, chiSo, dong };
+  return { tieuDe, lyDoDung: log.lyDoDung, muc, boiDap, chiSo, dong };
 }

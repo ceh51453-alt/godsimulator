@@ -584,6 +584,28 @@ describe('[BB] Phase 12 — cổng quét mã nguồn', () => {
     expect(pham).toEqual([]);
   });
 
+  /**
+   * Cổng chống "văng game".
+   *
+   * Không có rãnh lỗi thì một ngoại lệ ở BẤT KỲ component nào cũng gỡ cả cây và
+   * để lại trang trắng — trong khi `WorldState` vẫn nằm nguyên trong store. Đó
+   * là một sự cố hiển thị được trình bày như một sự cố mất ván, và người chơi
+   * không có cách nào phân biệt.
+   *
+   * Kiểm ở tầng mã nguồn vì dự án không có môi trường DOM cho test: điều cần
+   * khẳng định là rãnh lỗi bọc NGOÀI `App` ở điểm gắn, và điều đó đọc được.
+   */
+  it('cây React có rãnh lỗi bọc ngoài App — một component vỡ không làm trắng trang', () => {
+    const main = readFileSync(join(process.cwd(), 'src', 'main.tsx'), 'utf8');
+    expect(main).toMatch(/<RanhLoi>[\s\S]*<App\s*\/>[\s\S]*<\/RanhLoi>/);
+
+    const ranh = readFileSync(join(process.cwd(), 'src', 'ui', 'RanhLoi.tsx'), 'utf8');
+    // Cả hai móc đều cần: một cái để vẽ được cái gì đó, một cái để cứu ván.
+    expect(ranh).toContain('getDerivedStateFromError');
+    expect(ranh).toContain('componentDidCatch');
+    expect(ranh).toContain('luuVan');
+  });
+
   it('CSP có mặt trong index.html và cấm script ngoài', () => {
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
     expect(html).toContain('Content-Security-Policy');

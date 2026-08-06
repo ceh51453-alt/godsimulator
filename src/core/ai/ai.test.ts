@@ -217,6 +217,43 @@ describe('[BB] 33.3 — assembler nhận WorldView, không nhận World', () => 
     }
   });
 
+  /**
+   * Sổ Hậu Trường phải TỚI ĐƯỢC model, và tới kèm hướng dẫn dệt.
+   *
+   * Danh sách suông là thứ biến một cảnh thành bản tin: model nhận ba dòng
+   * "NPC X làm Y" sẽ viết ra đúng ba câu tường thuật ba dòng ấy. Ba câu hướng
+   * dẫn ở cuối khối mới là phần làm nên khác biệt, nên bài này canh cả hai.
+   */
+  it('chuyện hậu trường chưa kể vào tầng 5, kèm lệnh dệt chứ không liệt kê', () => {
+    const { state } = theGioi();
+    const p = bienSoanPromptKe({
+      ...nguLieu(chieu(state, 'sang_the', null)),
+      hauTruongChuaKe: [
+        {
+          loai: 'hanh_dong',
+          nhan: 'ai đó vừa làm gì',
+          noiDung: 'Lư Mệnh rời làng trước khi trời sáng.',
+          tick: 12,
+        },
+        { loai: 'quy_luat', nhan: 'quy luật vừa hiện ra', noiDung: 'Máu đổ trên đá thì đá nhớ.', tick: 12 },
+      ],
+    });
+    const tang5 = p.tang.find((t) => t.so === 5)?.noiDung ?? '';
+    expect(tang5).toContain('Lư Mệnh rời làng trước khi trời sáng.');
+    expect(tang5).toContain('Máu đổ trên đá thì đá nhớ.');
+    expect(tang5).toContain('Dệt MỘT hoặc HAI điều');
+    expect(tang5).toContain('Không liệt kê');
+    // Tầng 5 là tầng BIẾN ĐỘNG — nó không được ăn prefix cache cùng tầng 1–3.
+    expect(p.tang.find((t) => t.so === 5)?.onDinh).toBe(false);
+    expect(p.nguoiDung).toContain('Lư Mệnh rời làng trước khi trời sáng.');
+  });
+
+  it('sổ rỗng thì không có khối hậu trường nào — im lặng, không phải một khối trống', () => {
+    const { state } = theGioi();
+    const p = bienSoanPromptKe(nguLieu(chieu(state, 'sang_the', null)));
+    expect(`${p.heThong}\n${p.nguoiDung}`).not.toContain('THẾ GIỚI ĐÃ TỰ CHẠY');
+  });
+
   it('sáu tầng đúng thứ tự, ổn định lên đầu', () => {
     const { state } = theGioi();
     const p = bienSoanPromptKe(nguLieu(chieu(state, 'sang_the', null)));
@@ -440,6 +477,55 @@ describe('bốn phương ngữ', () => {
     expect(a['frequency_penalty']).toBeUndefined();
     expect(a['presence_penalty']).toBeUndefined();
     expect(a['max_tokens']).toBeDefined();
+  });
+
+  /*
+   * Bốn bộ lấy mẫu mà preset SillyTavern khai và `tu_do` là đường duy nhất chở
+   * được chúng. Trước đây chúng bị `THAM_SO_HO_TRO` cắt im lặng, nên `top_k: 500`
+   * của một preset không bao giờ tới proxy dù hồ sơ model đã cho phép.
+   */
+  it('tu_do chở top_k · min_p · top_a · repetition_penalty khi có giá trị thật', () => {
+    const nen = AiConfigSchema.parse({}).narrator.params;
+    const params = { ...nen, topK: 64, minP: 0.05, topA: 0.1, repetitionPenalty: 1.15 };
+    const b = dacTaGoi('tu_do', 'https://x.y/v1', 'k', {
+      heThong: 'S',
+      nguoiDung: 'U',
+      modelId: 'm1',
+      params,
+    }).body as Record<string, unknown>;
+
+    expect(b['top_k']).toBe(64);
+    expect(b['min_p']).toBe(0.05);
+    expect(b['top_a']).toBe(0.1);
+    expect(b['repetition_penalty']).toBe(1.15);
+  });
+
+  it('giá trị trung tính KHÔNG được đính vào thân — khóa lạ với proxy là 400', () => {
+    const params = AiConfigSchema.parse({}).narrator.params;
+    const b = dacTaGoi('tu_do', 'https://x.y/v1', 'k', {
+      heThong: 'S',
+      nguoiDung: 'U',
+      modelId: 'm1',
+      params: { ...params, topK: 0, minP: 0, topA: 0, repetitionPenalty: 1 },
+    }).body as Record<string, unknown>;
+
+    for (const k of ['top_k', 'min_p', 'top_a', 'repetition_penalty']) {
+      expect(b[k], k).toBeUndefined();
+    }
+  });
+
+  it('OpenAI chính thức vẫn không nhận bốn trường ấy', () => {
+    const params = AiConfigSchema.parse({}).narrator.params;
+    const b = dacTaGoi('openai', 'https://x.y/v1', 'k', {
+      heThong: 'S',
+      nguoiDung: 'U',
+      modelId: 'm1',
+      params: { ...params, topK: 64, minP: 0.05, topA: 0.1, repetitionPenalty: 1.15 },
+    }).body as Record<string, unknown>;
+
+    for (const k of ['top_k', 'min_p', 'top_a', 'repetition_penalty']) {
+      expect(b[k], k).toBeUndefined();
+    }
   });
 
   it('rút văn bản từ ba hình dạng phản hồi khác nhau', () => {

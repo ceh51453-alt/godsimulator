@@ -8,7 +8,7 @@
  * thái khái niệm, không từ input người chơi.
  * [BB] 78.8 — không cho tự gõ tài sản/kỹ năng vô hạn rồi nhận thẳng.
  */
-import type { WorldState } from '../engine/state.js';
+import type { WorldState, EventLog } from '../engine/state.js';
 import type { Event, PatchOp } from '../contracts/core.js';
 import type { StartingPresenceDraft } from '../schema/player.js';
 import type { WorldView } from '../contracts/view.js';
@@ -296,14 +296,13 @@ export function eventHienDien(
       const kn = view.entities.get(kid);
       const c = kn?.aspects['conceptual'] as { giaiDoan?: string } | undefined;
       // Khái niệm càng được tiếp địa thì thần mới càng có chỗ đứng — nhưng luôn khiêm tốn.
-      const theoGiaiDoan =
-        c?.giaiDoan === 'ket_tinh'
-          ? 22
-          : c?.giaiDoan === 'thanh_hinh'
-            ? 14
-            : c?.giaiDoan === 'manh_nha'
-              ? 8
-              : 3;
+      const SUC_THEO_BAC: Readonly<Record<string, number>> = {
+        ket_tinh: 22,
+        luong_lu: 18,
+        thanh_hinh: 14,
+        manh_nha: 8,
+      };
+      const theoGiaiDoan = SUC_THEO_BAC[c?.giaiDoan ?? ''] ?? 3;
       return { ten: kid, suc: theoGiaiDoan + rng.khoang(0, 4) };
     });
     engineQuyet.push(
@@ -595,8 +594,15 @@ export function eventChuyenTang(
   denMode: StartingPresenceDraft['mode'],
   chuTheId: string | null,
   lyDo: string,
+  log: EventLog,
 ): Event {
-  const evId = `ev_chuyen_tang_${state.world.tick}_${denMode}`;
+  // [BB] Chuyển tầng không tiến tick, nên trong cùng một tick người chơi có
+  // thể qua lại nhiều lần giữa các mode (vd sang_the → than → sang_the).
+  // Id chỉ theo (tick, denMode) sẽ trùng lần thứ hai và bị log từ chối
+  // (EVENT_TRUNG_ID, log append-only) — kẹt luôn ở mode hiện tại. Ghép thêm
+  // soLuong() của log để mỗi lần gọi có id riêng, vẫn xác định (không dùng
+  // đồng hồ máy).
+  const evId = `ev_chuyen_tang_${state.world.tick}_${denMode}_${log.soLuong()}`;
   const tu = state.world.playerState.mode;
   return taoEvent({
     id: evId,

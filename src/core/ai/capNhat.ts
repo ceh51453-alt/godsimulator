@@ -55,20 +55,48 @@ export function huongDanTaoThucTheMoi(tick: number): readonly string[] {
     `Mẫu khái niệm Thời Gian: {"op":"link","target":{"table":"entities","id":"concept_thoi_gian","path":""},"value":{"id":"concept_thoi_gian","kind":"concept","ten":"Thời Gian","tickSinh":${tick},"tags":["truoc_sau"],"aspects":{"conceptual":{"giaiDoan":"thanh_hinh"}}}}`,
     `Mẫu vị thần: {"op":"link","target":{"table":"entities","id":"deity_ten_than","path":""},"value":{"id":"deity_ten_than","kind":"deity","ten":"Tên Thần","tickSinh":${tick},"tags":[],"aspects":{}}}`,
     '- Chỉ dùng mẫu khi diễn biến thật sự xác lập thứ đó; không sao chép mẫu thành dữ liệu nếu lời kể không có.',
+    /*
+     * Nói ra để model khỏi phí lượt vào những patch chắc chắn bị từ chối.
+     *
+     * Bốn trường này do vòng kết tinh của engine giữ (`vatly/vongKetTinh.ts`).
+     * Không có dòng này thì model vẫn khai chúng đều đặn, `bocTach()` vẫn từ chối
+     * đều đặn, và tỉ lệ patch trượt của mục 27 bảng Tự Chẩn Đoán vọt lên vì một
+     * lý do không phải lỗi của ai.
+     */
+    '- KHÔNG sửa aspects.conceptual.trongSo, aspects.conceptual.giaiDoan, aspects.conceptual.nguongKetTinh hay aspects.lawful.hieuLuc của bản ghi đã có. Engine tự tính chúng từ số vật mang và số điều luật có thật; patch chạm vào chúng bị từ chối.',
+    '- Khái niệm mới chỉ được sinh ra ở bậc "hu_danh", "manh_nha" hoặc "thanh_hinh". Bậc "ket_tinh" là kết quả của quá trình, không phải một lựa chọn.',
   ]);
+}
+
+/**
+ * Cắt một object cho vừa ngân sách ký tự mà KHÔNG cắt giữa chừng JSON.
+ *
+ * `JSON.stringify(x).slice(0, n)` là cách sai: nó để lại một chuỗi hỏng cú pháp
+ * ngay giữa prompt, và model học từ đó rằng dữ liệu ở đây trông như vậy. Bỏ bớt
+ * mặt của thực thể cho tới khi vừa thì mỗi dòng vẫn là JSON đọc được — thiếu
+ * thông tin thì model biết nó thiếu, còn hỏng cú pháp thì nó đoán.
+ */
+function dongJson(o: Record<string, unknown>, aspects: Record<string, unknown>, tran: number): string {
+  const ten = Object.keys(aspects).sort();
+  for (let bo = 0; bo <= ten.length; bo++) {
+    const giu = Object.fromEntries(ten.slice(0, ten.length - bo).map((k) => [k, aspects[k]]));
+    const s = JSON.stringify({ ...o, aspects: giu });
+    if (s.length <= tran) return bo === 0 ? s : `${s.slice(0, -1)},"_bo":${bo}}`;
+  }
+  return JSON.stringify(o);
 }
 
 /** Trạng thái đã chiếu, đủ gọn để Updater so cũ/mới mà không được thấy World thô. */
 function tomTatTrangThai(view: WorldView): readonly string[] {
-  const entities = [...view.entities.values()].slice(0, 80).map((e) =>
-    JSON.stringify({
-      id: e.id,
-      kind: e.kind,
-      ten: e.ten,
-      tags: e.tags,
-      aspects: e.aspects,
-    }).slice(0, 1_200),
-  );
+  const entities = [...view.entities.values()]
+    .slice(0, 80)
+    .map((e) =>
+      dongJson(
+        { id: e.id, kind: e.kind, ten: e.ten, tags: e.tags },
+        e.aspects as Record<string, unknown>,
+        1_200,
+      ),
+    );
   const laws = view.laws
     .slice(0, 24)
     .map((l) => JSON.stringify({ id: l.id, ten: l.ten, phamVi: l.phamVi, vanBan: l.vanBan }));

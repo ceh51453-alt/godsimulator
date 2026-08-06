@@ -13,6 +13,8 @@ import type { WorldState } from './state.js';
 import { rngCuaTick } from './rng.js';
 import { taoEvent } from './transaction.js';
 import type { Tuning } from '../tuning/schema.js';
+import { vongKetTinh } from '../vatly/vongKetTinh.js';
+import { apLuat } from '../vatly/apLuat.js';
 
 export type BuocTick = {
   readonly so: number;
@@ -75,6 +77,8 @@ export type BoChayTienTrinh = (
 
 type NgocCanhBuoc = {
   state: WorldState;
+  /** Mốc trước bước này. Một bước có thể dài nhiều tick — xem `soChuKyDaQua()`. */
+  tickCu: number;
   tickMoi: number;
   eventId: string;
   tuning: Tuning;
@@ -95,12 +99,23 @@ const set = (id: string, path: string, value: unknown, evId: string): PatchOp =>
   sourceEventId: evId,
 });
 
-const add = (bang: string, id: string, path: string, value: number, evId: string): PatchOp => ({
-  op: 'add',
-  target: { table: bang, id, path },
-  value,
-  sourceEventId: evId,
-});
+/**
+ * Bao nhiêu chu kỳ đã trôi qua giữa hai mốc tick.
+ *
+ * ── Vì sao không dùng `tickMoi % n === 0` ──
+ *
+ * Vì một bước engine KHÔNG luôn dài một tick. `tuaThoiGian()` gộp tới bốn trăm
+ * tick vào một bước ở nhịp `vinh_kiep` (71.6), nên phép chia lấy dư sẽ nhảy qua
+ * mọi mốc nằm giữa: một thế kỷ trôi qua mà không thế hệ nào hiểu sai thêm một
+ * chữ nào, không lỗ hổng nào được quét, không khái niệm nào lên bậc.
+ *
+ * Đếm số lần vượt mốc thì đúng ở cả hai nhịp — và ở bước dài một tick nó cho
+ * đúng 0 hoặc 1, tức là y hệt phép chia lấy dư cũ.
+ */
+function soChuKyDaQua(nc: NgocCanhBuoc, chuKy: number): number {
+  if (chuKy <= 0) return 0;
+  return Math.max(0, Math.floor(nc.tickMoi / chuKy) - Math.floor(nc.tickCu / chuKy));
+}
 
 // ─────────────────────────────────────────── các bước đã cài
 
@@ -138,8 +153,8 @@ function buoc1(nc: NgocCanhBuoc): PatchOp[] {
  */
 function buoc10(nc: NgocCanhBuoc): PatchOp[] {
   const ra: PatchOp[] = [];
-  const buocMotTheHe = 30;
-  if (nc.tickMoi % buocMotTheHe !== 0) return ra;
+  const soTheHe = soChuKyDaQua(nc, 30);
+  if (soTheHe === 0) return ra;
 
   for (const id of [...nc.state.entities.keys()].sort()) {
     const l = aspect(nc.state, id, 'lawful');
@@ -150,8 +165,8 @@ function buoc10(nc: NgocCanhBuoc): PatchOp[] {
     const moi = ds.map((d) => {
       const o = d as { doLech?: number; theHe?: number };
       const cu = typeof o.doLech === 'number' ? o.doLech : 0;
-      const tang = nc.tuning.luat.doLechDienGiaiMoiTheHe;
-      return { ...o, doLech: Math.min(100, cu + tang), theHe: (o.theHe ?? 0) + 1 };
+      const tang = nc.tuning.luat.doLechDienGiaiMoiTheHe * soTheHe;
+      return { ...o, doLech: Math.min(100, cu + tang), theHe: (o.theHe ?? 0) + soTheHe };
     });
     ra.push(set(id, 'aspects.lawful.dienGiai', moi, nc.eventId));
   }
@@ -159,40 +174,119 @@ function buoc10(nc: NgocCanhBuoc): PatchOp[] {
 }
 
 /**
- * Bước 7 — cập nhật Khái Niệm. Trọng số tích theo áp lực từ diễn giải lệch:
- * càng nhiều vùng hiểu sai một luật, khái niệm sinh ra từ nó càng nặng.
+ * Bước 7 — cập nhật Khái Niệm, và cả dòng chảy rơi ra từ đó.
+ *
+ * ── Bước này từng chỉ làm một phần mười việc của nó ──
+ *
+ * Bản cũ cộng trọng số theo đúng MỘT nguồn: diễn giải lệch, đọc qua link
+ * `sinh_ra_tu`. Nguồn ấy có nghĩa, nhưng `sinh_ra_tu` chỉ tồn tại ở thế giới mẫu
+ * và không tiến trình nào trong `world/process` tạo thêm một sợi nào — nên trong
+ * một ván thật, trọng số của mọi khái niệm đứng yên vĩnh viễn.
+ *
+ * Và trọng số đứng yên thì cả Phần 42–44 đứng theo: không ai lên bậc, không luật
+ * nào kết tinh, `hieuLuc` không bao giờ được tính lại, bảy trục Luật Nền vô danh
+ * mãi mãi, bốn cơ chế phái sinh không bao giờ đủ điều kiện. Sáu hàm viết cho
+ * đúng chuyện đó nằm trong `vatly/` mà không nơi nào gọi.
+ *
+ * `vongKetTinh()` là mắt xích nối. Nó thuần và deterministic, nên bước này vẫn
+ * là `canLlm: false` và replay vẫn cho cùng một hash.
+ *
+ * ── Vì sao có nhịp quét ──
+ *
+ * Vòng ấy duyệt mọi entity và mọi link. Chạy mỗi tick trên một ván mười nghìn
+ * nhịp là trả tiền cho một phép so gần như luôn cho cùng kết quả. `nhipQuetKetTinh`
+ * mặc định 4 — một năm một lần, đúng nhịp mà thế giới này đo mọi thứ khác.
  */
-function buoc7(nc: NgocCanhBuoc): PatchOp[] {
-  const ra: PatchOp[] = [];
+function buoc7(nc: NgocCanhBuoc): { patches: PatchOp[]; suKien: UngVienSuKienTick[] } {
+  const soVong = soChuKyDaQua(nc, Math.max(1, Math.floor(nc.tuning.khaiNiem.nhipQuetKetTinh)));
+  if (soVong === 0) return { patches: [], suKien: [] };
 
-  // Khái niệm nào sinh ra từ luật nào — theo link `sinh_ra_tu`.
-  const tuLuat = new Map<string, string[]>();
-  for (const lk of nc.state.links.values()) {
-    if (lk.tickDut !== null || lk.quanHe !== 'sinh_ra_tu') continue;
-    const ds = tuLuat.get(lk.tuId) ?? [];
-    ds.push(lk.denId);
-    tuLuat.set(lk.tuId, ds);
+  const kq = vongKetTinh({
+    state: nc.state,
+    tick: nc.tickMoi,
+    eventId: nc.eventId,
+    tuning: nc.tuning,
+    // Một bước Diễn Hóa dài trăm năm phải cộng áp lực của trăm năm, không của một
+    // vòng. Thiếu hệ số này thì tua nhanh làm thế giới NGỪNG lớn lên thay vì lớn
+    // nhanh hơn — đúng ngược điều người chơi bấm nút để có.
+    soVong,
+  });
+  return {
+    patches: [...kq.patches],
+    suKien: kq.suKien.map((sk) => ({
+      loai: sk.loai,
+      mucDo: sk.mucDo,
+      moTa: sk.moTa,
+      // Không thuộc `R.worldProcess`: đây là một bước của chính tick, và bản tin
+      // chỉ dùng id này để nhóm nên nó không cần tra registry.
+      tienTrinhId: 'vong_ket_tinh',
+      chuTheIds: sk.chuTheIds,
+      locationId: null,
+      payload: sk.payload,
+    })),
+  };
+}
+
+/**
+ * Bước 2 — áp luật. Xem `vatly/apLuat.ts` để biết ba hàng rào canh nó.
+ *
+ * Đây là chỗ câu "thế giới vận hành theo luật của chính nó" thôi là một lời hứa.
+ * Trước bước này, `lawful.hieuUng` là dữ liệu không ai đọc.
+ */
+function buoc2(nc: NgocCanhBuoc): { patches: PatchOp[]; suKien: UngVienSuKienTick[] } {
+  if (soChuKyDaQua(nc, Math.max(1, Math.floor(nc.tuning.luat.nhipApLuat))) === 0) {
+    return { patches: [], suKien: [] };
   }
+  const kq = apLuat(nc.state, { tick: nc.tickMoi, eventId: nc.eventId, tuning: nc.tuning });
+  return {
+    patches: [...kq.patches],
+    suKien: kq.viec.map((v) => ({
+      loai: 'ap_luat',
+      mucDo: 'thuong' as const,
+      moTa: `"${v.ten}" chạm tới ${v.soThucThe} kẻ trong thế giới (hiệu lực ${v.hieuLuc}%).`,
+      tienTrinhId: 'ap_luat',
+      chuTheIds: [v.luatId],
+      locationId: null,
+      payload: { luatId: v.luatId, hieuLuc: v.hieuLuc, soThucThe: v.soThucThe },
+    })),
+  };
+}
 
-  for (const id of [...nc.state.entities.keys()].sort()) {
-    const c = aspect(nc.state, id, 'conceptual');
-    if (!c) continue;
-    const luatIds = tuLuat.get(id) ?? [];
-    if (luatIds.length === 0) continue;
+/**
+ * Mọi bước engine thuần của một nhịp — dùng chung cho `motTick()` và `tuaThoiGian()`.
+ *
+ * ── Vì sao phải tách ra ──
+ *
+ * `motTick()` là đường duy nhất chạy mười bốn bước, và nó được gọi từ **đúng một
+ * chỗ** trong cả app: nút `tick`. Mọi cách khác mà thời gian trôi — nhịp nền cuối
+ * mỗi lượt kể, và cả Diễn Hóa tua hàng thế kỷ — đi qua `tuaThoiGian()`, vốn chỉ
+ * chạy mười tám tiến trình nền và **bỏ trọn mười bốn bước**.
+ *
+ * Hệ quả: trong một ván chơi bình thường, giáo lý không bao giờ lệch thêm, lỗ
+ * hổng không bao giờ được quét, luật không bao giờ được áp, và không khái niệm
+ * nào kết tinh. Người chơi tua một nghìn năm và thế giới quay về đúng chỗ cũ,
+ * chỉ khác vài con số dân số.
+ *
+ * `tickCu` và `tickMoi` là hai mốc, không phải một số: ở `motTick` chúng cách
+ * nhau một tick, ở `tuaThoiGian` chúng cách nhau tới bốn trăm. Mọi bước bên
+ * trong đếm chu kỳ bằng `soChuKyDaQua()` nên chạy đúng ở cả hai.
+ *
+ * Bước 1 KHÔNG nằm đây: nó là đường dự phòng Phase 3 cho vùng chưa có `dan_cu`,
+ * dùng RNG, và `tuaThoiGian` cố ý để dân số cho `world/process` lo (71.2).
+ */
+export function buocEngineThuan(nc: NgocCanhBuoc): {
+  patches: PatchOp[];
+  suKien: UngVienSuKienTick[];
+} {
+  const patches: PatchOp[] = [];
+  const suKien: UngVienSuKienTick[] = [];
 
-    let apLuc = 0;
-    for (const lid of luatIds) {
-      const l = aspect(nc.state, lid, 'lawful');
-      const ds = Array.isArray(l?.['dienGiai']) ? (l['dienGiai'] as { doLech?: number }[]) : [];
-      for (const d of ds) apLuc += (d.doLech ?? 0) / 100;
-    }
-    if (apLuc <= 0) continue;
-
-    // Áp lực đến từ việc lặp lại, không từ ý chí ai cả.
-    ra.push(add('entities', id, 'aspects.conceptual.trongSo', apLuc, nc.eventId));
-    ra.push(add('entities', id, 'aspects.conceptual.nguon.lapLai', apLuc, nc.eventId));
+  for (const r of [buoc2(nc), buoc7(nc)]) {
+    patches.push(...r.patches);
+    suKien.push(...r.suKien);
   }
-  return ra;
+  patches.push(...buoc10(nc), ...buoc11(nc), ...buoc14(nc));
+  return { patches, suKien };
 }
 
 /**
@@ -201,7 +295,7 @@ function buoc7(nc: NgocCanhBuoc): PatchOp[] {
  */
 function buoc11(nc: NgocCanhBuoc): PatchOp[] {
   const ra: PatchOp[] = [];
-  if (nc.tickMoi % 10 !== 0) return ra;
+  if (soChuKyDaQua(nc, 10) === 0) return ra;
 
   const bac = new Map<string, number>();
   for (const id of nc.state.entities.keys()) bac.set(id, 0);
@@ -238,7 +332,7 @@ function buoc11(nc: NgocCanhBuoc): PatchOp[] {
 /** Bước 14 — chỉ số thế giới nhích theo trạng thái thật. */
 function buoc14(nc: NgocCanhBuoc): PatchOp[] {
   const ra: PatchOp[] = [];
-  if (nc.tickMoi % 20 !== 0) return ra;
+  if (soChuKyDaQua(nc, 20) === 0) return ra;
 
   // Mật độ liên kết: số cạnh còn hiệu lực trên mỗi entity.
   const soEntity = nc.state.entities.size;
@@ -309,6 +403,7 @@ export function motTick(state: WorldState, tuyChon: TuyChonTick): KetQuaTick {
   const eventId = `ev_tick_${state.world.branchId}_${tickMoi}`;
   const nc: NgocCanhBuoc = {
     state,
+    tickCu: state.world.tick,
     tickMoi,
     eventId,
     tuning: tuyChon.tuning,
@@ -317,6 +412,7 @@ export function motTick(state: WorldState, tuyChon: TuyChonTick): KetQuaTick {
 
   const patches: PatchOp[] = [];
   const boQua: string[] = [];
+  const suKienBuoc: UngVienSuKienTick[] = [];
 
   /**
    * Tiến trình nền chạy TRƯỚC mười bốn bước.
@@ -343,9 +439,18 @@ export function motTick(state: WorldState, tuyChon: TuyChonTick): KetQuaTick {
       case 'thoi_gian_moi_truong':
         patches.push(...buoc1(nc));
         break;
-      case 'cap_nhat_khai_niem':
-        patches.push(...buoc7(nc));
+      case 'ap_luat': {
+        const r = buoc2(nc);
+        patches.push(...r.patches);
+        suKienBuoc.push(...r.suKien);
         break;
+      }
+      case 'cap_nhat_khai_niem': {
+        const r = buoc7(nc);
+        patches.push(...r.patches);
+        suKienBuoc.push(...r.suKien);
+        break;
+      }
       case 'giao_ly_sai_lech':
         patches.push(...buoc10(nc));
         break;
@@ -379,7 +484,9 @@ export function motTick(state: WorldState, tuyChon: TuyChonTick): KetQuaTick {
   return {
     events: [ev],
     buocBoQua: boQua,
-    suKien: nen ? [...nen.suKien] : [],
+    // Chuyện do chính mười bốn bước sinh ra đứng SAU chuyện của tiến trình nền:
+    // kết tinh là hệ quả của một năm vừa trôi, nên nó được kể sau cái năm ấy.
+    suKien: [...(nen ? nen.suKien : []), ...suKienBuoc],
     chanDoan: nen ? [...nen.chanDoan] : [],
     tienTrinhDaChay: nen ? [...nen.daChay] : [],
   };

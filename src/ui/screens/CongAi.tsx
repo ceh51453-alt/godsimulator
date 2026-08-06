@@ -22,6 +22,8 @@ import type { TenEndpoint } from '../../store/ai.js';
 import { DIALECTS } from '../../core/schema/ai.js';
 import type { Dialect, GenParams } from '../../core/schema/ai.js';
 import { thieuGiOEndpoint } from '../../core/ai/cauHinh.js';
+import { hoSoChoModel } from '../../core/ai/hoSo.js';
+import { R } from '../../core/registry/index.js';
 import { Icon } from '../design/Icon.js';
 import { ThongSoSinh } from './ThongSoSinh.js';
 
@@ -91,6 +93,19 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
   // Narrator: hiện thông số hiệu lực (đã gộp preset) và ghi qua datThamSoHieuLuc.
   // Endpoint khác: hiện thông số riêng và ghi trực tiếp vào cấu hình endpoint.
   const paramsHienThi = ten === 'narrator' ? thamSoHieuLuc(ep.params) : ep.params;
+
+  // Hồ sơ đang có hiệu lực, tính đúng cách store tính — hiện con số thật chứ
+  // không hiện tên hồ sơ rồi để người dùng đoán trần của nó là bao nhiêu.
+  const dsHoSo = R.profile.tatCa().map((d) => ({ id: d.id, ten: d.ten, profile: d.profile }));
+  const hoSo = hoSoChoModel(
+    {
+      modelId: ep.modelId,
+      profileId: ep.profileId,
+      contextMaxDaQuet: ep.availableModels.find((m) => m.id === ep.modelId)?.contextMax ?? null,
+    },
+    dsHoSo,
+    R.profile.lay('khong_ro')?.profile ?? (dsHoSo[0]?.profile as never),
+  );
 
   const doiParams = useCallback(
     (thayDoi: Partial<GenParams>) => {
@@ -189,6 +204,34 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
         )}
       </Truong>
 
+      {/*
+        Hồ sơ model — cái quyết định thông số nào của preset thật sự được gửi.
+        Trước đây trường này có trong schema nhưng không có nơi nào đặt và không
+        ai đọc, nên khi máy nhận nhầm model thì người chơi không có cách nào sửa:
+        preset khai `openai_max_tokens: 65000` mà lời gọi vẫn đi với trần của hồ
+        sơ dự phòng, và không có dòng nào nói vì sao.
+      */}
+      <Truong nhan="Hồ sơ model">
+        <select
+          style={oNhap}
+          disabled={tat}
+          value={ep.profileId}
+          onChange={(e) => sua(ten, { profileId: e.target.value })}
+        >
+          <option value="">Tự nhận theo tên model — {hoSo.ten}</option>
+          {dsHoSo.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.ten}
+            </option>
+          ))}
+        </select>
+      </Truong>
+      <p style={{ ...nhanNho, margin: '-6px 0 0', lineHeight: 1.5 }}>
+        Đang áp: ngữ cảnh {hoSo.gioiHan.contextMax.toLocaleString('vi-VN')} · output tối đa{' '}
+        {hoSo.gioiHan.outputMax.toLocaleString('vi-VN')} · nhiệt độ tối đa {hoSo.gioiHan.temperatureMax}.
+        Thông số preset vượt các trần này sẽ bị kẹp lại, và bảng ở mục Preset nói rõ đã kẹp cái gì.
+      </p>
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={nut(false, tat || dangDo)} disabled={tat || dangDo} onClick={() => void quet(ten)}>
           Quét danh sách
@@ -202,8 +245,8 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
       <ThongSoSinh params={paramsHienThi} tat={tat} onThayDoi={doiParams} />
       {coPresetBat && (
         <p style={{ ...nhanNho, margin: 0, color: 'var(--ngoc)', lineHeight: 1.4 }}>
-          Preset đang bật — thông số hiện tại đã gộp giá trị từ preset. Chỉnh ở đây sẽ lưu theo
-          preset/nhánh, giống mục Preset.
+          Preset đang bật — thông số hiện tại đã gộp giá trị từ preset. Chỉnh ở đây sẽ lưu theo preset/nhánh,
+          giống mục Preset.
         </p>
       )}
 

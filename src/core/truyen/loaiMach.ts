@@ -24,6 +24,7 @@ import type { Rng } from '../engine/rng.js';
 import type { GiaiDoanMach, NhanVatMach, Storyline, VaiTroMach } from '../schema/truyen.js';
 import type { LoaiCamXuc } from '../schema/aspect/soul.js';
 import { KHAI_NIEM_NEN_CUA_TRUC } from '../vatly/schema.js';
+import { daThanhHinh } from '../schema/aspect/conceptual.js';
 
 /** Một ứng viên mạch truyện mà `tienDe()` dò được từ thế giới thật. */
 export type UngVienMach = {
@@ -939,10 +940,9 @@ const datTen: HandlerLoaiMach = {
       .sort((a, b) => (a.id < b.id ? -1 : 1));
     if (voDanh.length === 0) return [];
 
-    const nen = moiEntity(s).filter((e) => {
-      const c = aspect<{ giaiDoan?: string }>(e, 'conceptual');
-      return c?.giaiDoan === 'thanh_hinh' || c?.giaiDoan === 'ket_tinh';
-    });
+    const nen = moiEntity(s).filter((e) =>
+      daThanhHinh(aspect<{ giaiDoan?: string }>(e, 'conceptual')?.giaiDoan),
+    );
     if (nen.length === 0) return [];
 
     const ra: UngVienMach[] = [];

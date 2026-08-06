@@ -656,7 +656,15 @@ export function chuanHoaThamSo(
     );
   }
   if (g.seed !== undefined) {
-    if (profile.hoTro.seed) giu('seed', g.seed, g.seed, true);
+    /*
+     * SillyTavern dùng `seed: -1` để nói "không cố định seed", và đó là giá trị
+     * mặc định trong cả ba preset thật. Gửi nó lên như một seed thật là gửi một
+     * con số vô nghĩa vào API — OpenAI nhận số nguyên không âm, Gemini cũng vậy.
+     * Nên số âm và số 0 được đọc đúng ý nghĩa của chúng: không có seed.
+     */
+    if (g.seed <= 0)
+      khongHoTro('seed', g.seed, 'nguồn khai “không cố định seed” (-1) — không gửi trường này');
+    else if (profile.hoTro.seed) giu('seed', g.seed, g.seed, true);
     else khongHoTro('seed', g.seed, 'model không nhận seed');
   }
   if (g.reasoningEffort !== undefined) {

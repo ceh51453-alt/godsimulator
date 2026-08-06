@@ -16,7 +16,7 @@ import type { Entity } from '../../schema/entity.js';
 import type { Venerable } from '../../schema/aspect/divine.js';
 import type { BanTinh } from '../../schema/aspect/soul.js';
 import type { DivineIdentity } from '../../schema/aspect/thanVi.js';
-import { hinhHienTai } from '../../schema/aspect/thanVi.js';
+import { hinhHienTai, TRAN_TINH_HUONG_MO } from '../../schema/aspect/thanVi.js';
 import { doApLuc, moTaTinhHuong, troiHinhAnh, banNgaTu } from '../../than/diHoa.js';
 import { raSoatDomain } from '../../than/quyKet.js';
 import { quetBeTac, sinhLoiCau, loiCauQuaHan, loiCauCho } from '../../than/cauNguyen.js';
@@ -132,18 +132,28 @@ export function chayDiHoa(nc: NgocCanhTienTrinh): KetQuaTienTrinh {
     if (ap.distortion <= nc.tuning.than.nguongDiHoa || ap.trucNang === null || dangMo.length > 0) continue;
 
     const thId = `dh_${nc.tick}_${id}`;
-    patches.push({
-      op: 'push',
-      target: { table: 'entities', id, path: 'aspects.ban_nga.pressure.tinhHuongMo' },
-      value: {
-        id: thId,
-        truc: ap.trucNang,
-        moTa: moTaTinhHuong(e.ten, ap.trucNang, ap.lech),
-        tickSinh: nc.tick,
-        daChon: null,
-      },
-      sourceEventId: nc.eventId,
-    });
+    const tinhHuongMoi = {
+      id: thId,
+      truc: ap.trucNang,
+      moTa: moTaTinhHuong(e.ten, ap.trucNang, ap.lech),
+      tickSinh: nc.tick,
+      daChon: null,
+    };
+    /*
+     * `set` chứ không `push`, vì sổ này có trần.
+     *
+     * `tinhHuongMo` khai `.max(8)`, nhưng tình huống ĐÃ CHỌN thì không ai dọn:
+     * mỗi lần áp lực vượt ngưỡng lại thêm một mục, và sau vài trăm nhịp mảng ấy
+     * dài chín mươi ba phần tử. Trần trong schema chỉ là một câu nói suông cho
+     * tới khi có ai đó cắt.
+     *
+     * Cắt theo `tickSinh` — giữ những gì mới nhất. Tình huống đã chọn là lịch sử
+     * đã có hệ quả trong `lichSuLoi`; nó không mất nghĩa khi rời khỏi sổ chờ.
+     */
+    const conCho = [...bn.pressure.tinhHuongMo, tinhHuongMoi]
+      .sort((a, b) => (a.tickSinh === b.tickSinh ? (a.id < b.id ? -1 : 1) : a.tickSinh - b.tickSinh))
+      .slice(-TRAN_TINH_HUONG_MO);
+    patches.push(dat(nc, id, 'aspects.ban_nga.pressure.tinhHuongMo', conCho));
 
     suKien.push({
       loai: 'di_hoa_ap_luc',

@@ -1,7 +1,34 @@
 /** Aspect `conceptual` — Khái Niệm. Phần 8.1. */
 import { z } from 'zod';
 
-export const GIAI_DOAN_KHAI_NIEM = ['hu_danh', 'manh_nha', 'thanh_hinh', 'ket_tinh'] as const;
+/**
+ * Năm bậc, đúng thứ tự leo.
+ *
+ * `luong_lu` nằm giữa `thanh_hinh` và `ket_tinh`, không phải một nhánh chết bên
+ * cạnh: khái niệm đã đủ trọng số nhưng nguồn của nó không nghiêng hẳn về ý chí
+ * hay lặp lại thì nó **chưa biết mình sẽ thành thần hay thành luật**. Bậc ấy đã
+ * có mặt trong schema từ đầu qua `tickVaoLuongLu` và trong Bảng Thiên Diễn qua
+ * cột "lưỡng lự", chỉ là enum thì thiếu — nên cột ấy luôn bằng 0 và không ai
+ * nhận ra.
+ */
+export const GIAI_DOAN_KHAI_NIEM = ['hu_danh', 'manh_nha', 'thanh_hinh', 'luong_lu', 'ket_tinh'] as const;
+export type GiaiDoanKhaiNiem = (typeof GIAI_DOAN_KHAI_NIEM)[number];
+
+/**
+ * Bậc dưới dạng số, để so sánh "ít nhất đạt tới".
+ *
+ * Trả `-1` cho chuỗi lạ: một save cũ hoặc một pack ngoài khai bậc engine không
+ * biết thì nó nằm DƯỚI mọi yêu cầu, chứ không được vô tình lọt qua một phép so
+ * sánh nào.
+ */
+export function bacKhaiNiem(giaiDoan: string | undefined): number {
+  return giaiDoan === undefined ? -1 : GIAI_DOAN_KHAI_NIEM.indexOf(giaiDoan as GiaiDoanKhaiNiem);
+}
+
+/** Đã đủ thật để một điều luật hay một trục nền bám vào — 43.3. */
+export function daThanhHinh(giaiDoan: string | undefined): boolean {
+  return bacKhaiNiem(giaiDoan) >= bacKhaiNiem('thanh_hinh');
+}
 
 export const ConceptualSchema = z
   .object({

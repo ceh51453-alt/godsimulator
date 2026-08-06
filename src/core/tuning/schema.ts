@@ -19,6 +19,28 @@ const TuningV2Object = z
         /** Quá hạn → phân đôi thành cả thần lẫn luật. */
         tickLuongLuToiDa: z.number().prefault(300),
         heSoLanToaCangThang: z.number().prefault(0.25),
+
+        /*
+         * ── Vòng kết tinh (`vatly/vongKetTinh.ts`) ──
+         *
+         * Ba nguồn áp lực dưới đây là chỗ khái niệm lấy trọng số từ thế giới
+         * THẬT, thay vì chờ ai đó khai một con số. Chúng nhỏ có chủ đích: một
+         * khái niệm phải mất hàng trăm nhịp mới leo hết thang, vì "thế giới tự
+         * phát hiện ra vật lý của chính nó" là một quá trình, không phải một cú
+         * bấm nút.
+         */
+        /** Mỗi vật đang mang khái niệm cộng ngần này mỗi nhịp vào `nguon.lapLai`. */
+        apLucMoiVatMang: z.number().prefault(0.35),
+        /** Mỗi điều luật tiếp địa vào khái niệm cộng ngần này vào `nguon.yChi`. */
+        apLucMoiLuatTiepDia: z.number().prefault(0.5),
+        /** Mỗi vị thần kết tinh từ khái niệm cộng ngần này vào `nguon.yChi`. */
+        apLucMoiThanNeo: z.number().prefault(0.8),
+        /** Trọng số trần, tính theo bội của ngưỡng — chặn vòng phản hồi chạy loạn. */
+        boiTranTrongSo: z.number().prefault(2),
+        /** Bao nhiêu khái niệm được kết tinh trong một nhịp. Một, để mỗi lần là một biến cố. */
+        soKetTinhMoiNhip: z.number().int().min(0).prefault(1),
+        /** Nhịp giữa hai lần quét vòng kết tinh. Bốn tick là một năm. */
+        nhipQuetKetTinh: z.number().int().min(1).prefault(4),
       })
       .prefault({}),
 
@@ -30,6 +52,18 @@ const TuningV2Object = z
         /** [BB] Tầng 2 bắt buộc sai; diễn giải đúng 100% ngay là BUG. */
         doLechDienGiaiMoiTheHe: z.number().prefault(7),
         lanThuHinhThucHoa: z.number().prefault(3),
+
+        /*
+         * ── Áp luật (`vatly/apLuat.ts`) ──
+         */
+        /** Trần thực thể một điều luật chạm được trong một nhịp. Chặn luật `vu_tru` quét cả thế giới. */
+        soThucTheMoiLuat: z.number().int().min(1).prefault(40),
+        /** Nhịp giữa hai lần áp luật. Bốn tick là một năm. */
+        nhipApLuat: z.number().int().min(1).prefault(4),
+        /** Hiệu lực tối thiểu để phép `set`/`flag` chạy — thay đổi tuyệt đối không co được. */
+        nguongApTuyetDoi: z.number().min(0).max(100).prefault(60),
+        /** Độ lệch diễn giải trung bình đủ để một điều luật đẻ ra khái niệm phái sinh. */
+        nguongDeKhaiNiemPhaiSinh: z.number().min(0).max(100).prefault(45),
       })
       .prefault({}),
 

@@ -64,6 +64,7 @@ import type { Prayer } from '../core/schema/than.js';
 import type { CachDapDiHoa, DivineIdentity } from '../core/schema/aspect/thanVi.js';
 import type { CachDuoc } from '../ui/panels/TheCauNguyen.js';
 import { rngCuaTick } from '../core/engine/rng.js';
+import { patchGhiBanGhi } from '../core/engine/patch.js';
 import { chonChuThe, chuTheMacDinhCho } from '../core/than/chuThe.js';
 import type { UngVienChuThe } from '../core/than/chuThe.js';
 import { dungSoTay } from '../core/pham/soTay.js';
@@ -114,6 +115,7 @@ import { xuatSave, nhapSave } from '../db/save.js';
 import { capNhatUiState, docUiState } from '../db/preset.js';
 import { veSinh, coVet, moTaVet } from '../core/anToan/veSinh.js';
 import { datTenTruc, luatNenMacDinh } from '../core/vatly/luatNen.js';
+import { daThanhHinh } from '../core/schema/aspect/conceptual.js';
 import { quetCoChe } from '../core/vatly/coChe.js';
 import { KHAI_NIEM_NEN_CUA_TRUC, TRUC_NEN } from '../core/vatly/schema.js';
 import type { TrucNen } from '../core/vatly/schema.js';
@@ -123,17 +125,38 @@ import { bienSoanTacVu } from '../core/workflow/bienSoanTacVu.js';
 import { PRESET_WORKFLOW, kiemLanRanh } from '../core/workflow/dungSan.js';
 import type { TrangThaiLich } from '../core/workflow/lich.js';
 import { goiTacVuWorkflow } from '../ai/client.js';
+import type { AiEndpoint } from '../core/ai/cauHinh.js';
 import { nhapLorebook } from '../core/lore/nhap.js';
 import { capNhatKyVong, trichKyVong } from '../core/lore/kyVong.js';
 import { vatChatHoaLorebook } from '../core/lore/hienThuc.js';
 import { giaiDoanLore } from '../core/lore/ejs.js';
 import {
   CauHinhDienHoaSchema,
+  CauHinhTuDienHoaSchema,
   EvolutionLogSchema,
+  TICK_MOI_LUOT,
   baoCaoDienHoa,
   kiemDieuKienDung,
+  locPatchTheoLanRanh,
+  uocLuongDienHoa,
 } from '../core/world/dienHoa.js';
-import type { BaoCaoDienHoa, CauHinhDienHoa, NhipDienHoa } from '../core/world/dienHoa.js';
+import type { BaoCaoDienHoa, CauHinhDienHoa, CauHinhTuDienHoa, NhipDienHoa } from '../core/world/dienHoa.js';
+import { boiDapMotLuot, doDoDang } from '../core/world/boiDap.js';
+import type { ThoBoiDap, ViecBoiDap } from '../core/world/boiDap.js';
+import { docBoiDapAi, dungPromptBoiDap } from '../core/world/boiDapAi.js';
+import { docKho, thongKeKho, TRAN_TU_VUNG } from '../core/world/tuVung.js';
+import type { ThongKeKho, TuVung } from '../core/world/tuVung.js';
+import {
+  bocGhiChu,
+  chuaKe,
+  danhDauDaKe,
+  docSo,
+  NHAN_LOAI_HAU_TRUONG,
+  themGhiChu,
+  thongKeSo,
+} from '../core/world/hauTruong.js';
+import type { GhiChuHauTruong, ThongKeSo } from '../core/world/hauTruong.js';
+import { tuaThoiGian } from '../core/world/process/catchUp.js';
 import { useAi } from './ai.js';
 
 export type DongScene = {
@@ -188,7 +211,7 @@ export type TrangThaiGame = {
    * một chế độ chơi: `doiCong()` chặn mọi hành động tiếp theo cho tới khi
    * `keLai()` thành công. Không có đường nào "cứ chơi tiếp không cần lời kể".
    */
-  luotChuaKe: { cau: string; ketQuaEngine: readonly string[] } | null;
+  luotChuaKe: { cau: string; ketQuaEngine: readonly string[]; nhipNen: boolean } | null;
   /** Kể lại lượt đang treo. Cổng phải mở trước, nếu không nó không thử. */
   keLai(): Promise<void>;
 
@@ -278,6 +301,56 @@ export type TrangThaiGame = {
    * Hóa chưa bật.
    */
   chayDienHoa(cauHinh: Partial<CauHinhDienHoa> & { presetId?: string }): Promise<void>;
+  /**
+   * Ngắt một lần Diễn Hóa đang chạy.
+   *
+   * Không "hủy": mọi lượt đã tua vẫn ở trong log và trong thế giới, vì Event đã
+   * commit thì không có đường lùi ngoài nhánh. Nó chỉ nói với vòng lặp là đừng
+   * chạy lượt tiếp theo, rồi báo cáo được viết ra như một lần dừng bình thường.
+   */
+  dungDienHoa(): void;
+  /**
+   * Tiến độ lần chạy đang diễn ra; `null` khi không có gì đang chạy.
+   *
+   * Có nó thì nút "Đang diễn hóa…" mới nói được điều gì. Không có nó, một lượt
+   * tua trăm năm và một lượt tua bị treo trông giống hệt nhau.
+   */
+  tienDoDienHoa: { luot: number; tongLuot: number; tick: number; viecDaLam: number } | null;
+  /** Cấu hình Diễn Hóa tự động cuối mỗi lượt kể. */
+  tuDienHoa: CauHinhTuDienHoa;
+  /**
+   * Vá cấu hình nhịp nền.
+   *
+   * Khối `workflow` nhận bản vá NÔNG: đưa `{ bat: false }` là đủ, ba trường còn
+   * lại giữ nguyên. Bắt người gọi dựng lại cả khối chỉ để tắt một công tắc là
+   * cách chắc chắn nhất để một chỗ nào đó vô tình đặt lại `presetId` về mặc định.
+   */
+  datTuDienHoa(
+    banVa: Partial<Omit<CauHinhTuDienHoa, 'workflow'>> & {
+      workflow?: Partial<CauHinhTuDienHoa['workflow']>;
+    },
+  ): void;
+  /**
+   * Còn bao nhiêu lượt kể nữa thì nhịp nền chạy. `0` nghĩa là lượt tới.
+   *
+   * Giao diện cần con số này để câu "mỗi 5 lượt" không phải một lời hứa suông:
+   * người chơi phải đếm được cùng engine.
+   */
+  conLuotToiNhipNen(): number;
+  /** Thế giới còn dở dang tới đâu — Xưởng Workflow và bảng chẩn đoán đọc. */
+  doDoDangTheGioi(): { diem: number; thieu: readonly string[] };
+  /** Kho Từ của nhánh: thống kê cộng những chữ học gần đây nhất. */
+  khoTuHienTai(): { thongKe: ThongKeKho; moiNhat: readonly TuVung[] };
+  /**
+   * Đang chạy đường ống mô phỏng hậu trường sau lưng lượt kể.
+   *
+   * Giao diện phải hiện nó, và lý do không phải thẩm mỹ: mô phỏng gọi model bảy
+   * lần và tốn tiền. Một tính năng tiêu tiền mà chạy im lặng là một tính năng
+   * người dùng sẽ phát hiện ra qua hóa đơn.
+   */
+  dangMoPhongHauTruong: boolean;
+  /** Sổ Hậu Trường của nhánh: thống kê cộng vài chuyện đang xếp hàng chờ kể. */
+  soHauTruongHienTai(): { thongKe: ThongKeSo; sapKe: readonly GhiChuHauTruong[] };
   /** Kết quả từng giai đoạn của đường ống ở lần chạy gần nhất — Xưởng Workflow đọc. */
   vetDuongOng: readonly {
     giaiDoan: number;
@@ -428,16 +501,395 @@ const SEED_MAC_DINH = 'thien-dien-0001';
 const PHIEN_BAN_APP = '3.1.0';
 
 /**
- * Số tick engine cho mỗi lượt Diễn Hóa — [BB] ADR-0019: 4 tick một năm.
+ * Cờ ngắt Diễn Hóa — ở tầng module, không trong store.
  *
- * `vinh_kiep` cố tình dừng ở một thế kỷ chứ không ở "vô hạn": một lượt tua mà
- * người chơi không đoán được nó dài bao nhiêu là một lượt tua không ai dám bấm.
+ * Cùng lẽ với `hangDoiLuu`: nó là một tín hiệu cho một vòng lặp đang chạy, chứ
+ * không phải một trạng thái của trò chơi. Để nó trong store thì mỗi lần đặt cờ
+ * sẽ làm cả cây component render lại giữa lúc vòng lặp đang nóng nhất.
  */
-const TICK_MOI_NHIP: Readonly<Record<NhipDienHoa, number>> = Object.freeze({
-  nien: 4,
-  the_dai: 4 * 30,
-  vinh_kiep: 4 * 100,
-});
+let yeuCauDungDienHoa = false;
+
+/**
+ * Đang ở trong một nhịp nền — chốt chống đệ quy.
+ *
+ * `keLuot()` kết thúc bằng việc gọi nhịp nền, và nhịp nền có thể ghi dòng vào
+ * khung kể. Không có chốt này thì một ngày nào đó ai đó nối nhịp nền vào một
+ * đường có `keLuot()` ở cuối, và trò chơi tự gọi mình cho tới hết bộ nhớ.
+ */
+let dangTrongNhipNen = false;
+
+/**
+ * Đang mô phỏng hậu trường — chốt chống chồng lượt.
+ *
+ * Khác `dangTrongNhipNen` ở chỗ nó canh một thứ khác: mô phỏng là bất đồng bộ và
+ * kéo dài nhiều giây, nên người chơi gõ tiếp trong lúc nó chạy là chuyện thường,
+ * không phải chuyện lạ. Không có chốt này thì hai lượt mô phỏng chồng nhau sẽ
+ * cùng đọc một sổ, cùng ghi đè lên nó, và lô ghi chú của lượt đầu biến mất.
+ */
+let dangMoPhong = false;
+
+/**
+ * Số lượt kể đã trôi qua kể từ lần nhịp nền gần nhất.
+ *
+ * Ở tầng module chứ không trong store: đổi nó mỗi lượt sẽ làm cả cây component
+ * render lại chỉ để đếm. Giao diện đọc nó qua `conBaoNhieuLuot()`.
+ *
+ * Reset khi mở ván khác — và đó là hành vi ĐÚNG chứ không phải thiếu sót: mở
+ * lại một ván cũ thì nhịp nền chạy ngay lượt đầu, và người chơi thấy thế giới
+ * động đậy ở đúng lúc họ quay lại nó.
+ */
+let demLuotTuNhipNen = 0;
+
+/**
+ * Nhường luồng cho trình duyệt vẽ lại, nhưng chỉ khi đã giữ luồng quá lâu.
+ *
+ * [BB] Đây là chỗ lỗi "Diễn Hóa treo game" được đóng ở tầng vòng lặp. Ngay cả
+ * sau khi đã gộp tick, một lần tua vẫn có thể tốn vài nghìn bước engine; giữ
+ * luồng suốt chừng ấy thì trình duyệt không vẽ được khung nào, nút Dừng không
+ * bấm được, và tab bị hệ điều hành coi là đã chết.
+ *
+ * 12ms là dưới một khung hình 60Hz: nhường sớm hơn thì phí, muộn hơn thì giật.
+ */
+const NGUONG_NHUONG_MS = 12;
+
+function taoBoNhuong(): () => Promise<void> {
+  let moc = Date.now();
+  return async () => {
+    if (Date.now() - moc < NGUONG_NHUONG_MS) return;
+    await new Promise<void>((r) => {
+      setTimeout(r, 0);
+    });
+    moc = Date.now();
+  };
+}
+
+export type KetQuaTuaLuot = {
+  readonly ok: boolean;
+  readonly suKienLon: readonly { tick: number; moTa: string; loai: string; entityIds: string[] }[];
+  readonly loi: readonly StructuredError[];
+};
+
+/**
+ * Tua ĐÚNG MỘT lượt Diễn Hóa — [BB] 71.6 thay cho vòng lặp `motTick` cũ.
+ *
+ * ── Đây là chỗ lỗi treo được sửa ──
+ *
+ * Bản cũ gọi `motTick()` từng tick truyện một: `vinh_kiep` là 400 lần gọi
+ * scheduler cho MỘT lượt, và 500 lượt là hai trăm nghìn lần trong một vòng lặp
+ * đồng bộ. Không có yield nào ở giữa, nên trình duyệt không vẽ được khung nào
+ * và tab bị coi là đã chết.
+ *
+ * `tuaThoiGian()` gộp `TICK_MOI_BUOC[nhịp]` tick vào một lần gọi bằng công thức
+ * macro của 71.6. Cùng một trăm năm ấy giờ tốn **một** bước. Nó vốn đã nằm sẵn
+ * trong `catchUp.ts` từ Phase 5 — Diễn Hóa chỉ chưa bao giờ gọi tới.
+ *
+ * `smartStop` TẮT ở đây có chủ đích: điểm dừng thông minh của 47.3 do vòng lặp
+ * ngoài quyết định sau mỗi lượt trọn vẹn. Để `tuaThoiGian` tự dừng giữa lượt sẽ
+ * cắt một lượt làm đôi, và "một lượt" mất luôn nghĩa.
+ *
+ * ── Vì sao tiền tố Event không cần bộ đếm ──
+ *
+ * `tuaThoiGian()` dựng id là `${tiềnTố}_${nhánh}_${nhịpMới}`, và `nhịpMới` luôn
+ * LỚN HƠN `world.tick`. Mọi Event đã vào log đều có `tick <= world.tick` —
+ * `EVENT_LUI_TICK` cưỡng chế điều đó. Nên một id mang nhịp lớn hơn không thể
+ * đụng id nào đã có, kể cả sau khi nạp lại save. Một bộ đếm ở đây chỉ nhét
+ * trạng thái của phiên vào id Event mà không mua thêm được gì.
+ */
+function tuaMotLuot(s: WorldState, log: EventLog, nhip: NhipDienHoa, hauTo: string): KetQuaTuaLuot {
+  const r = tuaThoiGian(s, log, {
+    soTick: TICK_MOI_LUOT[nhip],
+    nhip,
+    smartStop: false,
+    tuning: TUNING_MAC_DINH,
+    tienToEvent: `ev_dh_${hauTo}`,
+  });
+
+  if (!r.ok) return { ok: false, suKienLon: [], loi: r.errors };
+
+  const suKienLon = r.value.suKien
+    .filter((sk) => sk.mucDo === 'trong_dai')
+    .map((sk) => ({
+      tick: r.value.tickCuoi,
+      moTa: sk.moTa,
+      loai: sk.loai,
+      entityIds: [...sk.chuTheIds],
+    }));
+
+  return { ok: true, suKienLon, loi: [] };
+}
+
+export type TuyChonBoiDap = {
+  readonly hanMuc: number;
+  readonly tho: readonly ThoBoiDap[];
+  readonly cauHinh: CauHinhDienHoa;
+  readonly hauTo: string;
+};
+
+/**
+ * Id Event chưa ai dùng, tìm bằng cách hỏi chính log.
+ *
+ * Bộ đếm module thôi thì chưa đủ: nó reset về 0 mỗi lần mở lại ván, còn log thì
+ * mang theo mọi id đã cấp. Hai thứ cộng lại từng làm `EVENT_TRUNG_ID` nổ ở đúng
+ * lượt đầu tiên sau khi nạp save. Hỏi log là phép tránh va chạm duy nhất còn
+ * đúng sau khi tải lại trang — và nó cũng deterministic, vì nó chỉ đọc log.
+ */
+function idEventTrong(log: EventLog, goc: string): string {
+  if (log.theoId(goc) === undefined) return goc;
+  for (let i = 2; i < 1000; i++) {
+    const thu = `${goc}_${i}`;
+    if (log.theoId(thu) === undefined) return thu;
+  }
+  return `${goc}_${Date.now()}`;
+}
+
+/**
+ * Chạy một lượt Bồi Đắp và áp nó qua đúng cửa duy nhất — luật bất biến #4.
+ *
+ * [BB] 47.4 vẫn cưỡng chế ở đây, dù patch do chính engine sinh: `locPatchTheoLanRanh`
+ * chạy trước transaction. Và nếu nó bỏ dù chỉ một patch thì CẢ lô bị hủy chứ
+ * không áp phần còn lại — vì một lô Bồi Đắp là một đơn vị có nghĩa. Lập làng mới
+ * mà mất đúng cái patch trừ dân của làng cũ thì thế giới vừa nhân đôi dân số.
+ */
+function chayBoiDap(
+  s: WorldState,
+  log: EventLog,
+  o: TuyChonBoiDap,
+): { viec: readonly ViecBoiDap[]; loi: readonly StructuredError[] } {
+  const evId = idEventTrong(log, `ev_boi_dap_${s.world.branchId}_${s.world.tick}_${o.hauTo}`);
+
+  const kq = boiDapMotLuot({
+    state: s,
+    eventId: evId,
+    tick: s.world.tick,
+    tho: o.tho,
+    hanMuc: o.hanMuc,
+  });
+  if (kq.patches.length === 0) return { viec: [], loi: [] };
+
+  const loc = locPatchTheoLanRanh(kq.patches, o.cauHinh, s);
+  if (loc.bo.length > 0) {
+    return {
+      viec: [],
+      loi: [
+        ...loc.loi,
+        loi(
+          'patch',
+          'BOI_DAP_CHAM_LAN_RANH',
+          `Bồi Đắp bị hủy cả lô vì ${loc.bo.length} patch chạm lằn ranh 47.4: ${loc.bo[0]?.lyDo ?? ''}`,
+          { recoverable: true },
+        ),
+      ],
+    };
+  }
+
+  const ev = taoEvent({
+    id: evId,
+    branchId: s.world.branchId,
+    tick: s.world.tick,
+    loai: 'boi_dap',
+    actorIds: [],
+    targetIds: kq.viec.flatMap((v) => [...v.entityIds]).slice(0, 24),
+    causeEventIds: [],
+    locationId: null,
+    patches: [...loc.giu],
+    visibility: 'engine',
+    source: 'engine',
+    payload: { soViec: kq.viec.length, tho: kq.viec.map((v) => v.tho) },
+  });
+
+  const ok = apDungEvent(s, ev, log);
+  return ok.ok ? { viec: kq.viec, loi: [] } : { viec: [], loi: ok.errors };
+}
+
+/**
+ * Điểm cuối dùng cho thợ Bồi Đắp AI — Diễn Hóa nếu có, không thì Tường Thuật.
+ *
+ * [BB] 46.1 cho phép tắt riêng điểm cuối Diễn Hóa, và phần lớn người chơi để nó
+ * tắt vì đường ống bảy tác vụ là một quyết định lớn. Nhưng thợ thứ bảy chỉ tốn
+ * một hai call cho cả một lần tua, nên bắt nó nằm im chỉ vì người chơi chưa cấu
+ * hình một điểm cuối THỨ HAI là chọn hộ họ sai: Tường Thuật đã được kiểm tra
+ * kết nối rồi, và đây vẫn là "một model viết một đoạn văn ngắn".
+ *
+ * Trả `null` khi không có đường nào — lúc ấy người gọi bỏ qua thợ này và nói ra,
+ * chứ không im lặng đốt một lượt.
+ */
+function duongChoBoiDapAi(): AiEndpoint | null {
+  const cfg = useAi.getState().cfg;
+  const wf = cfg.workflow;
+  if (wf.batRieng && wf.proxyUrl.trim() !== '' && wf.modelId.trim() !== '') return wf;
+  const nr = cfg.narrator;
+  if (nr.proxyUrl.trim() !== '' && nr.modelId.trim() !== '') return nr;
+  return null;
+}
+
+/**
+ * Ghi Sổ Hậu Trường qua đúng cửa duy nhất — luật bất biến #4.
+ *
+ * Một patch `set` lên `worlds.worlds.hauTruong`, không nhiều hơn. Sổ nằm trong
+ * `World` nên nó vào `stateHash`, và mọi thay đổi của nó phải có một Event giải
+ * thích — kể cả khi thay đổi ấy chỉ là đóng dấu "đã kể".
+ */
+function apSoHauTruong(
+  s: WorldState,
+  log: EventLog,
+  soMoi: readonly GhiChuHauTruong[],
+  o: { goc: string; loai: string; payload: Record<string, unknown> },
+): readonly StructuredError[] {
+  const evId = idEventTrong(log, o.goc);
+  const ev = taoEvent({
+    id: evId,
+    branchId: s.world.branchId,
+    tick: s.world.tick,
+    loai: o.loai,
+    actorIds: [],
+    targetIds: [],
+    causeEventIds: [],
+    locationId: null,
+    patches: [
+      {
+        op: 'set',
+        target: { table: 'worlds', id: 'worlds', path: 'hauTruong' },
+        value: [...soMoi],
+        sourceEventId: evId,
+      },
+    ],
+    visibility: 'engine',
+    source: 'engine',
+    payload: o.payload,
+  });
+  const r = apDungEvent(s, ev, log);
+  return r.ok ? [] : r.errors;
+}
+
+export type KetQuaBoiDapAiChay = {
+  readonly viec: readonly ViecBoiDap[];
+  readonly soCall: number;
+  readonly loi: readonly StructuredError[];
+};
+
+/**
+ * Chạy thợ Bồi Đắp thứ bảy — người duy nhất trong xưởng có gọi model.
+ *
+ * Chạy ĐÚNG `soCall` lần cho cả một lần Diễn Hóa, không phải mỗi lượt một lần:
+ * xem chú thích của `boiDap.soCallAi` ở `dienHoa.ts` để biết vì sao con số ấy
+ * đếm theo lần chạy.
+ *
+ * Dừng sớm ở ba chỗ, và cả ba đều là "đừng tiêu tiền cho một việc đã xong hoặc
+ * đã hỏng": thế giới không còn chỗ trống nào để hỏi, đường tới model đứt, hoặc
+ * model trả về một câu trả lời không dùng được gì. Thử lại lần thứ hai với đúng
+ * một câu hỏi ấy chỉ đổi tiền lấy cùng một kết quả.
+ */
+async function chayBoiDapAi(
+  s: WorldState,
+  log: EventLog,
+  o: { cauHinh: CauHinhDienHoa; soCall: number; hauTo: string },
+): Promise<KetQuaBoiDapAiChay> {
+  const viec: ViecBoiDap[] = [];
+  const loiGom: StructuredError[] = [];
+  let soCall = 0;
+  if (o.soCall <= 0) return { viec, soCall, loi: loiGom };
+
+  const ep = duongChoBoiDapAi();
+  if (ep === null) {
+    loiGom.push(
+      loi(
+        'ai',
+        'BOI_DAP_AI_CHUA_CO_DUONG',
+        'Bồi Đắp bằng model cần một điểm cuối có địa chỉ và model — Diễn Hóa hoặc Tường Thuật.',
+        { recoverable: true },
+      ),
+    );
+    return { viec, soCall, loi: loiGom };
+  }
+
+  for (let lan = 0; lan < o.soCall; lan++) {
+    const p = dungPromptBoiDap({ state: s });
+    // Không còn chỗ trống nào: đây là kết quả TỐT, và im lặng dừng là đúng.
+    if (p === null) break;
+
+    soCall++;
+    const r = await goiTacVuWorkflow(ep, [
+      { role: 'system', content: p.heThong },
+      { role: 'user', content: p.nguoiDung },
+    ]);
+    if (!r.ok) {
+      loiGom.push(loi('ai', r.ma, `Bồi Đắp bằng model: ${r.thongDiep}`, { recoverable: true }));
+      break;
+    }
+
+    const evId = idEventTrong(log, `ev_boi_dap_ai_${s.world.branchId}_${s.world.tick}_${o.hauTo}_${lan}`);
+    const kq = docBoiDapAi(r.vanBan, {
+      state: s,
+      eventId: evId,
+      tick: s.world.tick,
+      idChoPhep: p.idChoPhep,
+    });
+    for (const b of kq.biBo.slice(0, 6)) {
+      loiGom.push(loi('ai', 'BOI_DAP_AI_BO_MUC', b, { recoverable: true, severity: 'warning' }));
+    }
+    if (kq.patches.length === 0) break;
+
+    // [BB] 47.4 vẫn cưỡng chế, dù patch chỉ chạm tên, mô tả và Kho Từ. Cùng
+    // chính sách với `chayBoiDap`: chạm lằn ranh thì hủy CẢ lô.
+    const loc = locPatchTheoLanRanh(kq.patches, o.cauHinh, s);
+    if (loc.bo.length > 0) {
+      loiGom.push(...loc.loi);
+      loiGom.push(
+        loi(
+          'patch',
+          'BOI_DAP_AI_CHAM_LAN_RANH',
+          `Bồi Đắp bằng model bị hủy cả lô: ${loc.bo[0]?.lyDo ?? ''}`,
+          { recoverable: true },
+        ),
+      );
+      break;
+    }
+
+    const ev = taoEvent({
+      id: evId,
+      branchId: s.world.branchId,
+      tick: s.world.tick,
+      loai: 'boi_dap_ai',
+      actorIds: [],
+      targetIds: kq.viec.flatMap((v) => [...v.entityIds]).slice(0, 24),
+      causeEventIds: [],
+      locationId: null,
+      patches: [...loc.giu],
+      visibility: 'engine',
+      // Model đề nghị, `docBoiDapAi()` duyệt — đúng nghĩa của `ai_validated`.
+      source: 'ai_validated',
+      payload: { soViec: kq.viec.length, soTuMoi: kq.tuMoi.length },
+    });
+
+    const ok = apDungEvent(s, ev, log);
+    if (!ok.ok) {
+      loiGom.push(...ok.errors);
+      break;
+    }
+    for (const v of kq.viec) viec.push({ tho: v.tho as ThoBoiDap, moTa: v.moTa, entityIds: v.entityIds });
+  }
+
+  return { viec, soCall, loi: loiGom };
+}
+
+/**
+ * Ghi cấu hình Diễn Hóa tự động xuống `uiState`.
+ *
+ * Cùng bảng với scene và tab đang mở, vì nó cùng loại: một tùy chọn của **ván
+ * này trên máy này**, không phải dữ liệu thế giới. Nhét nó vào `WorldState` sẽ
+ * làm `stateHash` đổi theo một cái công tắc giao diện — đúng loại lỗi mà
+ * ADR-0028 đã tránh cho trạng thái ngắt mạch.
+ */
+async function ghiTuDienHoaXuongDia(cfg: CauHinhTuDienHoa): Promise<void> {
+  if (!coIndexedDb()) return;
+  const s = useGame.getState().state;
+  if (!s) return;
+  try {
+    await capNhatUiState(layDb(), s.world.id, s.world.branchId, { tuDienHoa: cfg });
+  } catch {
+    // Không ghi được một tùy chọn là chuyện phiền, không phải chuyện chết.
+  }
+}
 
 /**
  * Ký tự trên một token cho tiếng Việt có dấu — [BB] 34.2.
@@ -881,7 +1333,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         .filter((e) => {
           if (e.kind !== 'concept' || e.tickDiet !== null) return false;
           const c = e.aspects['conceptual'] as { giaiDoan?: string } | undefined;
-          if (c?.giaiDoan !== 'thanh_hinh' && c?.giaiDoan !== 'ket_tinh') return false;
+          if (!daThanhHinh(c?.giaiDoan)) return false;
           return hopLe.some((h) => e.id.includes(h) || e.tags.includes(h));
         })
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
@@ -890,7 +1342,21 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     return soTruc;
   };
 
-  const keLuot = async (cauNguoiChoi: string, ketQuaEngine: readonly string[]): Promise<void> => {
+  /**
+   * Tùy chọn của một lượt kể.
+   *
+   * `nhipNen` mặc định BẬT, và bốn đường tắt nó có cùng một lý do: lượt ấy **đã
+   * là** một lượt thời gian trôi (`tick`, `chayDienHoa`) hoặc **chưa phải** một
+   * lượt chơi (`khoiTao`, chọn hiện diện). Cho nhịp nền chạy ở đó sẽ khiến
+   * `tick(3)` đẩy thế giới đi bảy nhịp — một hợp đồng bị phá trong im lặng.
+   */
+  type TuyChonKeLuot = { nhipNen?: boolean };
+
+  const keLuot = async (
+    cauNguoiChoi: string,
+    ketQuaEngine: readonly string[],
+    tuyChon: TuyChonKeLuot = {},
+  ): Promise<void> => {
     const s = get().state;
     const log = get().log;
     const view = get().view;
@@ -933,9 +1399,24 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             .slice(0, 1800)
         : undefined;
 
+    /**
+     * Vài chuyện hậu trường chưa ai kể — Sổ Hậu Trường, `world/hauTruong.ts`.
+     *
+     * Lấy ở đây, đóng dấu "đã kể" ở dưới, và giữa hai chỗ ấy là một lời gọi
+     * model có thể hỏng. Thứ tự đó có chủ đích: đóng dấu TRƯỚC khi model trả lời
+     * nghĩa là một lượt kể hỏng sẽ nuốt mất mấy chuyện ấy vĩnh viễn.
+     */
+    const seKeHauTruong = chuaKe(docSo(s.world.hauTruong), get().tuDienHoa.soGhiChuMoiLuotKe);
+
     const nguLieu = {
       view,
       banTin: get().banTin,
+      hauTruongChuaKe: seKeHauTruong.map((g) => ({
+        loai: g.loai,
+        nhan: NHAN_LOAI_HAU_TRUONG[g.loai],
+        noiDung: g.noiDung,
+        tick: g.tick,
+      })),
       loiCau: loiCauCho(s, s.world.playerState.chuTheId, s.world.tick),
       canhGanDay: get()
         .scene.slice(-12)
@@ -1028,7 +1509,13 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           'Nối lại đường tới model rồi kể lại nhịp này.',
       );
       set({
-        luotChuaKe: { cau: cauNguoiChoi, ketQuaEngine: [...ketQuaEngine] },
+        // Giữ luôn `nhipNen`: kể lại một lượt `tick` không được biến nó thành
+        // một lượt chơi và đẩy thêm một năm vào thế giới.
+        luotChuaKe: {
+          cau: cauNguoiChoi,
+          ketQuaEngine: [...ketQuaEngine],
+          nhipNen: tuyChon.nhipNen !== false,
+        },
         loi: [...get().loi, loi('ai', r.ma, r.thongDiep, { recoverable: true })],
       });
       return;
@@ -1113,7 +1600,21 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * thế giới, và ranh giới ấy nằm ở đúng hai dòng dưới đây.
      */
     if (kq.bienPack.length > 0) {
-      void usePreset.getState().apBienPack(kq.bienPack, s.world.tick);
+      // `void` nhưng KHÔNG im lặng: phần bị bỏ đi vào bảng Tự Chẩn Đoán ngay
+      // cạnh patch bị từ chối, vì với người chơi đó là cùng một triệu chứng —
+      // "tôi thấy model khai con số ấy mà bảng không đổi".
+      void usePreset
+        .getState()
+        .apBienPack(kq.bienPack, s.world.tick)
+        .then((bc) => {
+          if (bc.soBiBo === 0) return;
+          set({
+            patchBiTuChoi: [
+              ...get().patchBiTuChoi,
+              { ma: 'SAI_SCHEMA', thongDiep: bc.vi, nguyenVan: kq.bienPack[0]?.duong ?? '' },
+            ],
+          });
+        });
     }
 
     // [BB] 28.6 — đếm cảnh để đo hạn ngạch vắng mặt, theo CẢNH chứ không theo token.
@@ -1240,12 +1741,41 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       if (!okNen.ok) set({ loi: [...get().loi, ...okNen.errors] });
     }
 
+    /*
+     * Đóng dấu "đã kể" cho những chuyện hậu trường vừa đi vào prompt.
+     *
+     * Đóng dấu theo việc **đã đưa cho Narrator**, không theo việc nó có dùng
+     * hay không — và đó là lựa chọn có ý thức. Model được bảo "dệt một hai
+     * điều, phần còn lại để đó", nên đo xem nó dùng cái nào là đo một thứ không
+     * đo được. Giữ lại thì tệ hơn nhiều: cùng ba dòng ấy sẽ vào prompt mỗi lượt
+     * cho tới khi model chịu nhắc đủ cả ba, và hàng đợi tắc ở đầu.
+     */
+    if (seKeHauTruong.length > 0) {
+      const l = apSoHauTruong(
+        s,
+        log,
+        danhDauDaKe(
+          docSo(s.world.hauTruong),
+          seKeHauTruong.map((g) => g.id),
+        ),
+        {
+          goc: `ev_hau_truong_ke_${s.world.branchId}_${s.world.tick}_${demKe}`,
+          loai: 'hau_truong_da_ke',
+          payload: { soGhiChu: seKeHauTruong.length },
+        },
+      );
+      if (l.length > 0) set({ loi: [...get().loi, ...l].slice(-200) });
+    }
+
     // Khái niệm Thời Gian/Không Gian vừa được tạo không còn nằm mãi ở sổ Tạo
     // Vật trong khi trục tương ứng vẫn "vô danh". Validator engine quyết việc
     // đặt tên ngay trong cùng lượt kể.
     datTenCacTrucDaDuNen(s);
 
     capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau lượt kể.');
+
+    // [BB] 47 — thế giới đi tiếp một nhịp của riêng nó sau mỗi lượt kể.
+    const daChayNhipNen = tuyChon.nhipNen !== false && nhipNenSauLuot();
 
     dongBo();
 
@@ -1257,6 +1787,224 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * đĩa để đọc câu vừa hiện ra, và `luuVan()` đã tự nuốt lỗi ghi.
      */
     void get().luuVan();
+
+    /*
+     * Mô phỏng hậu trường chạy CUỐI CÙNG, sau khi lời kể đã hiện ra và ván đã
+     * xuống đĩa.
+     *
+     * Thứ tự ấy là hợp đồng: người chơi đọc xong cảnh của mình rồi thế giới mới
+     * bắt đầu nghĩ về phần nó làm sau lưng họ. Đảo lại — mô phỏng trước, kể sau
+     * — sẽ bắt họ chờ bảy lời gọi model trước khi được đọc một chữ nào.
+     *
+     * `await` chứ không `void`: người gọi `keLuot()` cần biết lượt đã xong hẳn,
+     * và `moPhongHauTruong()` đã tự bọc mọi lỗi của chính nó.
+     */
+    if (daChayNhipNen) await moPhongHauTruong();
+  };
+
+  /**
+   * Nhịp nền cuối lượt — Diễn Hóa tự động, [BB] 47 gặp ADR-0028.
+   *
+   * ── Vì sao nó tồn tại ──
+   *
+   * Trước đây thế giới chỉ nhúc nhích khi người chơi bấm "tick" hoặc mở Xưởng
+   * Workflow bấm "Chạy Diễn Hóa". Nghĩa là giữa hai câu người chơi gõ, mười hai
+   * tiến trình nền không chạy một bước nào, và mọi mạch truyện đứng im chờ.
+   * Thế giới chỉ tồn tại khi có người nhìn — đúng thứ mà cả Phần 71 tồn tại để
+   * chống.
+   *
+   * ── Vì sao nó ĐỒNG BỘ và NGẮN ──
+   *
+   * Đồng bộ: nó chạy trong `keLuot()`, ngay trước `dongBo()`, nên người chơi
+   * đọc lời kể và đọc biên niên sử của nhịp nền trong cùng một lần vẽ. Một nhịp
+   * nền chạy bất đồng bộ sau lưng sẽ đổi thế giới sau khi lời kể đã hiện ra, và
+   * lời kể ấy lập tức nói sai về thế giới.
+   *
+   * Ngắn: mặc định MỘT lượt nhịp `nien`, tức bốn tick, tức một bước engine.
+   * ADR-0028 nói thế giới không được đi tiếp mà người chơi không đọc được — nên
+   * mỗi việc nhịp nền làm đều phải ghi ra một dòng, và một nhịp ba mươi năm thì
+   * không dòng nào kể nổi.
+   *
+   * KHÔNG gọi LLM, KHÔNG gọi `keLuot()`. Chốt `dangTrongNhipNen` canh điều thứ hai.
+   *
+   * Phần CÓ gọi model nằm ở `moPhongHauTruong()`, chạy sau và bất đồng bộ — xem
+   * chú thích ở đó để biết vì sao hai phần phải tách làm hai.
+   *
+   * Trả `true` khi nhịp nền thật sự đã chạy: người gọi dùng nó để quyết có chạy
+   * tiếp phần mô phỏng hay không, vì hai phần dùng CHUNG một bộ đếm lượt.
+   */
+  const nhipNenSauLuot = (): boolean => {
+    const cfg = get().tuDienHoa;
+    if (!cfg.bat || dangTrongNhipNen || get().dangDienHoa) return false;
+    const s = get().state;
+    const log = get().log;
+    if (!s || !log) return false;
+
+    /*
+     * Đếm lượt kể, và chỉ chạy khi đủ nhịp.
+     *
+     * Tăng bộ đếm TRƯỚC khi so: đặt `moiBaoNhieuLuot = 1` phải chạy ở mọi lượt,
+     * và so trước khi tăng sẽ bỏ mất lượt đầu tiên.
+     */
+    demLuotTuNhipNen++;
+    if (demLuotTuNhipNen < cfg.moiBaoNhieuLuot) return false;
+    demLuotTuNhipNen = 0;
+
+    dangTrongNhipNen = true;
+    try {
+      const cauHinh = CauHinhDienHoaSchema.parse({
+        soLuot: cfg.soLuot,
+        nhipMoiLuot: cfg.nhip,
+        boiDap: { bat: cfg.hanMucBoiDap > 0, hanMucMoiLuot: cfg.hanMucBoiDap },
+      });
+      const tickDau = s.world.tick;
+      const dongBienNien: string[] = [];
+      const loiGom: StructuredError[] = [];
+
+      for (let i = 0; i < cfg.soLuot; i++) {
+        const r = tuaMotLuot(s, log, cfg.nhip, `nen${i}`);
+        loiGom.push(...r.loi);
+        if (!r.ok) break;
+        for (const sk of r.suKienLon.slice(0, 3)) dongBienNien.push(sk.moTa);
+
+        if (cfg.hanMucBoiDap > 0) {
+          const bd = chayBoiDap(s, log, {
+            hanMuc: cfg.hanMucBoiDap,
+            tho: cauHinh.boiDap.tho,
+            cauHinh,
+            hauTo: `nen${i}`,
+          });
+          loiGom.push(...bd.loi);
+          for (const v of bd.viec) dongBienNien.push(v.moTa);
+        }
+      }
+
+      /*
+       * Gieo nền lại SAU nhịp nền: Bồi Đắp có thể vừa lập một làng mới, và một
+       * vùng thiếu aspect nền sẽ bị mười hai tiến trình bỏ qua trong im lặng.
+       * `eventGieoNen()` idempotent nên gọi thừa không tốn gì.
+       */
+      const evNenSau = eventGieoNen(s, `:nhipnen${s.world.tick}`);
+      if (evNenSau) {
+        const okNen = apDungEvent(s, evNenSau, log);
+        if (!okNen.ok) loiGom.push(...okNen.errors);
+      }
+      capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau nhịp nền.');
+
+      if (loiGom.length > 0) set({ loi: [...get().loi, ...loiGom].slice(-200) });
+
+      /*
+       * Một dòng duy nhất, kể cả khi không có gì xảy ra.
+       *
+       * "Không có gì đáng ghi" cũng là thông tin: nó nói với người chơi rằng
+       * thời gian ĐÃ trôi, và đó chính là điều ADR-0028 đòi hỏi.
+       */
+      const soNam = Math.max(0, Math.round((s.world.tick - tickDau) / 4));
+      const dauDong = soNam > 0 ? `${soNam} năm trôi qua.` : 'Thời gian nhích một nhịp.';
+      themDong(
+        'he_thong',
+        dongBienNien.length === 0
+          ? `${dauDong} Không có gì đáng ghi vào biên niên sử.`
+          : `${dauDong} ${dongBienNien.slice(0, 4).join(' ')}`,
+      );
+    } finally {
+      dangTrongNhipNen = false;
+    }
+    return true;
+  };
+
+  /**
+   * Mô phỏng hậu trường — đường ống Workflow chạy sau lưng lượt kể.
+   *
+   * ── Vì sao nó tách khỏi `nhipNenSauLuot()` ──
+   *
+   * Vì hai phần trả lời hai câu khác nhau và có hai ràng buộc trái ngược.
+   *
+   * Nhịp nền phải ĐỒNG BỘ: nó đổi dân số, mùa màng, mạch truyện, và lời kể vừa
+   * hiện ra phải nói đúng về thế giới sau khi nó chạy. Mô phỏng hậu trường thì
+   * KHÔNG được đồng bộ: nó gọi model bảy lần, và bắt người chơi nhìn màn hình
+   * đứng im mười giây sau mỗi câu họ gõ là cách chắc chắn nhất để họ tắt tính
+   * năng này đi.
+   *
+   * Cái làm phép tách ấy an toàn là Sổ Hậu Trường: mô phỏng không đổi thế giới,
+   * nó chỉ **ghi lại những gì thế giới vừa nghĩ ra** vào một hàng đợi. Lời kể
+   * vừa hiện ra không thể nói sai về một thứ chưa có hiệu lực, và ADR-0028 vẫn
+   * được giữ vì mọi ghi chú trong hàng đợi rồi sẽ lên chính văn — chỉ là ở nhịp
+   * sau, chứ không phải nhịp này.
+   */
+  const moPhongHauTruong = async (): Promise<void> => {
+    const cfg = get().tuDienHoa;
+    if (!cfg.bat || !cfg.workflow.bat || dangMoPhong || get().dangDienHoa) return;
+    const s = get().state;
+    const log = get().log;
+    if (!s || !log) return;
+
+    const duongOng = chuanBiDuongOng(cfg.workflow.presetId, cfg.workflow.epChayHet);
+    if (duongOng === null) return;
+
+    dangMoPhong = true;
+    set({ dangMoPhongHauTruong: true });
+    try {
+      const kq = await duongOng.chay(s, demKe);
+      set({ vetDuongOng: [...kq.vet] });
+
+      const ghi: GhiChuHauTruong[] = [];
+      for (const o of kq.output) {
+        ghi.push(...bocGhiChu(o.taskId, o.text, s.world.tick, cfg.workflow.soGhiChuMoiTacVu));
+      }
+      if (ghi.length === 0) {
+        /*
+         * Bảy call mà không đọc ra được câu nào là một sự cố, không phải một
+         * lượt yên ắng — và người chơi vừa trả tiền cho nó. Nói ra.
+         */
+        if (kq.soCall > 0) {
+          themDong(
+            'he_thong',
+            `Thế giới vừa tự chạy ${kq.soCall} lượt mô phỏng nhưng không rút ra được chuyện nào kể được. ` +
+              'Xem Tự Chẩn Đoán để biết tác vụ nào im lặng.',
+          );
+        }
+        return;
+      }
+
+      const soMoi = themGhiChu(docSo(s.world.hauTruong), ghi);
+      const l = apSoHauTruong(s, log, soMoi, {
+        goc: `ev_hau_truong_${s.world.branchId}_${s.world.tick}`,
+        loai: 'mo_phong_hau_truong',
+        payload: { soGhiChu: ghi.length, soCall: kq.soCall },
+      });
+      if (l.length > 0) {
+        set({ loi: [...get().loi, ...l].slice(-200) });
+        return;
+      }
+
+      /*
+       * Một dòng nói RÕ đây là hàng đợi, không phải nội dung.
+       *
+       * Người chơi cần biết ba điều: thế giới đã chạy, nó tốn bao nhiêu, và
+       * chuyện sẽ tới dần chứ không tới ngay. Thiếu vế thứ ba thì lượt kể tiếp
+       * theo trông như đã bỏ qua tất cả những gì vừa mô phỏng.
+       */
+      themDong(
+        'he_thong',
+        `Thế giới vừa tự chạy sau lưng bạn: ${kq.soCall} lượt gọi, ${ghi.length} chuyện mới. ` +
+          'Chúng sẽ được kể dần ở những nhịp tới.',
+      );
+      dongBo();
+      void get().luuVan();
+    } catch (e) {
+      set({
+        loi: [
+          ...get().loi,
+          loi('ai', 'MO_PHONG_HAU_TRUONG_HONG', `Mô phỏng hậu trường dừng giữa chừng: ${String(e)}`, {
+            recoverable: true,
+          }),
+        ].slice(-200),
+      });
+    } finally {
+      dangMoPhong = false;
+      set({ dangMoPhongHauTruong: false });
+    }
   };
 
   /**
@@ -1299,27 +2047,42 @@ export const useGame = create<TrangThaiGame>((set, get) => {
   };
 
   /**
-   * Dựng bộ chạy đường ống workflow cho một lượt Diễn Hóa — [BB] 50.2 – 50.10.
+   * Dựng bộ chạy đường ống workflow — [BB] 50.2 – 50.10.
    *
-   * Trả `null` khi không có gì để chạy, và bốn lý do đều hợp lệ:
-   * preset trống, preset vi phạm lằn ranh, điểm cuối Diễn Hóa chưa bật, hoặc
-   * người chơi không chọn preset nào.
+   * Trả `null` khi không có gì để chạy, và ba lý do đều hợp lệ: preset trống,
+   * preset vi phạm lằn ranh, hoặc không có đường nào tới model.
+   *
+   * ── Điểm cuối: Diễn Hóa nếu có, không thì Tường Thuật ──
+   *
+   * Bản đầu trả `null` khi `workflow.batRieng` tắt, và đó là một cái bẫy im
+   * lặng: phần lớn người chơi không cấu hình điểm cuối THỨ HAI, nên họ chọn
+   * preset "Engine hậu trường", thấy bảy tác vụ liệt kê ra, bấm chạy — và không
+   * một tác vụ nào chạy, không một dòng nào giải thích. 46.1 cho phép tắt riêng
+   * điểm cuối Diễn Hóa; nó không nói rằng thiếu điểm cuối ấy thì cả đường ống
+   * phải nằm im. Tường Thuật đã được kiểm tra kết nối, và đây vẫn là "một model
+   * đọc một prompt rồi trả về văn bản".
    *
    * ── Cái hàm này KHÔNG làm ──
    *
    * Nó không áp `dichGhi` của tác vụ vào thế giới. Output đi vào ngữ cảnh của
-   * giai đoạn sau và vào lượt kể cuối, chấm hết. Lý do: [BB] 50.10 xếp "ghi vào
+   * giai đoạn sau và vào Sổ Hậu Trường, chấm hết. Lý do: [BB] 50.10 xếp "ghi vào
    * lorebook người dùng" là hỏng NẶNG, và đường ghi an toàn cần một bộ định
    * tuyến riêng qua `dichGhi.ts` với đủ kiểm lằn ranh. Nối một nửa đường ghi thì
    * tệ hơn không nối: nó tạo ra ấn tượng rằng lằn ranh đã được kiểm.
    */
   const chuanBiDuongOng = (
     presetId: string,
+    epChayHet = false,
   ): {
     chay: (
       s: WorldState,
       luot: number,
-    ) => Promise<{ soCall: number; vet: TrangThaiGame['vetDuongOng'][number][] }>;
+    ) => Promise<{
+      soCall: number;
+      vet: TrangThaiGame['vetDuongOng'][number][];
+      /** Output từng tác vụ — nguyên liệu của Sổ Hậu Trường. */
+      output: { taskId: string; text: string }[];
+    }>;
   } | null => {
     const preset = PRESET_WORKFLOW[presetId];
     if (preset === undefined || preset.tasks.length === 0) return null;
@@ -1331,9 +2094,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       return null;
     }
 
-    const ai = useAi.getState();
-    const ep = ai.cfg.workflow;
-    if (!ep.batRieng || ep.proxyUrl.trim() === '' || ep.modelId.trim() === '') return null;
+    const ep = duongChoBoiDapAi();
+    if (ep === null) return null;
 
     const lich = new Map<string, TrangThaiLich>();
 
@@ -1357,23 +2119,36 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           preset,
           tuning: TUNING_MAC_DINH,
           trangThaiLich: lich,
+          epChayHet,
           lich: { luot, tick: s.world.tick, suKien: [] },
           /**
            * Nguồn liệt kê cho họ bản sao — [BB] 50.3: tra BẢNG, không eval chuỗi.
-           * Id lạ trả mảng rỗng, và tác vụ ấy chạy đúng một lần thay vì nổ.
+           *
+           * ── Vì sao id lạ KHÔNG còn trả mảng rỗng ──
+           *
+           * Bảng đầu chỉ biết ba tên, còn tác vụ dựng sẵn quan trọng nhất của
+           * 50.9 — "Hành động NPC", stage 2 — khai `npc_t2_theo_spotlight`. Ba
+           * cái tên kia không có nó, nên `muc` là mảng rỗng, nên vòng lặp lô
+           * chạy không lần nào, nên tác vụ ấy **báo là đã chạy mà không gọi
+           * model một lần**. Nó là tác vụ duy nhất bắt buộc bật họ bản sao, và
+           * nó là tác vụ duy nhất chưa bao giờ chạy.
+           *
+           * Nay: tên lạ rơi về danh sách nhân vật sống — mặc định đúng cho một
+           * tác vụ khai họ bản sao, vì "một bản sao cho mỗi X" gần như luôn
+           * nghĩa là mỗi nhân vật.
            */
           lietKe: (nguon, gioiHan) => {
+            const song = [...s.entities.values()].filter((e) => e.tickDiet === null);
+            const nhanVat = song.filter((e) => e.kind === 'mortal' || e.kind === 'deity');
             const ds =
-              nguon === 'nhan_vat_hien_dien'
-                ? [...s.entities.values()].filter((e) => e.kind === 'mortal' || e.kind === 'deity')
-                : nguon === 'noi_chon'
-                  ? [...s.entities.values()].filter((e) => e.kind === 'place')
-                  : nguon === 'mach_truyen'
-                    ? [...s.storylines.values()]
-                    : [];
+              nguon === 'noi_chon'
+                ? song.filter((e) => e.kind === 'place')
+                : nguon === 'mach_truyen'
+                  ? [...s.storylines.values()]
+                  : nhanVat;
             return ds
               .map((x) => x.id)
-              .sort()
+              .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
               .slice(0, gioiHan);
           },
           dungPrompt: (task, mucId, nguCanhTruoc) => {
@@ -1413,6 +2188,11 @@ export const useGame = create<TrangThaiGame>((set, get) => {
               soKyTuRa: t.output.length,
               thatBai: t.thatBai.length,
             })),
+          ),
+          output: kq.flatMap((gd) =>
+            gd.ketQua
+              .filter((t) => t.chay && t.output.trim() !== '')
+              .map((t) => ({ taskId: t.taskId, text: t.output })),
           ),
         };
       },
@@ -1499,6 +2279,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       await usePreset.getState().bat(packId, state.world.id, state.world.tick);
     }
 
+    // Không nhịp nền ở lượt khai thiên: thế giới chưa có gì để một năm trôi qua.
     await keLuot(
       motCau.trim(),
       motCau.trim() === ''
@@ -1507,6 +2288,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             'Chưa có gì tồn tại ngoài điều người chơi vừa nói ra.',
             `Tiền đề người chơi đặt: ${motCau.trim()}`,
           ],
+      { nhipNen: false },
     );
   };
 
@@ -1535,6 +2317,9 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     tickDaLuu: null,
     baoCaoDienHoa: null,
     dangDienHoa: false,
+    dangMoPhongHauTruong: false,
+    tienDoDienHoa: null,
+    tuDienHoa: CauHinhTuDienHoaSchema.parse({}),
     vetDuongOng: [],
     ongKinh: ongKinhMoi(0),
     viChieu: '',
@@ -1588,12 +2373,17 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         }
       }
       dongBo();
-      await keLuot('', [
-        r.value.chuTheId
-          ? 'Người chơi vừa hiện diện trong thế giới với thân phận mới.'
-          : 'Người chơi hiện diện như Sáng Thế Thần: không thân xác, không vị trí.',
-        ...r.value.diff.engineQuyet,
-      ]);
+      await keLuot(
+        '',
+        [
+          r.value.chuTheId
+            ? 'Người chơi vừa hiện diện trong thế giới với thân phận mới.'
+            : 'Người chơi hiện diện như Sáng Thế Thần: không thân xác, không vị trí.',
+          ...r.value.diff.engineQuyet,
+          // Chọn hiện diện là bước dựng nhân vật, chưa phải một lượt chơi.
+        ],
+        { nhipNen: false },
+      );
       return r.value.diff;
     },
 
@@ -1640,7 +2430,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         return;
       }
 
-      const ev = eventChuyenTang(s, mode, chon, 'người chơi đổi góc nhìn');
+      const ev = eventChuyenTang(s, mode, chon, 'người chơi đổi góc nhìn', log);
       const ok = apDungEvent(s, ev, log);
       if (!ok.ok) {
         set({ loi: [...ok.errors] });
@@ -1757,7 +2547,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           }
         }
         if (kq.bienPack.length > 0) {
-          await usePreset.getState().apBienPack(kq.bienPack, s.world.tick);
+          const bc = await usePreset.getState().apBienPack(kq.bienPack, s.world.tick);
+          if (bc.soBiBo > 0) themDong('he_thong', bc.vi);
         }
 
         // Entity mới cũng phải được gieo các mặt nền giống entity sinh ở một
@@ -1912,10 +2703,16 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       set({ banTin: bt });
       dongBo();
 
-      await keLuot('', [
-        `Thời gian trôi tới nhịp ${s.world.tick}.`,
-        ...bt.muc.slice(0, 6).map((m) => m.loiKe),
-      ]);
+      /*
+       * `tick(n)` đẩy thế giới ĐÚNG n nhịp. Không nhịp nền chồng lên: người chơi
+       * gọi hàm này chính là để tự quyết thời gian trôi bao nhiêu, và cộng lén
+       * thêm một năm vào đó là phá hợp đồng của chính nút họ vừa bấm.
+       */
+      await keLuot(
+        '',
+        [`Thời gian trôi tới nhịp ${s.world.tick}.`, ...bt.muc.slice(0, 6).map((m) => m.loiKe)],
+        { nhipNen: false },
+      );
     },
 
     lamMoi() {
@@ -1942,7 +2739,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         });
         return;
       }
-      await keLuot(treo.cau, treo.ketQuaEngine);
+      await keLuot(treo.cau, treo.ketQuaEngine, { nhipNen: treo.nhipNen });
     },
 
     // ── ván chơi ──
@@ -2045,6 +2842,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       }
       const state = r.value;
       const log = taoEventLog([...(await kho.docEvents(branchId))]);
+      // Ván khác thì đếm lại từ đầu — xem chú thích của `demLuotTuNhipNen`.
+      demLuotTuNhipNen = 0;
 
       const evNen = eventGieoNen(state, ':nap');
       if (evNen) apDungEvent(state, evNen, log);
@@ -2053,8 +2852,12 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
       // ── Phục hồi scene (lịch sử chat) từ đĩa ──
       let sceneCu: DongScene[] = [];
+      // Hàng cũ không có trường này; `parse({})` cho lại mặc định, không phải lỗi.
+      let tuDienHoaCu: CauHinhTuDienHoa = CauHinhTuDienHoaSchema.parse({});
       try {
         const ui = await docUiState(db, state.world.id, state.world.branchId);
+        const tdh = CauHinhTuDienHoaSchema.safeParse(ui?.tuDienHoa ?? {});
+        if (tdh.success) tuDienHoaCu = tdh.data;
         if (ui?.scene && Array.isArray(ui.scene)) {
           sceneCu = (ui.scene as DongScene[])
             .filter((d) => d && typeof d.noiDung === 'string' && typeof d.loai === 'string')
@@ -2079,6 +2882,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         log,
         hoSo: get().hoSo ?? hoSoToiThieu('pf_local', 0),
         scene: sceneCu,
+        tuDienHoa: tuDienHoaCu,
         loi: [],
         projects: [],
         choXacNhan: null,
@@ -2491,14 +3295,10 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         targetIds: [khaiNiemNenId],
         causeEventIds: [],
         locationId: null,
-        patches: [
-          {
-            op: 'link',
-            target: { table: 'substrateLaws', id: r.luatNen.id, path: '' },
-            value: r.luatNen,
-            sourceEventId: evId,
-          },
-        ],
+        // `patchGhiBanGhi` chứ không `link` trần: bảy dòng luật nền được gieo
+        // ngay khi mở ván, nên một `link` lên id đã có bị `apPatch` từ chối với
+        // `LINK_TRUNG` — và đặt tên trục im lặng không làm gì.
+        patches: patchGhiBanGhi(s, 'substrateLaws', r.luatNen.id, r.luatNen, evId),
         visibility: 'engine',
         source: 'player',
         payload: { truc, khaiNiemNenId, soKeHo: r.keHo.length },
@@ -2540,12 +3340,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         targetIds: [],
         causeEventIds: [],
         locationId: null,
-        patches: chuyen.map((c): PatchOp => ({
-          op: 'link',
-          target: { table: 'coChe', id: c.row.id, path: '' },
-          value: c.row,
-          sourceEventId: evId,
-        })),
+        // Cùng lẽ với `datTenTrucNen`: lần quét thứ hai trở đi gặp bản ghi đã có.
+        patches: chuyen.flatMap((c) => patchGhiBanGhi(s, 'coChe', c.row.id, c.row, evId)),
         visibility: 'engine',
         source: 'engine',
         payload: { soDoi: doi.length },
@@ -2624,6 +3420,51 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
     // ── Diễn Hóa ──
 
+    dungDienHoa() {
+      if (!get().dangDienHoa) return;
+      yeuCauDungDienHoa = true;
+    },
+
+    doDoDangTheGioi() {
+      const s = get().state;
+      return s ? doDoDang(s) : { diem: 100, thieu: ['chưa mở ván nào'] };
+    },
+
+    conLuotToiNhipNen() {
+      const cfg = get().tuDienHoa;
+      return Math.max(0, cfg.moiBaoNhieuLuot - demLuotTuNhipNen);
+    },
+
+    khoTuHienTai() {
+      const s = get().state;
+      const kho = s ? docKho(s.world.tuVung) : [];
+      return {
+        thongKe: thongKeKho(kho, TRAN_TU_VUNG),
+        // Chữ học sau cùng đứng đầu — người chơi muốn biết thế giới VỪA học gì.
+        moiNhat: [...kho]
+          .filter((x) => x.nguon !== 'goc')
+          .sort((a, b) => (b.tickThem !== a.tickThem ? b.tickThem - a.tickThem : a.tu < b.tu ? -1 : 1))
+          .slice(0, 12),
+      };
+    },
+
+    soHauTruongHienTai() {
+      const s = get().state;
+      const so = s ? docSo(s.world.hauTruong) : [];
+      return { thongKe: thongKeSo(so), sapKe: chuaKe(so, 8) };
+    },
+
+    datTuDienHoa(banVa) {
+      const cu = get().tuDienHoa;
+      const moi = CauHinhTuDienHoaSchema.parse({
+        ...cu,
+        ...banVa,
+        workflow: { ...cu.workflow, ...(banVa.workflow ?? {}) },
+      });
+      set({ tuDienHoa: moi });
+      void ghiTuDienHoaXuongDia(moi);
+    },
+
     async chayDienHoa(thayDoi) {
       if (!doiCong()) return;
       const s = get().state;
@@ -2632,10 +3473,49 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
       const { presetId, ...phanCauHinh } = thayDoi;
       const cauHinh = CauHinhDienHoaSchema.parse({ ...phanCauHinh });
+
+      /**
+       * Từ chối TRƯỚC khi chạy, không treo giữa chừng — [BB] 71.6.
+       *
+       * Đây là nửa còn lại của phép sửa lỗi treo: gộp tick làm một trăm năm rẻ
+       * đi bốn trăm lần, còn trần này chặn đúng cấu hình mà ngay cả sau khi gộp
+       * vẫn quá sức một tab trình duyệt. Câu từ chối nói rõ phải đổi gì.
+       */
+      const uoc = uocLuongDienHoa(cauHinh);
+      if (uoc.quaTran) {
+        set({
+          loi: [
+            ...get().loi,
+            loi('invariant', 'DIEN_HOA_VUOT_NGAN_SACH', uoc.loiTuChoi, { recoverable: true }),
+          ],
+        });
+        themDong('he_thong', uoc.loiTuChoi);
+        return;
+      }
+
       const tickDau = s.world.tick;
       const truoc = { reality: s.metrics.realityIntegrity, songDong: s.metrics.doSongDong };
       const anhChup = hashState(s);
       const suKienLon: { tick: number; moTa: string; loai: string; entityIds: string[] }[] = [];
+      const viecBoiDap: { tick: number; tho: string; moTa: string }[] = [];
+      /**
+       * Việc của thợ thứ bảy, giữ RIÊNG khỏi `viecBoiDap`.
+       *
+       * Không phải để phân loại: để chúng không bị cắt. Báo cáo giữ tối đa bốn
+       * mươi mục (47.6), và hai mươi lượt × ba việc engine đã lấp kín bốn mươi
+       * chỗ ấy trước khi thợ AI kịp nói một câu — nghĩa là đúng phần người chơi
+       * vừa trả tiền để có sẽ là phần duy nhất họ không được đọc.
+       */
+      const viecBoiDapAi: { tick: number; tho: string; moTa: string }[] = [];
+      /**
+       * Lỗi gom lại, ghi MỘT lần ở cuối.
+       *
+       * Bản cũ `set({ loi: [...get().loi, ...] })` ngay trong vòng lặp tick. Với
+       * một lô patch hỏng lặp lại, mảng lỗi bị sao chép lại mỗi tick và store
+       * phát tín hiệu render mỗi tick — hai thứ cộng lại đủ để một lượt tua
+       * "chậm" biến thành một tab chết.
+       */
+      const loiGom: StructuredError[] = [];
 
       /**
        * Đường ống workflow — [BB] 50.9, món nợ Phase 12 ghi ra.
@@ -2648,36 +3528,54 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       const vet: TrangThaiGame['vetDuongOng'][number][] = [];
       let soCallWorkflow = 0;
 
-      set({ dangDienHoa: true, vetDuongOng: [] });
+      yeuCauDungDienHoa = false;
+      const nhuong = taoBoNhuong();
+      set({
+        dangDienHoa: true,
+        vetDuongOng: [],
+        tienDoDienHoa: { luot: 0, tongLuot: cauHinh.soLuot, tick: tickDau, viecDaLam: 0 },
+      });
+
       let luot = 0;
-      let lyDoDung = 'chạy hết số lượt đã đặt';
+      let soCallBoiDapAi = 0;
+      let lyDoDung = `đã chạy đủ ${cauHinh.soLuot} lượt`;
       try {
         for (; luot < cauHinh.soLuot; luot++) {
-          let kyVongVuaLech: readonly string[] = [];
-          const buoc = TICK_MOI_NHIP[cauHinh.nhipMoiLuot];
-          for (let i = 0; i < buoc; i++) {
-            const r = motTick(s, { tuning: TUNING_MAC_DINH, tienTrinhNen: chayTienTrinhNen });
-            for (const ev of r.events) {
-              const ok = apDungEvent(s, ev, log);
-              if (!ok.ok) {
-                set({ loi: [...get().loi, ...ok.errors] });
-                lyDoDung = 'engine từ chối một thay đổi — xem Tự Chẩn Đoán';
-                luot = cauHinh.soLuot;
-                break;
-              }
-            }
-            for (const sk of r.suKien) {
-              if (sk.mucDo !== 'trong_dai') continue;
-              suKienLon.push({
-                tick: s.world.tick,
-                moTa: sk.moTa,
-                loai: sk.loai,
-                entityIds: [...sk.chuTheIds],
-              });
-            }
+          if (yeuCauDungDienHoa) {
+            lyDoDung = 'bạn đã bấm dừng.';
+            break;
           }
 
-          kyVongVuaLech = capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau một lượt Diễn Hóa.');
+          const r = tuaMotLuot(s, log, cauHinh.nhipMoiLuot, `dh${luot}`);
+          suKienLon.push(...r.suKienLon);
+          loiGom.push(...r.loi);
+          if (!r.ok) {
+            /*
+             * KHÔNG `luot++` ở đây, khác với nhánh dừng-thông-minh bên dưới.
+             * `tuaThoiGian` thất bại nghĩa là cả lượt đã bị hoàn tác, nên lượt
+             * này chưa từng xảy ra — đếm nó vào `soLuotChay` sẽ làm báo cáo khai
+             * một năm mà thế giới không hề sống qua.
+             */
+            lyDoDung = 'engine từ chối một thay đổi — xem Tự Chẩn Đoán.';
+            break;
+          }
+
+          if (cauHinh.boiDap.bat && cauHinh.boiDap.hanMucMoiLuot > 0) {
+            const bd = chayBoiDap(s, log, {
+              hanMuc: cauHinh.boiDap.hanMucMoiLuot,
+              tho: cauHinh.boiDap.tho,
+              cauHinh,
+              hauTo: `dh${luot}`,
+            });
+            loiGom.push(...bd.loi);
+            for (const v of bd.viec) viecBoiDap.push({ tick: s.world.tick, tho: v.tho, moTa: v.moTa });
+          }
+
+          const kyVongVuaLech = capNhatLoreTrongState(
+            s,
+            log,
+            'Kỳ vọng được đối chiếu sau một lượt Diễn Hóa.',
+          );
 
           /*
            * Đường ống chạy SAU khi engine đã tua xong lượt này.
@@ -2691,7 +3589,35 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             soCallWorkflow += kq.soCall;
             vet.push(...kq.vet);
             set({ vetDuongOng: [...vet] });
+
+            /*
+             * Output đường ống vào Sổ Hậu Trường, y như ở nhịp nền.
+             *
+             * Trước đây nó chỉ đi vào ngữ cảnh của giai đoạn sau rồi biến mất —
+             * người chơi trả tiền cho bảy tác vụ mỗi lượt tua và không đọc được
+             * một dòng nào trong đó. Sổ là chỗ chúng chờ tới lượt được kể.
+             */
+            const ghi: GhiChuHauTruong[] = [];
+            for (const o of kq.output) ghi.push(...bocGhiChu(o.taskId, o.text, s.world.tick, 4));
+            if (ghi.length > 0) {
+              loiGom.push(
+                ...apSoHauTruong(s, log, themGhiChu(docSo(s.world.hauTruong), ghi), {
+                  goc: `ev_hau_truong_dh_${s.world.branchId}_${s.world.tick}`,
+                  loai: 'mo_phong_hau_truong',
+                  payload: { soGhiChu: ghi.length, soCall: kq.soCall },
+                }),
+              );
+            }
           }
+
+          set({
+            tienDoDienHoa: {
+              luot: luot + 1,
+              tongLuot: cauHinh.soLuot,
+              tick: s.world.tick,
+              viecDaLam: viecBoiDap.length,
+            },
+          });
 
           /**
            * [BB] 47.3 — Smart Stop. Dừng vì có chuyện đáng xem, không vì hết lượt.
@@ -2720,37 +3646,140 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             luot++;
             break;
           }
+
+          // Trả luồng lại cho trình duyệt trước khi vào lượt kế.
+          await nhuong();
         }
+
+        /*
+         * Thợ thứ bảy chạy SAU khi engine đã tua xong — [BB] `boiDapAi.ts`.
+         *
+         * Sau, chứ không phải xen giữa, vì nó nhìn thế giới ĐÃ đi hết quãng
+         * đường này rồi mới quyết lấp chỗ nào: một trăm năm tua có thể tự sinh
+         * ra mười vùng mới, và hỏi model về chỗ trống ở lượt thứ ba là hỏi về
+         * một thế giới không còn tồn tại lúc câu trả lời về tới.
+         *
+         * Vẫn nằm trong `try`: một endpoint hỏng ở đây không được phép cướp mất
+         * báo cáo của cả trăm năm vừa tua.
+         */
+        if (cauHinh.boiDap.bat && cauHinh.boiDap.soCallAi > 0 && !yeuCauDungDienHoa) {
+          const ai = await chayBoiDapAi(s, log, {
+            cauHinh,
+            soCall: cauHinh.boiDap.soCallAi,
+            hauTo: `dh${tickDau}`,
+          });
+          soCallBoiDapAi = ai.soCall;
+          loiGom.push(...ai.loi);
+          for (const v of ai.viec) {
+            viecBoiDapAi.push({ tick: s.world.tick, tho: v.tho, moTa: v.moTa });
+          }
+        }
+      } catch (e) {
+        /*
+         * Bắt ở đây chứ không để nó bay ra ngoài: người gọi là `void chay(...)`
+         * của một `onClick`, nên một ngoại lệ thoát khỏi đây sẽ thành unhandled
+         * rejection — cờ `dangDienHoa` gỡ được nhờ `finally`, nhưng người chơi
+         * chỉ thấy nút sáng lại mà không ai nói gì đã xảy ra.
+         */
+        lyDoDung = `Diễn Hóa dừng vì một lỗi không lường trước: ${String(e)}`;
+        loiGom.push(loi('transaction', 'DIEN_HOA_NGOAI_LE', lyDoDung, { recoverable: true }));
       } finally {
-        set({ dangDienHoa: false });
+        yeuCauDungDienHoa = false;
+        set({ dangDienHoa: false, tienDoDienHoa: null });
       }
 
-      const evLog = EvolutionLogSchema.parse({
-        id: `dh_${s.world.branchId}_${tickDau}`,
-        branchId: s.world.branchId,
-        tickBatDau: tickDau,
-        tickKetThuc: s.world.tick,
-        soLuotChay: luot,
-        // Một call cho lượt kể cuối, cộng mọi call của đường ống.
-        soCall: 1 + soCallWorkflow,
-        tokenDaDung: 0,
-        lyDoDung,
-        // [BB] 47.6 giữ tối đa số mục đáng xem; báo cáo dài quá thì không ai đọc.
-        suKienLon: suKienLon.slice(0, 40),
-        anhChup,
-      });
-      const bc = baoCaoDienHoa(evLog, truoc, {
-        reality: s.metrics.realityIntegrity,
-        songDong: s.metrics.doSongDong,
-      });
-      set({ baoCaoDienHoa: bc });
+      if (loiGom.length > 0) set({ loi: [...get().loi, ...loiGom].slice(-200) });
 
-      dongBo();
-      await keLuot('', [
-        `Thời gian trôi từ nhịp ${tickDau} tới nhịp ${s.world.tick}.`,
-        `Diễn Hóa dừng vì: ${lyDoDung}`,
-        ...suKienLon.slice(0, 6).map((x) => x.moTa),
-      ]);
+      /*
+       * Đuôi hàm cũng phải nằm trong một cái lưới — [BB] đây là chỗ "văng game".
+       *
+       * `try` ở trên chỉ bọc vòng lặp tua, nên bốn việc dưới đây chạy trần: dựng
+       * `EvolutionLog`, viết báo cáo, đồng bộ, và gọi Narrator kể lại. Người gọi
+       * là `void chay(...)` của một `onClick`, nên một ngoại lệ ở đây thành
+       * unhandled rejection — và người chơi mất cả báo cáo lẫn lời kể của một
+       * trăm năm mà không ai nói vì sao. Chú thích của `catch` bên trên đã hứa
+       * "không để nó bay ra ngoài"; lời hứa ấy dừng đúng ở dấu ngoặc `finally`.
+       *
+       * Bọc từng phần thay vì bọc cả khối: báo cáo hỏng thì lượt kể vẫn phải
+       * chạy, vì thế giới ĐÃ đi tiếp và ADR-0028 nói người chơi phải được đọc
+       * nó. Gộp làm một sẽ đánh đổi lời kể lấy một lỗi ở khâu trình bày.
+       */
+      try {
+        const evLog = EvolutionLogSchema.parse({
+          id: `dh_${s.world.branchId}_${tickDau}`,
+          branchId: s.world.branchId,
+          tickBatDau: tickDau,
+          tickKetThuc: s.world.tick,
+          soLuotChay: luot,
+          // Một call cho lượt kể cuối, cộng đường ống và thợ Bồi Đắp AI.
+          soCall: 1 + soCallWorkflow + soCallBoiDapAi,
+          tokenDaDung: 0,
+          lyDoDung,
+          // [BB] 47.6 giữ tối đa số mục đáng xem; báo cáo dài quá thì không ai đọc.
+          suKienLon: suKienLon.slice(0, 40),
+          // Chừa chỗ cứng cho thợ AI: xem chú thích của `viecBoiDapAi`.
+          viecBoiDap: [...viecBoiDap.slice(0, 30), ...viecBoiDapAi.slice(0, 10)],
+          anhChup,
+        });
+        set({
+          baoCaoDienHoa: baoCaoDienHoa(evLog, truoc, {
+            reality: s.metrics.realityIntegrity,
+            songDong: s.metrics.doSongDong,
+          }),
+        });
+      } catch (e) {
+        set({
+          loi: [
+            ...get().loi,
+            loi('invariant', 'DIEN_HOA_BAO_CAO_HONG', `Không dựng được Báo Cáo Diễn Hóa: ${String(e)}`, {
+              recoverable: true,
+            }),
+          ].slice(-200),
+        });
+      }
+
+      try {
+        dongBo();
+        // Không nhịp nền: lượt này VỪA LÀ nhịp nền, chỉ dài hơn rất nhiều.
+        await keLuot(
+          '',
+          [
+            `Thời gian trôi từ nhịp ${tickDau} tới nhịp ${s.world.tick}.`,
+            `Diễn Hóa dừng vì: ${lyDoDung}`,
+            ...suKienLon.slice(0, 6).map((x) => x.moTa),
+            ...viecBoiDap.slice(0, 3).map((x) => x.moTa),
+            ...viecBoiDapAi.slice(0, 3).map((x) => x.moTa),
+          ],
+          { nhipNen: false },
+        );
+      } catch (e) {
+        /*
+         * Lượt kể hỏng KHÔNG được nuốt trong im lặng: thế giới đã đi tiếp, nên
+         * đây đúng là tình huống ADR-0056 dựng `luotChuaKe` để bắt. `keLuot()`
+         * tự đặt cờ ấy khi model từ chối; nó ném ra thì cờ chưa kịp đặt, và ta
+         * đặt hộ — nếu không, người chơi bấm chơi tiếp và mất trắng đoạn này.
+         */
+        set({
+          luotChuaKe: {
+            cau: '',
+            ketQuaEngine: [
+              `Thời gian trôi từ nhịp ${tickDau} tới nhịp ${s.world.tick}.`,
+              `Diễn Hóa dừng vì: ${lyDoDung}`,
+            ],
+            nhipNen: false,
+          },
+          loi: [
+            ...get().loi,
+            loi('ai', 'DIEN_HOA_KE_HONG', `Không kể lại được đoạn vừa tua: ${String(e)}`, {
+              recoverable: true,
+            }),
+          ].slice(-200),
+        });
+        themDong(
+          'he_thong',
+          'Thế giới đã tua xong nhưng chưa ai kể lại được. Bấm "Kể lại nhịp này" sau khi nối lại đường tới model.',
+        );
+      }
     },
 
     async roiVan() {

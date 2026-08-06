@@ -219,7 +219,24 @@ export function vatChatHoa(state: WorldState, yc: YeuCauVatChatHoa): KetQuaVatCh
         });
       }
 
-      // ── lịch sử đã biết: chép từ vùng, giữ nguyên nguồn và số chặng ──
+      /*
+       * ── lịch sử đã biết: chép từ vùng, và NGUỒN là chính cái vùng ấy ──
+       *
+       * [BB] Bản trước giữ nguyên `source.sourceId` của dòng gốc, và nó SAI một
+       * cách chỉ lộ ra ở `chayInvariantToanBo()`: một người ở làng V mang dòng
+       * "học từ P" trong khi họ chưa từng đặt chân tới P. `khong_tri_thuc_teleport`
+       * tra tuyến giữa P và **con người ấy** — mà không tuyến đường nào kết thúc
+       * ở một con người — nên mọi dòng như thế là một vi phạm nằm im cho tới lúc
+       * ai đó xuất rồi nhập lại ván.
+       *
+       * Sự thật là: người này biết điều ấy VÌ LÀNG CỦA HỌ biết. Chuỗi lai lịch
+       * không đứt — làng vẫn giữ dòng "học từ P" của nó, và dòng ấy vẫn phải có
+       * tuyến đường và đủ thời gian. Ta chỉ trỏ lui đúng một mắt xích, thay vì
+       * khai một mắt xích chưa từng tồn tại.
+       *
+       * `hops` cộng thêm một vì đây là một chặng thật: từ vùng tới người trong
+       * vùng. `learnedAtTick` giữ nguyên — họ ở đó khi tin tới, không đợi thêm.
+       */
       for (const r of triThucVung.slice(0, 6)) {
         const khoa = khoaTriThuc(id, r.factId);
         patches.push({
@@ -229,8 +246,7 @@ export function vatChatHoa(state: WorldState, yc: YeuCauVatChatHoa): KetQuaVatCh
             ...r,
             id: khoa,
             knowerId: id,
-            // Người này ở trong vùng khi tin tới, nên với họ nó không thêm chặng.
-            source: { ...r.source },
+            source: { ...r.source, sourceId: yc.noiId, hops: r.source.hops + 1 },
             learnedAtTick: r.learnedAtTick,
           }),
           sourceEventId: yc.eventId,

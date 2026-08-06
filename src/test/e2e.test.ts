@@ -22,6 +22,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { useGame } from '../store/game.js';
 import { useAi } from '../store/ai.js';
 import { AiConfigSchema } from '../core/ai/cauHinh.js';
+import { CauHinhTuDienHoaSchema } from '../core/world/dienHoa.js';
 import { MACH_MOI } from '../core/ai/cong.js';
 import { hashState } from '../core/engine/state.js';
 import { chieu } from '../core/project/chieu.js';
@@ -97,6 +98,21 @@ beforeAll(() => {
   });
   kichBan = [KHOI_KHAI_THIEN];
   soLanKe = 0;
+
+  /*
+   * Hai chỉnh cho nhịp nền, và cả hai đều là chỉnh của BÀI TEST chứ không phải
+   * của sản phẩm.
+   *
+   * `moiBaoNhieuLuot: 1` — mặc định sản phẩm là 10, vì mỗi nhịp nền nay kéo theo
+   * một lượt mô phỏng có tốn tiền. Bài này đo *nhịp nền có chạy không*, nên nó
+   * cho chạy mỗi lượt; con số mặc định được kiểm riêng ở bài dưới.
+   *
+   * `workflow.bat: false` — mô phỏng hậu trường gọi `goiTacVuWorkflow()` thật,
+   * và địa chỉ proxy ở đây là một tên miền không tồn tại. Bật nó lên trong bài
+   * E2E là mua về bảy lần chờ timeout mỗi lượt kể. Lõi của nó (`hauTruong.ts`)
+   * được đo bằng bài riêng, không cần mạng.
+   */
+  useGame.getState().datTuDienHoa({ moiBaoNhieuLuot: 1, workflow: { bat: false } });
 });
 
 // ─────────────────────────────────────────── vòng chơi
@@ -148,8 +164,141 @@ describe('[BB] E2E — mở thế giới từ hư vô và để lời kể dựn
     soLanKe = 0;
     const truoc = useGame.getState().state?.world.tick ?? 0;
     await useGame.getState().tick(3);
+    // [BB] `tick(n)` đẩy ĐÚNG n nhịp: nhịp nền không được cộng lén vào đây.
     expect(useGame.getState().state?.world.tick).toBe(truoc + 3);
     expect(useGame.getState().banTin).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── nhịp nền (Diễn Hóa tự động)
+
+/**
+ * [BB] 47 — thế giới đi tiếp sau MỖI lượt kể, không chỉ khi người chơi bấm tick.
+ *
+ * Ba điều bài này khoá lại:
+ *   1. một lượt chơi thật (`gui`) làm thời gian trôi mà không cần ai bấm gì;
+ *   2. mỗi nhịp nền ghi ra một dòng — ADR-0028 không cho thế giới đi tiếp trong
+ *      im lặng;
+ *   3. tắt được, và tắt rồi thì thời gian đứng yên đúng như trước.
+ */
+describe('[BB] E2E — nhịp nền tự chạy cuối mỗi lượt kể', () => {
+  it('mặc định BẬT, và một lượt `gui` làm thời gian trôi mà không ai bấm tick', async () => {
+    expect(useGame.getState().tuDienHoa.bat).toBe(true);
+    kichBan = ['Ngươi bước xuống bến nước.'];
+    soLanKe = 0;
+
+    const truoc = useGame.getState().state?.world.tick ?? 0;
+    const soDong = useGame.getState().scene.length;
+    await useGame.getState().gui('ta nhìn quanh');
+
+    // Một lượt nhịp `nien` = 4 tick. Thời gian trôi vì thế giới sống, không vì lệnh.
+    expect(useGame.getState().state?.world.tick).toBe(truoc + 4);
+    // Và nó KHÔNG đi trong im lặng: có dòng hệ thống kể lại nhịp vừa qua.
+    const dongMoi = useGame.getState().scene.slice(soDong);
+    expect(dongMoi.some((d) => d.loai === 'he_thong' && /năm trôi qua|Thời gian nhích/.test(d.noiDung))).toBe(
+      true,
+    );
+  });
+
+  it('tắt thì thế giới đứng yên giữa hai lượt, đúng như hợp đồng cũ', async () => {
+    useGame.getState().datTuDienHoa({ bat: false });
+    kichBan = ['Không có gì đổi.'];
+    soLanKe = 0;
+
+    const truoc = useGame.getState().state?.world.tick ?? 0;
+    await useGame.getState().gui('ta đứng im');
+    expect(useGame.getState().state?.world.tick).toBe(truoc);
+
+    useGame.getState().datTuDienHoa({ bat: true, soLuot: 1, nhip: 'nien' });
+  });
+
+  it('[yêu cầu] chạy mỗi N lượt — mặc định 10, đặt 3 thì hai lượt đầu đứng yên', async () => {
+    /*
+     * Đọc mặc định từ SCHEMA, không từ state đang chạy: `beforeAll` đã hạ nó
+     * xuống 1 cho mọi bài khác trong file này, nên hỏi state ở đây là hỏi cái
+     * bài test tự đặt ra chứ không phải cái sản phẩm hứa.
+     *
+     * Mười, chứ không phải một: từ khi nhịp nền kéo theo một lượt mô phỏng có
+     * gọi model, "mỗi lượt kể" nghĩa là mỗi lượt kể đều tốn tiền.
+     */
+    expect(CauHinhTuDienHoaSchema.parse({}).moiBaoNhieuLuot).toBe(10);
+    useGame.getState().datTuDienHoa({ bat: true, soLuot: 1, nhip: 'nien', moiBaoNhieuLuot: 3 });
+
+    const truoc = useGame.getState().state?.world.tick ?? 0;
+    for (const cau of ['một', 'hai']) {
+      kichBan = [`Lượt ${cau}.`];
+      soLanKe = 0;
+      await useGame.getState().gui(`ta nói ${cau}`);
+    }
+    // Hai lượt đầu: đếm chưa đủ, thế giới đứng yên.
+    expect(useGame.getState().state?.world.tick).toBe(truoc);
+    expect(useGame.getState().conLuotToiNhipNen()).toBe(1);
+
+    kichBan = ['Lượt ba.'];
+    soLanKe = 0;
+    await useGame.getState().gui('ta nói ba');
+    // Lượt thứ ba: nhịp nền chạy, và bộ đếm quay lại từ đầu.
+    expect(useGame.getState().state?.world.tick).toBe(truoc + 4);
+    expect(useGame.getState().conLuotToiNhipNen()).toBe(3);
+
+    useGame.getState().datTuDienHoa({ moiBaoNhieuLuot: 1 });
+  });
+
+  it('Kho Từ lớn lên trong lúc chơi và không bao giờ vượt trần', async () => {
+    const truoc = useGame.getState().khoTuHienTai().thongKe;
+    expect(truoc.tong).toBeGreaterThan(0);
+
+    for (let i = 0; i < 3; i++) {
+      kichBan = [`Chữ nghĩa lượt ${i}.`];
+      soLanKe = 0;
+      await useGame.getState().gui(`ta đi thêm ${i}`);
+    }
+
+    const sau = useGame.getState().khoTuHienTai().thongKe;
+    expect(sau.tong).toBeGreaterThanOrEqual(truoc.tong);
+    expect(sau.tong).toBeLessThanOrEqual(sau.tran);
+    expect(sau.tran).toBeGreaterThan(1000);
+    // Vốn thế giới tự học phải lớn lên — nếu không thì nó vẫn là bảng cứng.
+    expect(sau.tuTheGioi).toBeGreaterThan(0);
+  });
+
+  it('phần engine của nhịp nền không gọi model — một lượt kể vẫn là một call', async () => {
+    /*
+     * Hợp đồng này vẫn đúng, chỉ hẹp lại đúng một chỗ.
+     *
+     * Mười hai tiến trình nền và sáu thợ Bồi Đắp chạy bằng engine và không tốn
+     * một đồng nào — đó là điều bài này canh, và nó không được phép trôi đi.
+     * Phần CÓ tốn tiền là mô phỏng hậu trường, và nó có công tắc riêng
+     * (`workflow.bat`) đang tắt trong file test này.
+     */
+    expect(useGame.getState().tuDienHoa.workflow.bat).toBe(false);
+    kichBan = ['Một câu nữa.'];
+    soLanKe = 0;
+    await useGame.getState().gui('ta hỏi một câu');
+    expect(soLanKe).toBe(1);
+  });
+
+  it('Bồi Đắp làm thế giới bớt dở dang qua nhiều lượt', async () => {
+    useGame.getState().datTuDienHoa({ bat: true, soLuot: 2, hanMucBoiDap: 3 });
+    const truoc = useGame.getState().doDoDangTheGioi().diem;
+
+    for (let i = 0; i < 4; i++) {
+      kichBan = [`Lượt ${i}.`];
+      soLanKe = 0;
+      await useGame.getState().gui(`ta đi tiếp lần ${i}`);
+    }
+
+    const sau = useGame.getState().doDoDangTheGioi();
+    expect(sau.diem).toBeLessThanOrEqual(truoc);
+    // Thế giới thật sự dày lên: có nơi chốn được đặt tên hoặc người được gọi tên.
+    const s = useGame.getState().state;
+    expect(s).not.toBeNull();
+    const coTen = [...(s?.entities.values() ?? [])].filter(
+      (e) => (e.kind === 'place' || e.kind === 'mortal') && e.ten.trim() !== '' && e.ten !== e.id,
+    );
+    expect(coTen.length).toBeGreaterThan(0);
+
+    useGame.getState().datTuDienHoa({ bat: true, soLuot: 1, hanMucBoiDap: 2 });
   });
 });
 
@@ -214,37 +363,54 @@ describe('[BB] E2E — chơi trọn ba tầng, và ba tầng thấy ba thứ kh�
 // ─────────────────────────────────────────── ván chơi
 
 describe('[BB] E2E — lưu, rời ván, mở lại', () => {
-  it('rời ván ghi xuống đĩa và danh sách thấy nó', async () => {
-    const truoc = hashState(useGame.getState().state as never);
-    const sceneTruoc = [...useGame.getState().scene];
-    expect(sceneTruoc.length).toBeGreaterThan(0);
-    await useGame.getState().roiVan();
+  /*
+   * Trần thời gian riêng cho hai bài này, và lý do là THẬT chứ không phải để
+   * che một chỗ chậm: từ khi có nhịp nền, thế giới ở cuối file này đã đi qua
+   * hàng chục năm và mang theo số thực thể tương ứng. Ghi trọn nó xuống
+   * fake-indexeddb rồi đọc lại tốn hơn trần mặc định 5 giây trên máy đang bận —
+   * mà đó chính là điều bài test muốn chứng minh là làm được.
+   */
+  const TRAN_MS = 30_000;
 
-    expect(useGame.getState().state).toBeNull();
-    const ds = useGame.getState().danhSachVan;
-    expect(ds.length).toBeGreaterThan(0);
-    expect(ds[0]?.soEntity).toBeGreaterThan(0);
+  it(
+    'rời ván ghi xuống đĩa và danh sách thấy nó',
+    async () => {
+      const truoc = hashState(useGame.getState().state as never);
+      const sceneTruoc = [...useGame.getState().scene];
+      expect(sceneTruoc.length).toBeGreaterThan(0);
+      await useGame.getState().roiVan();
 
-    // Mở lại phải cho ĐÚNG thế giới ấy, không phải một thế giới giống nó.
-    const ok = await useGame.getState().tiepTucVan(ds[0]?.branchId ?? '');
-    expect(ok).toBe(true);
-    expect(hashState(useGame.getState().state as never)).toBe(truoc);
-    expect(useGame.getState().scene).toEqual(sceneTruoc);
-  });
+      expect(useGame.getState().state).toBeNull();
+      const ds = useGame.getState().danhSachVan;
+      expect(ds.length).toBeGreaterThan(0);
+      expect(ds[0]?.soEntity).toBeGreaterThan(0);
 
-  it('xuất rồi nhập lại qua JSON thật giữ nguyên thế giới', async () => {
-    const truoc = hashState(useGame.getState().state as never);
-    const txt = await useGame.getState().xuatVanRaChuoi(false);
-    expect(txt).not.toBeNull();
-    if (txt === null) return;
+      // Mở lại phải cho ĐÚNG thế giới ấy, không phải một thế giới giống nó.
+      const ok = await useGame.getState().tiepTucVan(ds[0]?.branchId ?? '');
+      expect(ok).toBe(true);
+      expect(hashState(useGame.getState().state as never)).toBe(truoc);
+      expect(useGame.getState().scene).toEqual(sceneTruoc);
+    },
+    TRAN_MS,
+  );
 
-    // [BB] 38 — mật khẩu proxy không bao giờ ra file.
-    expect(txt).not.toContain('proxyPassword');
+  it(
+    'xuất rồi nhập lại qua JSON thật giữ nguyên thế giới',
+    async () => {
+      const truoc = hashState(useGame.getState().state as never);
+      const txt = await useGame.getState().xuatVanRaChuoi(false);
+      expect(txt).not.toBeNull();
+      if (txt === null) return;
 
-    const ok = await useGame.getState().nhapVanTuChuoi(txt);
-    expect(ok).toBe(true);
-    expect(hashState(useGame.getState().state as never)).toBe(truoc);
-  });
+      // [BB] 38 — mật khẩu proxy không bao giờ ra file.
+      expect(txt).not.toContain('proxyPassword');
+
+      const ok = await useGame.getState().nhapVanTuChuoi(txt);
+      expect(ok).toBe(true);
+      expect(hashState(useGame.getState().state as never)).toBe(truoc);
+    },
+    TRAN_MS,
+  );
 });
 
 // ─────────────────────────────────────────── cổng AI

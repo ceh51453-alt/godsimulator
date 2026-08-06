@@ -181,11 +181,25 @@ export function apTransform(input: {
   readonly destination?: 'display' | 'prompt';
   /** 0 là tin mới nhất; số lớn hơn là tin cũ hơn trong lịch sử. */
   readonly depth?: number;
+  /**
+   * Tập id transform mà NGƯỜI DÙNG đang bật, nếu tầng trên đã quyết.
+   *
+   * Có trường này thì nó là nguồn chân lý duy nhất về bật/tắt và `batONguon` bị
+   * bỏ qua. Đó là chỗ một lỗi thật từng nằm: store tính quyết định theo cấu hình
+   * nhánh rồi đưa transform xuống đây, còn hàm này lại tự hỏi `batONguon` một
+   * lần nữa — nên mọi regex mà người dùng bật lại từ trạng thái tắt-trong-file
+   * đều im lặng không chạy, và công tắc trong giao diện không làm gì cả.
+   *
+   * Vắng trường này thì `batONguon` vẫn là mặc định — đường mà pipeline nhập và
+   * bản xem trước dùng, nơi chưa có cấu hình nhánh nào để hỏi.
+   */
+  readonly daBat?: ReadonlySet<string>;
   /** Macro SillyTavern trong replacement, do tầng store cấp ngữ cảnh an toàn. */
   readonly thayMacro?: (text: string, transform: TransformDef) => string;
 }): KetQuaTransform {
   const { text, transforms, maxRegexMs } = input;
   const daTat = input.daTat ?? new Set<string>();
+  const daBat = input.daBat;
   const dongHo = input.dongHo ?? (() => 0);
   const placement = input.placement ?? 2;
   const destination = input.destination ?? 'display';
@@ -216,15 +230,25 @@ export function apTransform(input: {
   }
 
   for (const t of transforms) {
-    if (!t.batONguon) {
-      daBoQua.push({ id: t.id, lyDo: 'đã tắt trong preset nguồn' });
+    const bat = daBat === undefined ? t.batONguon : daBat.has(t.id);
+    if (!bat) {
+      daBoQua.push({
+        id: t.id,
+        lyDo: daBat === undefined ? 'đã tắt trong preset nguồn' : 'đang tắt trong cấu hình pack',
+      });
       continue;
     }
     if (daTat.has(t.id)) {
       daBoQua.push({ id: t.id, lyDo: 'đã bị tắt sau một lần chạy quá chậm' });
       continue;
     }
-    if (t.activation !== 'sandboxed') {
+    /*
+     * `disabled` chỉ có nghĩa "file nguồn khai `disabled: true`" — nó KHÔNG phải
+     * lời tuyên bố rằng pattern chạy không được. Cái ấy là `needs_adapter`, và
+     * chỉ mình nó bị chặn ở đây. Nhờ vậy bật lại một regex tắt sẵn trong file là
+     * một hành động có hiệu lực thật, không phải một công tắc trang trí.
+     */
+    if (t.activation !== 'sandboxed' && t.activation !== 'disabled') {
       daBoQua.push({ id: t.id, lyDo: `trạng thái ${t.activation}` });
       continue;
     }
@@ -326,6 +350,7 @@ export function apPromptTransform(input: {
   readonly dongHo?: () => number;
   readonly placement?: 1 | 2;
   readonly depth?: number;
+  readonly daBat?: ReadonlySet<string>;
 }): KetQuaTransform {
   const dungChoPrompt = input.transforms;
   if (dungChoPrompt.length === 0) {

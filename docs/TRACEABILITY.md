@@ -281,7 +281,7 @@ Cột **Test** ghi file test chứng minh. `—` nghĩa là chưa tới phase t�
 | 22.4 Thẻ lời cầu, thanh cường độ mảnh, sắp theo cường độ      | `TheCauNguyen`, `loiCauCho`                                      | `than.test.ts`      |
 | 23.2 quy tắc 2 — softmax, không lấy max                       | `chonCachDap`, `giaiQuyKet`, `chayThanNpc`                       | `than.test.ts`      |
 | 1.3 [BB] không tài nguyên meta                                | `khong_tai_nguyen_meta`                                          | `than.test.ts`      |
-| 56.4 Bảng Lãnh Địa; hai dòng Dị Hóa                           | `ui/panels/BangLanhDia.tsx`                                      | rà soát trình duyệt |
+| 56.4 Bảng bên phải tầng Thần — nay là Bảng Thần Điện          | `ui/panels/BangThanDien.tsx`, `core/than/thanDien.ts` (ADR-0062) | `thanDien.test.ts`  |
 | 36.1 Cấm emoji, mọi icon là SVG vẽ tay                        | `ui/design/Icon.tsx` — 20 ký hiệu                                | rà soát mã nguồn    |
 | 36.2 `tokens.css` là nguồn chân lý về màu                     | `ui/design/tokens.css` (ADR-0027)                                | rà soát mã nguồn    |
 | 37.3 Sảnh ba cột                                              | `ui/screens/KhungSanh.tsx`                                       | rà soát trình duyệt |

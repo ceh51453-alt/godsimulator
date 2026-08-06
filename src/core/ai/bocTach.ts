@@ -130,6 +130,29 @@ const DUONG_DAN_CAM: readonly { mau: string; vi: string }[] = Object.freeze([
   { mau: 'id', vi: 'Định danh không đổi bằng lời kể.' },
   { mau: 'tickSinh', vi: 'Thời điểm sinh là lịch sử.' },
   { mau: 'aspects.lawful.vanBan', vi: 'Văn bản luật gốc chỉ đổi qua kết tinh luật — 43.1.' },
+  /*
+   * ── Ba trường mà chính schema đã tuyên bố là của engine ──
+   *
+   * `lawful.hieuLuc` khai thẳng trong `LawfulSchema`: "[BB] 42.2 — engine tính,
+   * KHÔNG ai khai". `conceptual.trongSo`/`giaiDoan` là đầu vào và đầu ra của
+   * vòng kết tinh ở `vatly/vongKetTinh.ts`.
+   *
+   * Thiếu ba dòng này thì cả Phần 42 rỗng ruột: một lời kể ghi
+   * `aspects.lawful.hieuLuc = 100` là một điều luật có răng ngay lập tức mà
+   * không cần một khái niệm nền nào; ghi `conceptual.giaiDoan = "ket_tinh"` là
+   * leo thẳng lên bậc cuối của thang mà bảy trục Luật Nền đang chờ ở đó.
+   *
+   * Cấm ở đây là cấm SỬA. Tạo mới bằng op `link` vẫn được: khai một khái niệm
+   * vừa thành hình trong lời kể là khai bằng chứng, và `chuanHoaBanGhiMoi()`
+   * đã kẹp bậc khai sinh xuống `thanh_hinh`. Thang còn lại do trọng số thật leo.
+   */
+  { mau: 'aspects.lawful.hieuLuc', vi: 'Hiệu lực là do khái niệm nền quyết, không do lời kể — 42.2.' },
+  { mau: 'aspects.conceptual.trongSo', vi: 'Trọng số khái niệm do engine cộng từ sự kiện thật — 8.1.' },
+  {
+    mau: 'aspects.conceptual.giaiDoan',
+    vi: 'Bậc của khái niệm do trọng số leo, không do ai khai — 8.1, 43.7.',
+  },
+  { mau: 'aspects.conceptual.nguongKetTinh', vi: 'Ngưỡng kết tinh là cấu hình, không phải trạng thái.' },
 ]);
 
 /** Nhiều hơn ngần này trong một lượt là model đang tự viết lại thế giới. */

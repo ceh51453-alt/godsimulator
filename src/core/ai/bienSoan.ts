@@ -117,6 +117,14 @@ export type NguLieuKe = {
    * chú ý của model ở giữa prompt suy giảm rõ rệt.
    */
   readonly phucButChuaTra?: readonly { noiDung: string; quaHan: boolean }[];
+  /**
+   * Chuyện hậu trường CHƯA ai kể — Sổ Hậu Trường, `world/hauTruong.ts`.
+   *
+   * Đường ống Workflow đã mô phỏng những điều này bằng model trong lúc người
+   * chơi không nhìn: NPC làm gì, mạch truyện đi nhịp nào, quy luật nào vừa hiện
+   * ra. Chúng vào prompt để Narrator **dệt** vào cảnh, không phải để đọc lại.
+   */
+  readonly hauTruongChuaKe?: readonly { loai: string; nhan: string; noiDung: string; tick: number }[];
   /** Chunk đã qua visibility → RRF → rerank → MMR → token budget (54.9). */
   readonly chunkTruyHoi?: readonly { nguon: string; text: string; daBopMeo: boolean }[];
   readonly chunkBiCat?: readonly { chunkId: string; vi: string; uocToken: number }[];
@@ -325,10 +333,42 @@ function tangTruyHoi(ds: readonly { nguon: string; text: string; daBopMeo: boole
   return dong.join('\n');
 }
 
-/** Tầng 5 — chuyện thế giới vừa làm, cộng nội dung truy hồi. */
+/**
+ * Chuyện hậu trường chưa kể — chèn vào tầng 5, ngay dưới bản tin engine.
+ *
+ * ── Vì sao ba dòng hướng dẫn ở cuối quan trọng hơn cả danh sách ──
+ *
+ * Không có chúng, một model nhận được ba dòng "NPC X đang làm Y" sẽ viết ra
+ * đúng ba câu tường thuật ba dòng ấy, theo đúng thứ tự ấy — tức là biến cảnh
+ * thành một bản tin. Thứ ta muốn thì ngược lại: người chơi bước vào quán và
+ * nghe hai người bàn về chuyện vừa xảy ra ở vùng bên, hoặc thấy hệ quả của nó
+ * bày ra trước mắt mà không ai giải thích.
+ *
+ * Vì vậy khối này nói rõ ba điều: **dệt chứ đừng liệt kê**, **một hai điều là
+ * đủ**, và **được phép để chúng đi qua như tin đồn**. Đó cũng chính là cách quy
+ * tắc 4 của 29.2 muốn NPC nói với nhau.
+ */
+function tangHauTruong(ds: readonly { loai: string; nhan: string; noiDung: string; tick: number }[]): string {
+  if (ds.length === 0) return '';
+  const dong: string[] = [
+    'THẾ GIỚI ĐÃ TỰ CHẠY KHI KHÔNG AI NHÌN (chưa ai kể những điều này cho người chơi nghe):',
+  ];
+  for (const g of ds) dong.push(`- [${g.nhan} · nhịp ${g.tick}] ${g.noiDung}`);
+  dong.push('');
+  dong.push('Dệt MỘT hoặc HAI điều trên vào cảnh này. Không liệt kê, không tường thuật lại thành bản tin.');
+  dong.push(
+    'Cách dệt: cho nhân vật nhắc tới nó như chuyện họ đã biết, hoặc cho người chơi thấy hệ quả của nó, ' +
+      'hoặc để nó tới dưới dạng tin đồn đã sai đi ít nhiều.',
+  );
+  dong.push('Những điều còn lại cứ để đó — chúng sẽ tới ở các nhịp sau. Đừng cố nhét hết vào một cảnh.');
+  return dong.join('\n');
+}
+
+/** Tầng 5 — chuyện thế giới vừa làm, cộng hậu trường và nội dung truy hồi. */
 function tang5(
   banTin: BanTin | null,
   truyHoi: readonly { nguon: string; text: string; daBopMeo: boolean }[],
+  hauTruong: readonly { loai: string; nhan: string; noiDung: string; tick: number }[],
 ): string {
   const khoi: string[] = [];
   if (banTin && banTin.muc.length > 0) {
@@ -339,6 +379,8 @@ function tang5(
     }
     khoi.push(dong.join('\n'));
   }
+  const ht = tangHauTruong(hauTruong);
+  if (ht !== '') khoi.push(ht);
   const th = tangTruyHoi(truyHoi);
   if (th !== '') khoi.push(th);
   return khoi.join('\n\n');
@@ -431,9 +473,9 @@ export function bienSoanPromptKe(ng: NguLieuKe): PromptGoi {
     },
     {
       so: 5,
-      ten: 'Bản tin và truy hồi',
+      ten: 'Bản tin, hậu trường và truy hồi',
       onDinh: false,
-      noiDung: tang5(ng.banTin, ng.chunkTruyHoi ?? []),
+      noiDung: tang5(ng.banTin, ng.chunkTruyHoi ?? [], ng.hauTruongChuaKe ?? []),
     },
     { so: 6, ten: 'Lượt này', onDinh: false, noiDung: tang6(ng) },
   ];

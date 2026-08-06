@@ -97,11 +97,16 @@ import {
 import { soSanhNhanh, gopNhanh } from './branch/gopNhanh.js';
 import {
   CauHinhDienHoaSchema,
+  CauHinhTuDienHoaSchema,
   locPatchTheoLanRanh,
   kiemDieuKienDung,
   baoCaoDienHoa,
   EvolutionLogSchema,
   BANG_CAM_DIEN_HOA,
+  TRAN_BUOC_DIEN_HOA,
+  TICK_MOI_LUOT,
+  buocMoiLuot,
+  uocLuongDienHoa,
 } from './world/dienHoa.js';
 import { nhapWorldPack, xuatWorldPack } from './registry/packDsl.js';
 import { chayBenchmark, ketLuan, dongLichSu, soSanhPhien } from './retrieval/benchmark.js';
@@ -1528,6 +1533,49 @@ describe('50.3 [BB] — ba mươi nhân vật thì ba mươi call', () => {
     expect(kq[0]?.ketQua[0]?.output).toContain('prompt cuối cùng');
   });
 
+  /**
+   * `epChayHet` — một lần quét đầy đủ khi bản thân nhịp quét ĐÃ là cái lịch.
+   *
+   * Hai vế phải cùng đúng, và vế thứ hai là vế dễ mất: ép chạy bỏ qua LỊCH,
+   * không bỏ qua CÔNG TẮC. Một tác vụ người chơi đã tắt tay là một quyết định.
+   */
+  it('ép chạy hết bỏ qua lịch, nhưng KHÔNG bỏ qua tác vụ đang tắt', async () => {
+    const preset = WorkflowPresetSchema.parse({
+      ten: 'thử',
+      tasks: [
+        WorkflowTaskSchema.parse({
+          id: 'hiem',
+          ten: 'Hiếm',
+          lich: { cheDo: 'theo_su_kien', suKien: ['het_ky_nguyen'] },
+        }),
+        WorkflowTaskSchema.parse({ id: 'tat', ten: 'Tắt', bat: false }),
+      ],
+    });
+    const chung = {
+      preset,
+      goi: async () => ({ ok: true, text: 'đã chạy' }) as const,
+      lietKe: () => [],
+      lich: { luot: 7, tick: 40, suKien: [] },
+      trangThaiLich: new Map(),
+      tuning: TUNING,
+      dungPrompt: () => [{ role: 'system' as const, content: 'x' }],
+    };
+
+    // Không ép: tác vụ theo sự kiện nằm im vì sự kiện chưa tới.
+    const thuong = (await chayDuongOng(chung))[0]?.ketQua ?? [];
+    expect(thuong.find((t) => t.taskId === 'hiem')?.chay).toBe(false);
+
+    const ep = (await chayDuongOng({ ...chung, epChayHet: true }))[0]?.ketQua ?? [];
+    const hiem = ep.find((t) => t.taskId === 'hiem');
+    expect(hiem?.chay).toBe(true);
+    expect(hiem?.output).toBe('đã chạy');
+    // Lịch vẫn được cập nhật, nên tắt ép đi thì nó chạy tiếp từ đúng chỗ đang đứng.
+    expect(hiem?.trangThaiLich.luotChayCuoi).toBe(7);
+    expect(hiem?.trangThaiLich.tickChayCuoi).toBe(40);
+
+    expect(ep.find((t) => t.taskId === 'tat')?.chay).toBe(false);
+  });
+
   it('ba cách gộp cho ba kết quả khác nhau', () => {
     expect(gop(['a', 'b'], 'noi')).toBe('a\n\nb');
     expect(gop(['a', 'b'], 'ghi_de')).toBe('b');
@@ -1941,6 +1989,56 @@ describe('47 [BB] — Diễn Hóa: lằn ranh cứng và điểm dừng thông m
     expect(kiemDieuKienDung(nc)?.loai).toBe('het_luot');
     // Có chuyện đáng xem thì nó thắng "hết lượt".
     expect(kiemDieuKienDung({ ...nc, coCheVuaBat: ['than_bi'] })?.loai).toBe('co_che_moi_xuat_hien');
+  });
+
+  /**
+   * ── Hồi quy: "Diễn Hóa treo game" ──
+   *
+   * Bản cũ tua bằng `motTick()` từng tick một, nên một lượt `vinh_kiep` là 400
+   * lần gọi scheduler và 500 lượt là hai trăm nghìn lần trong một vòng lặp đồng
+   * bộ. Bốn bài dưới đây khoá lại cả hai nửa của phép sửa: gộp tick (rẻ đi hàng
+   * trăm lần) và trần bước (từ chối tử tế thay vì treo).
+   */
+  it('[hồi quy] một lượt tua tốn số bước engine NHỎ HƠN NHIỀU số tick truyện', () => {
+    // Đây chính là con số đã giết tab trình duyệt: 400 tick cho một lượt vĩnh kiếp.
+    expect(TICK_MOI_LUOT.vinh_kiep).toBe(400);
+    // Sau khi gộp, nó là MỘT bước engine.
+    expect(buocMoiLuot('vinh_kiep')).toBe(1);
+    expect(buocMoiLuot('the_dai')).toBeLessThanOrEqual(3);
+    expect(buocMoiLuot('nien')).toBe(4);
+  });
+
+  it('[hồi quy] cấu hình cực đại vẫn nằm trong trần bước', () => {
+    for (const nhip of ['nien', 'the_dai', 'vinh_kiep'] as const) {
+      const u = uocLuongDienHoa(CauHinhDienHoaSchema.parse({ soLuot: 500, nhipMoiLuot: nhip }));
+      // 500 lượt × 4 bước = 2000 — dưới trần, và không còn là 200.000 lần gọi.
+      expect(u.soBuoc).toBeLessThanOrEqual(TRAN_BUOC_DIEN_HOA);
+      expect(u.quaTran).toBe(false);
+    }
+  });
+
+  it('[hồi quy] quá trần thì TỪ CHỐI kèm câu nói rõ phải đổi gì, không chạy rồi treo', () => {
+    // Ép quá trần bằng cách đọc thẳng hàm ước lượng với số lượt vượt trần.
+    const gia = {
+      ...CauHinhDienHoaSchema.parse({}),
+      soLuot: TRAN_BUOC_DIEN_HOA,
+      nhipMoiLuot: 'nien' as const,
+    };
+    const u = uocLuongDienHoa(gia);
+    expect(u.quaTran).toBe(true);
+    expect(u.loiTuChoi).toContain('nhịp thô hơn');
+    expect(u.loiTuChoi).toMatch(/\d+ lượt/);
+  });
+
+  it('Diễn Hóa tự động mặc định BẬT và mặc định NGẮN — ADR-0028', () => {
+    const t = CauHinhTuDienHoaSchema.parse({});
+    expect(t.bat).toBe(true);
+    // Một lượt nhịp `nien` = 4 tick = một năm. Đủ ngắn để một dòng kể hết.
+    expect(t.soLuot).toBe(1);
+    expect(t.nhip).toBe('nien');
+    expect(buocMoiLuot(t.nhip) * t.soLuot).toBeLessThanOrEqual(4);
+    // Và Bồi Đắp đi kèm, vì thế giới tự chạy mà không dày lên thì chạy để làm gì.
+    expect(t.hanMucBoiDap).toBeGreaterThan(0);
   });
 
   it('47.6 — báo cáo viết bằng giọng biên niên, có nút xem từng khoảnh khắc', () => {

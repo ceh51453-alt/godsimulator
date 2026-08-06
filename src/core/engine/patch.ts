@@ -15,6 +15,7 @@ import { loi } from '../contracts/errors.js';
 import type { KetQua, StructuredError } from '../contracts/errors.js';
 import { dat, hong } from '../contracts/errors.js';
 import { EntitySchema, LinkSchema, GapSchema, WorldMetricsSchema } from '../schema/entity.js';
+import { SCHEMA_ASPECT } from '../schema/aspect/bangSchema.js';
 import { KnowledgeRowSchema, DebtRowSchema } from '../schema/soSach.js';
 import { PrayerSchema } from '../schema/than.js';
 import { StorylineSchema, ForeshadowSchema } from '../schema/truyen.js';
@@ -129,6 +130,53 @@ function schemaCua(bang: TenBang) {
     case 'metrics':
       return WorldMetricsSchema;
   }
+}
+
+/**
+ * Kiểm từng mặt của thực thể sau khi vá — lỗ hổng `op: 'set'`.
+ *
+ * `EntitySchema` khai `aspects` là `z.record(z.string(), z.unknown())` vì aspect
+ * là tập mở (4.1). Hệ quả: một bản ghi vẫn "hợp lệ" sau khi ai đó đặt
+ * `aspects.lawful.tiepDia = "abc"`, và cái sai chỉ nổ ra vài nhịp sau, ở một
+ * hàm gọi `.map()` lên một chuỗi — cách xa chỗ gây ra nó đến mức không truy được.
+ *
+ * Đường `op: 'link'` đã được `chuanHoaBanGhiMoi()` canh từ Phase 12. Đây là
+ * đường còn lại.
+ *
+ * ── Vì sao chỉ CẢNH BÁO bằng lỗi, không tự sửa ──
+ *
+ * `safeParse` của Zod strip key lạ và điền `.prefault()`, nên ghi `r.data` trở
+ * lại sẽ **âm thầm đổi dữ liệu** của một patch do chính engine sinh. Ở đây chỉ
+ * đọc kết quả: hợp lệ thì thôi, không hợp lệ thì cả lô bị từ chối và bản ghi cũ
+ * còn nguyên — đúng cổng Phase 1 "patch lỗi không để state nửa vời".
+ *
+ * Aspect không có schema (một mặt do pack ngoài khai, `reality_marble`…) đi qua
+ * không bị chạm: engine không biết mặt ấy thì cũng không có tư cách phán nó sai.
+ */
+function loiAspect(id: string, banGhi: BanGhi): StructuredError[] {
+  const aspects = banGhi['aspects'];
+  if (aspects === null || typeof aspects !== 'object' || Array.isArray(aspects)) return [];
+
+  const ra: StructuredError[] = [];
+  for (const ten of Object.keys(aspects as Record<string, unknown>).sort()) {
+    const schema = SCHEMA_ASPECT.get(ten);
+    if (schema === undefined) continue;
+    const r = schema.safeParse((aspects as Record<string, unknown>)[ten]);
+    if (r.success) continue;
+    const issues = r.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`);
+    ra.push(
+      loi(
+        'patch',
+        'ASPECT_HONG_SAU_PATCH',
+        // Nêu luôn chỗ sai trong `message`: chẩn đoán của scheduler chỉ mang theo
+        // `thongDiep`, nên một message không nói gì sẽ biến lỗi này thành một
+        // tiến trình "bị bỏ" không ai truy được nguyên nhân.
+        `Mặt "${ten}" của '${id}' không còn hợp lệ sau khi áp patch — ${issues.slice(0, 3).join('; ')}.`,
+        { path: `entities/${id}/aspects.${ten}`, details: { issues } },
+      ),
+    );
+  }
+  return ra;
 }
 
 /**
@@ -434,7 +482,9 @@ export function apPatch(s: WorldState, ops: readonly PatchOp[]): KetQua<KetQuaAp
           details: { issues: r.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`) },
         }),
       );
+      continue;
     }
+    if (bang === 'entities') errs.push(...loiAspect(id, banGhi));
   }
   if (errs.length > 0) return hong(errs, canhBao);
 
@@ -510,6 +560,48 @@ export function apPatch(s: WorldState, ops: readonly PatchOp[]): KetQua<KetQuaAp
     },
     canhBao,
   );
+}
+
+/**
+ * Ghi TRỌN một bản ghi, dù nó đã có hay chưa.
+ *
+ * ── Vì sao cần helper này ──
+ *
+ * `op: 'link'` là phép TẠO, và nó cố tình từ chối id đã tồn tại (`LINK_TRUNG`) —
+ * hàng rào ấy đúng, vì nó chặn model tạo bản sao của một thực thể đã có.
+ *
+ * Nhưng vài chỗ trong engine cầm sẵn cả bản ghi mới và chỉ muốn thay bản cũ:
+ * `datTenTruc()` trả về `SubstrateLaw` sau khi đặt tên, `quetCoChe()` trả về
+ * `CoCheRow` sau khi quét. Cả hai đang phát `link` lên bảy dòng luật nền và bốn
+ * dòng cơ chế **đã được gieo từ lúc mở ván** — nên `LINK_TRUNG` từ chối cả lô,
+ * và hai tính năng ấy im lặng không làm gì kể từ lần chạy thứ hai.
+ *
+ * Ở đây: chưa có thì `link`, đã có thì `set` từng trường. Duyệt khóa đã sắp để
+ * cùng một bản ghi luôn cho cùng một chuỗi patch (luật bất biến #7).
+ *
+ * `id` và `branchId` bị bỏ qua: chúng là danh tính của bản ghi, không phải trạng
+ * thái của nó. Muốn đổi danh tính thì đó là một bản ghi khác.
+ */
+export function patchGhiBanGhi(
+  s: WorldState,
+  bang: TenBang,
+  id: string,
+  giaTri: Readonly<Record<string, unknown>>,
+  sourceEventId: string,
+): PatchOp[] {
+  const bangMap = layBang(s, bang);
+  if (bangMap === null || !bangMap.has(id)) {
+    return [{ op: 'link', target: { table: bang, id, path: '' }, value: giaTri, sourceEventId }];
+  }
+  return Object.keys(giaTri)
+    .filter((k) => k !== 'id' && k !== 'branchId')
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .map((k): PatchOp => ({
+      op: 'set',
+      target: { table: bang, id, path: k },
+      value: giaTri[k],
+      sourceEventId,
+    }));
 }
 
 /** Đọc một giá trị theo `PatchOp.target` — dùng cho invariant và test. */

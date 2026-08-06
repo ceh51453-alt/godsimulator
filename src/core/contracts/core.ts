@@ -106,6 +106,33 @@ export const WorldSchema = z
     tuningProfileId: z.string(),
     playerState: PlayerStateSchema,
     indicesVersion: z.number().int().prefault(1),
+    /**
+     * Kho Từ của nhánh — vốn từ thế giới tự tích lũy, xem `world/tuVung.ts`.
+     *
+     * Ở đây chứ không ở một bảng riêng, và lý do là **phạm vi**: nó là một danh
+     * sách đơn nhất theo nhánh, đúng như `eraId` và `indicesVersion`. Một bảng
+     * riêng sẽ đòi khóa `[branchId+id]`, một lượt migration Dexie và một chỗ
+     * trong sáu đường xuất/nhập — trả giá ấy cho một mảng chuỗi là sai.
+     *
+     * `prefault([])` nên ván lưu trước bản này mở lại vẫn chạy: kho rỗng, và
+     * lượt Bồi Đắp đầu tiên gieo lại vốn gốc.
+     *
+     * Hình dạng để `unknown[]` ở tầng contract: `contracts/` không được biết tới
+     * `world/`, và `TuVungSchema` mới là chỗ kiểm hình dạng thật.
+     */
+    tuVung: z.array(z.unknown()).prefault([]),
+    /**
+     * Sổ Hậu Trường của nhánh — xem `world/hauTruong.ts`.
+     *
+     * Cùng chỗ và cùng lý do với `tuVung`: một danh sách đơn nhất theo nhánh,
+     * vào `stateHash`, xuống đĩa cùng ván. Nó giữ những gì đường ống Workflow đã
+     * mô phỏng nhưng chính văn CHƯA kể, nên nó phải sống qua save — một hàng đợi
+     * chỉ nằm trong bộ nhớ sẽ mất đúng lúc người chơi đóng tab đi ngủ.
+     *
+     * `unknown[]` ở tầng contract vì `contracts/` không được biết tới `world/`;
+     * `GhiChuHauTruongSchema` mới là chỗ kiểm hình dạng thật.
+     */
+    hauTruong: z.array(z.unknown()).prefault([]),
     version: z.number().int().min(0),
   })
   .strict();

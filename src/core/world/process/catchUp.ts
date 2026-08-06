@@ -26,6 +26,7 @@ import { dat, hong } from '../../contracts/errors.js';
 import { chayTienTrinhNen } from './scheduler.js';
 import type { ChanDoanTienTrinh } from './scheduler.js';
 import type { UngVienSuKien } from './types.js';
+import { buocEngineThuan } from '../../engine/tick.js';
 import { TICK_MOI_NAM } from '../../schema/aspect/substrate.js';
 
 /**
@@ -162,6 +163,31 @@ export function tuaThoiGian(state: WorldState, log: EventLog, tc: TuyChonTua): K
     chanDoan.push(...kq.chanDoan);
     suKienTatCa.push(...kq.suKien);
 
+    /*
+     * ── Các bước engine thuần chạy Ở ĐÂY, không chỉ trong `motTick()` ──
+     *
+     * `motTick()` được gọi từ đúng một chỗ trong cả app: nút `tick`. Nhịp nền
+     * cuối mỗi lượt kể và mọi lần Diễn Hóa đều đi qua hàm này — và cho tới lúc
+     * dòng dưới đây có mặt, chúng bỏ trọn mười bốn bước.
+     *
+     * Nghĩa là trong một ván chơi bình thường: giáo lý không bao giờ lệch thêm,
+     * luật không bao giờ được áp, không khái niệm nào kết tinh, bảy trục Luật Nền
+     * vô danh mãi mãi. Người chơi tua một nghìn năm và thế giới trở lại đúng chỗ
+     * cũ với vài con số dân số khác đi.
+     *
+     * Đọc CÙNG ảnh chụp với scheduler (scheduler đã trả state về nguyên trạng),
+     * và patch của cả hai vào chung một Event — đúng như `motTick` làm.
+     */
+    const buoc = buocEngineThuan({
+      state,
+      tickCu: state.world.tick,
+      tickMoi,
+      eventId,
+      tuning: tc.tuning,
+      seed: state.world.seed,
+    });
+    suKienTatCa.push(...buoc.suKien);
+
     const ev = taoEvent({
       id: eventId,
       branchId: state.world.branchId,
@@ -171,13 +197,13 @@ export function tuaThoiGian(state: WorldState, log: EventLog, tc: TuyChonTua): K
       targetIds: [],
       causeEventIds: [],
       locationId: null,
-      patches: [...kq.patches],
+      patches: [...kq.patches, ...buoc.patches],
       visibility: 'engine',
       source: 'engine',
       payload: {
         nhip: tc.nhip,
         soBuocGop: buocGop,
-        soPatch: kq.patches.length,
+        soPatch: kq.patches.length + buoc.patches.length,
         soTienTrinh: kq.daChay.length,
       },
     });

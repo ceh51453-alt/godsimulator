@@ -58,6 +58,16 @@ export type HangUiState = {
    * phép thêm field không index mà không cần migration.
    */
   scene?: unknown[];
+  /**
+   * Cấu hình Diễn Hóa tự động — `CauHinhTuDienHoa` đã serialize.
+   *
+   * Ở đây chứ không trong `WorldState` vì nó là tùy chọn của **cách chơi**, không
+   * phải dữ liệu thế giới: cho nó vào state sẽ làm `stateHash` đổi theo một cái
+   * công tắc giao diện, và hai máy chơi cùng một ván sẽ không so hash được nữa.
+   *
+   * Optional, cùng lý do với `scene`.
+   */
+  tuDienHoa?: unknown;
 };
 
 /**

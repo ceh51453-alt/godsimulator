@@ -71,6 +71,57 @@ function chuanHoaAspects(tho: unknown): { aspects: Record<string, unknown>; canh
 }
 
 /**
+ * Bậc cao nhất một khái niệm được phép SINH RA ở.
+ *
+ * `bocTach()` cấm sửa `conceptual.giaiDoan`, nhưng op `link` mang cả bản ghi nên
+ * nó không đi qua đường dẫn cấm. Không kẹp ở đây thì cửa vừa khóa lại mở toang:
+ * model chỉ cần tạo khái niệm mới ở thẳng `ket_tinh`.
+ *
+ * `thanh_hinh` là trần đúng, không phải một con số tùy tiện — 43.3 đòi khái niệm
+ * nền phải ít nhất `thanh_hinh` mới đặt tên được một trục, nên lời kể vẫn khai
+ * được "thứ này đã thành hình trong thế giới". Bậc cuối thì phải leo bằng trọng
+ * số thật, và trọng số thì `vongKetTinh.ts` cộng.
+ */
+const BAC_KHAI_SINH_TOI_DA = 'thanh_hinh';
+const BAC_DUOC_KHAI_SINH = new Set(['hu_danh', 'manh_nha', 'thanh_hinh']);
+
+/**
+ * Kẹp những trường mà engine giữ sổ về giá trị khai sinh.
+ *
+ * Trả kèm cảnh báo chứ không từ chối cả bản ghi: model khai một khái niệm đã
+ * kết tinh thường là nó đang mô tả đúng thứ vừa xảy ra trong văn, chỉ là nó
+ * không có thẩm quyền định bậc. Hạ bậc rồi cho vào còn giữ được nội dung; từ
+ * chối thì mất luôn cả khái niệm.
+ */
+function kepTruongEngine(aspects: Record<string, unknown>): string[] {
+  const canhBao: string[] = [];
+
+  const c = aspects['conceptual'];
+  if (laObj(c)) {
+    const bac = c['giaiDoan'];
+    if (typeof bac === 'string' && !BAC_DUOC_KHAI_SINH.has(bac)) {
+      canhBao.push(
+        `Khái niệm mới không sinh ra ở bậc "${bac}". Đã hạ về "${BAC_KHAI_SINH_TOI_DA}"; ` +
+          'bậc còn lại do trọng số thật leo.',
+      );
+      c['giaiDoan'] = BAC_KHAI_SINH_TOI_DA;
+    }
+    if (typeof c['trongSo'] === 'number' && c['trongSo'] !== 0) {
+      canhBao.push('Trọng số khái niệm do engine cộng từ sự kiện thật. Bản ghi mới bắt đầu từ 0.');
+      c['trongSo'] = 0;
+    }
+  }
+
+  const l = aspects['lawful'];
+  if (laObj(l) && typeof l['hieuLuc'] === 'number' && l['hieuLuc'] !== 0) {
+    canhBao.push('Hiệu lực luật do tiếp địa quyết (42.2). Bản ghi mới bắt đầu từ 0 và engine tính lại.');
+    l['hieuLuc'] = 0;
+  }
+
+  return canhBao;
+}
+
+/**
  * Chuẩn hóa một bản ghi mới trước khi nó thành `PatchOp`.
  *
  * `branchId` do người gọi ép — model không được chọn nhánh, cùng lẽ với
@@ -95,11 +146,14 @@ export function chuanHoaBanGhiMoi(
 
   if (bang === 'entities') {
     const { aspects, canhBao } = chuanHoaAspects(coIdDung['aspects']);
+    // Kẹp SAU khi parse: `chuanHoaAspects()` đã điền `.prefault()`, nên tới đây
+    // `conceptual`/`lawful` chắc chắn có mặt đủ trường để kẹp mà không phải đoán.
+    const canhBaoKep = kepTruongEngine(aspects);
     const r = EntitySchema.safeParse({ ...coIdDung, branchId, aspects });
     if (!r.success) {
       return { ok: false, vi: r.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`).join('; ') };
     }
-    return { ok: true, value: r.data, canhBao: [...canhBaoId, ...canhBao] };
+    return { ok: true, value: r.data, canhBao: [...canhBaoId, ...canhBao, ...canhBaoKep] };
   }
 
   const schema =

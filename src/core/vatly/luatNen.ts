@@ -23,6 +23,7 @@
 import type { WorldState } from '../engine/state.js';
 import type { Entity } from '../schema/entity.js';
 import type { Conceptual } from '../schema/aspect/conceptual.js';
+import { daThanhHinh } from '../schema/aspect/conceptual.js';
 import {
   KHAI_NIEM_NEN_CUA_TRUC,
   PHU_THUOC_TRUC,
@@ -100,7 +101,7 @@ export function datTenTruc(input: {
   if (kn === undefined || c === undefined) {
     loi.push(`Khái niệm nền "${input.khaiNiemNenId}" không tồn tại.`);
   } else {
-    if (c.giaiDoan === 'hu_danh' || c.giaiDoan === 'manh_nha') {
+    if (!daThanhHinh(c.giaiDoan)) {
       loi.push(
         `Khái niệm "${kn.ten}" mới ở giai đoạn "${c.giaiDoan}". Chưa ai hiểu nó đủ để đặt tên cho một trục nền.`,
       );

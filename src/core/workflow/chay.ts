@@ -81,6 +81,27 @@ export type NgocCanhChay = {
   ) => YeuCauGoi['messages'];
   /** Chỉ dựng prompt và trả về, KHÔNG gọi model — nút "Chạy thử tác vụ này" (50.11). */
   readonly chayThu?: boolean;
+  /**
+   * Ép MỌI tác vụ chạy lượt này, bỏ qua lịch của chúng.
+   *
+   * ── Vì sao có cửa này, và vì sao nó không phá 50.9 ──
+   *
+   * Lịch của 50.4 trả lời câu "tác vụ này nên chạy bao thường xuyên khi đường
+   * ống chạy MỖI LƯỢT". Nhưng người chơi có thể chọn cho đường ống chạy mười
+   * lượt một lần — và lúc ấy hai cái lịch chồng lên nhau: `theo_luot: 3` bên
+   * trong một nhịp mười lượt nghĩa là tác vụ ấy chạy mỗi ba mươi lượt, còn
+   * `theo_su_kien: het_ky_nguyen` thì gần như không bao giờ. Kết quả là người
+   * chơi bật cả bảy tác vụ, trả tiền cho một lần quét, và nhận về output của hai.
+   *
+   * Cửa này nói: *lần quét này là một lần quét đầy đủ*. Lịch vẫn nguyên trong
+   * khai báo tác vụ — `kiemLanRanh()` vẫn cưỡng chế stage 4 phải dùng lịch thời
+   * gian truyện — nên hợp đồng 50.9 không bị sửa; chỉ có người gọi tuyên bố rằng
+   * nhịp quét của họ ĐÃ là cái lịch.
+   *
+   * `trangThaiSau` vẫn được cập nhật như thường, nên tắt cửa này đi thì lịch
+   * chạy tiếp từ đúng chỗ nó đang đứng.
+   */
+  readonly epChayHet?: boolean;
 };
 
 /**
@@ -123,7 +144,26 @@ export async function chayMotTacVu(
   nguCanhTruoc: string,
 ): Promise<KetQuaTacVu> {
   const tt = nc.trangThaiLich.get(task.id) ?? trangThaiLichMoi();
-  const qd = quyetDinhChay(task, tt, nc.lich, nc.tuning.workflow.nguongParseLoiLienTiep);
+  const goc = quyetDinhChay(task, tt, nc.lich, nc.tuning.workflow.nguongParseLoiLienTiep);
+  /*
+   * `bat` vẫn thắng, kể cả khi ép.
+   *
+   * Ép chạy hết là "bỏ qua LỊCH", không phải "bỏ qua công tắc": một tác vụ người
+   * chơi đã tắt tay là một quyết định, còn lịch chỉ là một nhịp mặc định.
+   */
+  const qd =
+    nc.epChayHet === true && task.bat && !goc.chay
+      ? {
+          chay: true,
+          soLan: 1,
+          lyDo: `ép chạy (lịch nói: ${goc.lyDo})`,
+          trangThaiSau: {
+            ...goc.trangThaiSau,
+            luotChayCuoi: nc.lich.luot,
+            tickChayCuoi: nc.lich.tick,
+          },
+        }
+      : goc;
 
   if (!qd.chay) {
     return {

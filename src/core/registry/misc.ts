@@ -305,13 +305,41 @@ export const METRICS_DUNG_SAN: readonly MetricDef[] = metricNguon.map((m) => ({
 
 // ─────────────────────────────────────────── profile (Phần 31.2)
 
+/*
+ * Hồ sơ model — Phần 31.2.
+ *
+ * ── Vì sao danh sách này dài chứ không phải hai dòng ──
+ *
+ * `chuanHoaThamSo()` clamp mọi tham số của preset theo hồ sơ đang khớp, và mọi
+ * cờ `hoTro` là `false` nghĩa là trường ấy **không được gửi đi**. Khi registry
+ * chỉ có một model thật, mọi model khác rơi về `khong_ro` với trần 32K/4K và
+ * toàn bộ `hoTro` tắt — nên một preset khai `openai_max_tokens: 65000`,
+ * `min_p`, `top_a`, `reasoning_effort` và prefill sẽ mất sạch phần ấy, rồi
+ * hàng chục module bị cắt vì ngân sách 32K. Nhìn từ phía người chơi đó đúng là
+ * "preset nhập vào nhưng thông số không được áp dụng".
+ *
+ * Nên bảng dưới đây khai đủ các họ model mà người chơi thật sự cấu hình.
+ * `khop.chua` cố ý viết bằng mảnh chuỗi để bắt được cả tên có tiền tố nhà cung
+ * cấp (`openai/gpt-5`, `google/gemini-...`) mà proxy hay gắn thêm.
+ *
+ * ── Vì sao mọi `contextMax` đều là 2.000.000 ──
+ *
+ * Trần ở đây KHÔNG phải là trần công bố của từng họ mà là **trần ngân sách của
+ * ta**: nó chỉ nói "đừng tự cắt prompt dưới mức này". Trần thật của model đến từ
+ * `contextMaxDaQuet` — `hoSoChoModel()` đi cả hai chiều, nên endpoint khai 32K
+ * thì hạ xuống 32K. Khai theo trần công bố ở đây chỉ khiến một họ model bị cắt
+ * module vì ngân sách trong khi proxy chưa hề nói gì về giới hạn của nó.
+ *
+ * Cái giá: model nào endpoint KHÔNG khai `contextMax` sẽ nhận prompt dài tới
+ * 2M rồi hỏng ở tầng HTTP thay vì được cắt gọn từ trước.
+ */
 const profileNguon = [
   ModelProfileSchema.parse({
     id: 'gemini-3.1-pro',
     ten: 'Gemini 3.1 Pro',
     khop: { chua: ['gemini-3.1-pro', 'gemini-3-1-pro'] },
     gioiHan: {
-      contextMax: 1_048_576,
+      contextMax: 2_000_000,
       outputMax: 65_536,
       outputMacDinhCuaApi: 8_192,
       temperatureMax: 2,
@@ -330,11 +358,209 @@ const profileNguon = [
     tyLeToken: 2.6,
   }),
   ModelProfileSchema.parse({
+    id: 'gemini-pro',
+    ten: 'Gemini Pro (2.x/3.x)',
+    khop: { chua: ['gemini-3-pro', 'gemini-3.0-pro', 'gemini-2.5-pro', 'gemini-2.0-pro', 'gemini-exp'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 65_536,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 64,
+      thinkingBudgetMax: 32_768,
+    },
+    hoTro: {
+      thinkingLevel: true,
+      thinkingBudget: true,
+      mediaResolution: true,
+      structuredOutput: true,
+      promptCache: true,
+      seed: true,
+      continuePrefill: true,
+      stopSequences: 5,
+    },
+    tyLeToken: 2.6,
+  }),
+  ModelProfileSchema.parse({
+    id: 'gemini-flash',
+    ten: 'Gemini Flash',
+    khop: { chua: ['gemini-3-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 65_536,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 64,
+      thinkingBudgetMax: 24_576,
+    },
+    hoTro: {
+      thinkingLevel: true,
+      thinkingBudget: true,
+      mediaResolution: true,
+      structuredOutput: true,
+      promptCache: true,
+      seed: true,
+      continuePrefill: true,
+      stopSequences: 5,
+    },
+    tyLeToken: 2.6,
+  }),
+  ModelProfileSchema.parse({
+    id: 'claude',
+    ten: 'Claude (Opus · Sonnet · Haiku)',
+    khop: { chua: ['claude', 'anthropic/'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 64_000,
+      outputMacDinhCuaApi: 8_192,
+      // Anthropic nhận temperature trong [0, 1]; preset khai 1.1 sẽ bị kẹp về 1.
+      temperatureMax: 1,
+      topKMax: 500,
+      thinkingBudgetMax: 32_000,
+    },
+    hoTro: {
+      thinkingLevel: true,
+      thinkingBudget: true,
+      structuredOutput: true,
+      promptCache: true,
+      // Prefill là cơ chế gốc của Anthropic — preset nào cũng dựa vào nó.
+      continuePrefill: true,
+      stopSequences: 8,
+    },
+    tyLeToken: 2.8,
+  }),
+  ModelProfileSchema.parse({
+    id: 'gpt',
+    ten: 'GPT (4o · 4.1 · 5 · o-series)',
+    khop: { chua: ['gpt-4', 'gpt-5', 'gpt-6', 'openai/', 'o1-', 'o3-', 'o4-', 'chatgpt'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 128_000,
+      outputMacDinhCuaApi: 16_384,
+      temperatureMax: 2,
+      topKMax: 0,
+      thinkingBudgetMax: 0,
+    },
+    hoTro: {
+      structuredOutput: true,
+      promptCache: true,
+      seed: true,
+      reasoningEffort: true,
+      verbosity: true,
+      stopSequences: 4,
+    },
+    tyLeToken: 3.0,
+  }),
+  ModelProfileSchema.parse({
+    id: 'deepseek',
+    ten: 'DeepSeek',
+    khop: { chua: ['deepseek'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 32_768,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 100,
+      thinkingBudgetMax: 0,
+    },
+    hoTro: {
+      structuredOutput: true,
+      promptCache: true,
+      topA: true,
+      minP: true,
+      repetitionPenalty: true,
+      continuePrefill: true,
+      stopSequences: 16,
+    },
+    tyLeToken: 3.0,
+  }),
+  ModelProfileSchema.parse({
+    id: 'grok',
+    ten: 'Grok',
+    khop: { chua: ['grok', 'x-ai/'] },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 65_536,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 0,
+      thinkingBudgetMax: 0,
+    },
+    hoTro: {
+      structuredOutput: true,
+      seed: true,
+      reasoningEffort: true,
+      stopSequences: 4,
+    },
+    tyLeToken: 3.0,
+  }),
+  ModelProfileSchema.parse({
+    id: 'openweight',
+    ten: 'Model trọng số mở (Qwen · GLM · Kimi · Llama · Mistral)',
+    khop: {
+      chua: [
+        'qwen',
+        'glm',
+        'chatglm',
+        'kimi',
+        'moonshot',
+        'llama',
+        'mistral',
+        'mixtral',
+        'minimax',
+        'yi-',
+        'command-r',
+        'gemma',
+        'hunyuan',
+        'ernie',
+        'step-',
+      ],
+    },
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 32_768,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 200,
+      thinkingBudgetMax: 0,
+    },
+    /*
+     * Họ trọng số mở chạy qua vLLM/SGLang/OpenRouter, và đó là nơi `top_k`,
+     * `min_p`, `top_a`, `repetition_penalty` thật sự có tác dụng — đúng những
+     * trường mà preset Trung/Việt khai. Bật hết ở đây, rồi để `THAM_SO_HO_TRO`
+     * của phương ngữ quyết định trường nào lên dây.
+     */
+    hoTro: {
+      structuredOutput: true,
+      seed: true,
+      topA: true,
+      minP: true,
+      repetitionPenalty: true,
+      continuePrefill: true,
+      stopSequences: 8,
+    },
+    tyLeToken: 3.0,
+  }),
+  ModelProfileSchema.parse({
     id: 'khong_ro',
     ten: 'Model chưa nhận diện',
     khop: { chua: [] },
-    gioiHan: { contextMax: 32_768, outputMax: 4_096, outputMacDinhCuaApi: 4_096 },
-    hoTro: {},
+    /*
+     * Trần cũ (32K/4K, mọi `hoTro` tắt) là một quyết định an toàn đã hóa ra
+     * đắt: nó là đường mà **mọi** model không phải Gemini 3.1 Pro đi qua, và nó
+     * cắt 33 module của một preset thật chỉ vì ngân sách. Trần mới lấy theo
+     * trần rộng nhất của bảng này; khi lần quét endpoint có khai `contextMax`
+     * thì `hoSoChoModel()` dùng con số thật ấy thay cho mặc định — kể cả khi
+     * con số ấy HẸP hơn, nên một model 32K thật vẫn được hạ trần đúng lúc.
+     */
+    gioiHan: {
+      contextMax: 2_000_000,
+      outputMax: 16_384,
+      outputMacDinhCuaApi: 8_192,
+      temperatureMax: 2,
+      topKMax: 100,
+    },
+    hoTro: { continuePrefill: true, stopSequences: 4 },
     tyLeToken: 3.2,
     nguon: 'dung_san',
   }),

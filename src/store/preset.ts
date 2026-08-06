@@ -25,6 +25,7 @@ import { viewGia, sceneGia } from '../core/preset/giaLap.js';
 import { R } from '../core/registry/index.js';
 import type { ModelProfile, NormalizedGenParams } from '../core/schema/ai.js';
 import { NormalizedGenParamsSchema } from '../core/schema/ai.js';
+import { hoSoChoModel } from '../core/ai/hoSo.js';
 import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
@@ -130,26 +131,42 @@ export type TrangThaiPreset = {
   /** Bắt dữ liệu từ output AI theo capture rules của preset. */
   captureOutput(output: string, tick?: number): void;
   /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
-  apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<void>;
+  apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<BaoCaoBienPack>;
+};
+
+/**
+ * Biến của thẻ bài đã đi đâu.
+ *
+ * Người gọi PHẢI nhìn `soBiBo`: một khối `<UpdateVariable>` bị bỏ trọn vẹn mà
+ * không ai nói gì là triệu chứng khó truy nhất trong cả đường ống — bảng trạng
+ * thái đứng yên và không chỗ nào báo lỗi.
+ */
+export type BaoCaoBienPack = {
+  readonly soApDung: number;
+  readonly soBiBo: number;
+  /** Câu người đọc được, rỗng khi không bỏ gì. */
+  readonly vi: string;
 };
 
 /**
  * Profile của model Tường Thuật đang cấu hình.
  *
- * Khớp theo `khop.chua` của registry; không khớp thì rơi về `khong_ro`, và
- * `khong_ro` cố ý có trần thấp — clamp chặt hơn thực tế thì mất vài token, clamp
- * lỏng hơn thực tế thì call hỏng giữa ván chơi.
+ * Luật chọn nằm ở `hoSoChoModel()` (`core/ai/hoSo.ts`) để test được mà không cần
+ * store: chọn tay thắng khớp tên, khớp tên thắng dự phòng, và model lạ lấy trần
+ * context theo đúng con số lần quét endpoint vừa khai — thay vì rơi về một hằng
+ * số 32K cắt mất hàng chục module của preset.
  */
 function profileHienTai(): ModelProfile {
-  const modelId = useAi.getState().cfg.narrator.modelId.toLowerCase();
-  for (const d of R.profile.tatCa()) {
-    if (d.profile.khop.chua.some((k) => modelId.includes(k.toLowerCase()))) return d.profile;
-  }
-  const macDinh = R.profile.lay('khong_ro');
-  if (macDinh !== undefined) return macDinh.profile;
-  const dau = R.profile.tatCa()[0];
-  if (dau === undefined) throw new Error('Registry profile rỗng — napDungSan() chưa chạy.');
-  return dau.profile;
+  const ep = useAi.getState().cfg.narrator;
+  const ds = R.profile.tatCa().map((d) => ({ id: d.id, profile: d.profile }));
+  const duPhong = R.profile.lay('khong_ro')?.profile ?? ds[0]?.profile;
+  if (duPhong === undefined) throw new Error('Registry profile rỗng — napDungSan() chưa chạy.');
+  const daQuet = ep.availableModels.find((m) => m.id === ep.modelId)?.contextMax ?? null;
+  return hoSoChoModel(
+    { modelId: ep.modelId, profileId: ep.profileId, contextMaxDaQuet: daQuet },
+    ds,
+    duPhong,
+  );
 }
 
 function dat(o: Record<string, unknown>, duong: string, giaTri: unknown): void {
@@ -628,6 +645,9 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
       daTat: new Set(get().regexDaTat),
+      // `transformDangBat()` đã hợp nhất cờ nguồn với cấu hình nhánh; nói thẳng
+      // kết quả ấy để sandbox không hỏi lại `batONguon` và phủ quyết người dùng.
+      daBat: new Set(ds.map((t) => t.id)),
       placement: 2,
       destination: 'display',
       depth: 0,
@@ -663,6 +683,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
       daTat: new Set(get().regexDaTat),
+      daBat: new Set(ds.map((t) => t.id)),
       placement,
       depth,
     });
@@ -859,9 +880,32 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   },
 
   async apBienPack(thayDoi, tick) {
-    if (thayDoi.length === 0) return;
+    if (thayDoi.length === 0) return { soApDung: 0, soBiBo: 0, vi: '' };
+
     const dangBat = Object.keys(get().dangBat);
-    if (dangBat.length === 0) return;
+    /*
+     * Không có pack nào bật thì biến không có chỗ sống — và người chơi phải
+     * BIẾT điều đó.
+     *
+     * [BB] 66.6 xếp "Macro biến" về namespace `preset.<packId>`; không pack thì
+     * không namespace, nên chỗ này không thể làm gì khác ngoài bỏ. Cái sai của
+     * bản cũ là bỏ trong IM LẶNG: một thẻ bài MVU chạy không preset sẽ thấy mọi
+     * `_.set('stat_data.…')` bốc hơi, không patch, không cảnh báo, không một
+     * dòng nào trong bảng Tự Chẩn Đoán — và triệu chứng duy nhất là "bảng trạng
+     * thái không bao giờ đổi".
+     */
+    if (dangBat.length === 0) {
+      return {
+        soApDung: 0,
+        soBiBo: thayDoi.length,
+        vi:
+          `${thayDoi.length} biến của thẻ bài không có chỗ ghi vì chưa bật preset nào ` +
+          `(${thayDoi
+            .slice(0, 4)
+            .map((t) => t.duong)
+            .join(', ')}). Bật một pack ở Xưởng Preset để chúng có namespace.`,
+      };
+    }
 
     /*
      * Không pack nào "sở hữu" một đường dẫn, nên thay đổi áp cho MỌI pack đang
@@ -889,7 +933,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
     set({ bien: bienMoi });
 
-    if (!coIndexedDb()) return;
+    const baoCao = { soApDung: thayDoi.length, soBiBo: 0, vi: '' };
+    if (!coIndexedDb()) return baoCao;
     try {
       for (const packId of dangBat) {
         await ghiBienPack(layDb(), packId, get().branchId, bienMoi[packId] ?? {}, tick);
@@ -897,6 +942,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     } catch {
       /* biến trong phiên vẫn đúng */
     }
+    return baoCao;
   },
 }));
 

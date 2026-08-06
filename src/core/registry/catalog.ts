@@ -11,37 +11,17 @@ import { z } from 'zod';
 import type { RuntimeHandler } from './manifest.js';
 
 import { EntitySchema, LinkSchema, WorldMetricsSchema, GapSchema } from '../schema/entity.js';
-import { SoulSchema, RelationStateSchema, QuanHeMotChieuSchema } from '../schema/aspect/soul.js';
-import { ConceptualSchema } from '../schema/aspect/conceptual.js';
-import { LawfulSchema } from '../schema/aspect/lawful.js';
-import { DomainSchema, VenerableSchema, DivisibleSchema, AvatarSchema } from '../schema/aspect/divine.js';
-import {
-  MortalSchema,
-  GenealogicalSchema,
-  SpatialSchema,
-  CarrierSchema,
-  AdversarialSchema,
-  InstitutionalSchema,
-} from '../schema/aspect/living.js';
-import {
-  DanCuSchema,
-  YTeSchema,
-  SinhThaiSchema,
-  KinhTeSchema,
-  VanHoaSchema,
-  AnNinhSchema,
-  DuongSchema,
-} from '../schema/aspect/substrate.js';
+import { RelationStateSchema, QuanHeMotChieuSchema } from '../schema/aspect/soul.js';
+import { AvatarSchema } from '../schema/aspect/divine.js';
 import { KnowledgeRowSchema, DebtRowSchema } from '../schema/soSach.js';
-import { DivineIdentitySchema, DomainStateSchema } from '../schema/aspect/thanVi.js';
-import { PrayerSchema, GiaoUocSchema, DieuKhoanSchema } from '../schema/than.js';
+import { DomainStateSchema } from '../schema/aspect/thanVi.js';
+import { PrayerSchema, DieuKhoanSchema } from '../schema/than.js';
 import { KnowledgeRecordSchema } from '../intent/schema.js';
 import { ModelProfileSchema, GenParamsSchema } from '../schema/ai.js';
 import { AiConfigSchema, AiEndpointSchema, ProbeResultSchema } from '../ai/cauHinh.js';
-import { HoiDongSchema, GheSchema, NghiQuyetSchema } from '../schema/aspect/hoiDong.js';
-import { DuAnSchema } from '../schema/aspect/duAn.js';
-import { SinhKeSchema, HoSchema, CanCuocSchema, ThuongTichSchema } from '../schema/aspect/pham.js';
-import { ProvenanceSchema } from '../schema/aspect/provenance.js';
+import { GheSchema, NghiQuyetSchema } from '../schema/aspect/hoiDong.js';
+import { ThuongTichSchema } from '../schema/aspect/pham.js';
+import { MUC_SCHEMA_ASPECT } from '../schema/aspect/bangSchema.js';
 import {
   PatchOpSchema,
   EventSchema,
@@ -82,53 +62,31 @@ const schemaEntries: readonly (readonly [string, z.ZodType])[] = [
   ['scheduleBlock', ScheduleBlockSchema],
   ['flowRef', FlowRefSchema],
   ['conditionRecord', ConditionRecordSchema],
-  // aspects
-  ['aspect.soul', SoulSchema],
-  ['aspect.conceptual', ConceptualSchema],
-  ['aspect.lawful', LawfulSchema],
-  ['aspect.domain', DomainSchema],
-  ['aspect.venerable', VenerableSchema],
-  ['aspect.divisible', DivisibleSchema],
-  ['aspect.genealogical', GenealogicalSchema],
-  ['aspect.carrier', CarrierSchema],
-  ['aspect.spatial', SpatialSchema],
-  ['aspect.mortal', MortalSchema],
-  ['aspect.adversarial', AdversarialSchema],
-  ['aspect.institutional', InstitutionalSchema],
-  // aspect nền — Phase 5
-  ['aspect.dan_cu', DanCuSchema],
-  ['aspect.y_te', YTeSchema],
-  ['aspect.sinh_thai', SinhThaiSchema],
-  ['aspect.kinh_te', KinhTeSchema],
-  ['aspect.van_hoa', VanHoaSchema],
-  ['aspect.an_ninh', AnNinhSchema],
-  ['aspect.duong', DuongSchema],
+  /*
+   * Mọi `aspect.*` đến từ MỘT bảng duy nhất — `schema/aspect/bangSchema.ts`.
+   *
+   * Trước đây danh sách này chép tay, và `engine/patch.ts` không với tới được nó
+   * nên pha 2 của `apPatch()` chỉ parse `EntitySchema` — tức không kiểm một chữ
+   * nào bên trong `aspects`. Gộp về một nguồn để hai cửa vào World (op `link` và
+   * op `set`) không bao giờ lệch tiêu chuẩn lần nữa.
+   */
+  ...MUC_SCHEMA_ASPECT,
   // bảng Phase 5
   ['knowledgeRecord', KnowledgeRecordSchema],
   ['knowledgeRow', KnowledgeRowSchema],
   ['debtRow', DebtRowSchema],
   // tầng Thần — Phase 6
-  ['aspect.ban_nga', DivineIdentitySchema],
-  ['aspect.giao_uoc', GiaoUocSchema],
   ['domainState', DomainStateSchema],
   ['prayer', PrayerSchema],
   ['dieuKhoan', DieuKhoanSchema],
   ['avatar', AvatarSchema],
-  ['aspect.avatar', AvatarSchema],
   ['relationState', RelationStateSchema],
   // hội đồng thần — 69.3
-  ['aspect.hoi_dong', HoiDongSchema],
-  ['aspect.du_an', DuAnSchema],
   ['ghe', GheSchema],
   ['nghiQuyet', NghiQuyetSchema],
   // tầng Phàm Nhân — Phase 7
-  ['aspect.sinh_ke', SinhKeSchema],
-  ['aspect.ho', HoSchema],
-  ['aspect.can_cuoc', CanCuocSchema],
   ['thuongTich', ThuongTichSchema],
   ['quanHeMotChieu', QuanHeMotChieuSchema],
-  // hai bảng — Phase 11, Phần 59.1
-  ['aspect.provenance', ProvenanceSchema],
   // ai
   ['modelProfile', ModelProfileSchema],
   ['genParams', GenParamsSchema],

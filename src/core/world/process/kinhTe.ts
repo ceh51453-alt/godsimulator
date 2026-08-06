@@ -99,10 +99,22 @@ export function chaySanXuat(nc: NgocCanhTienTrinh): KetQuaTienTrinh {
     if (layThu > 0) patches.push(cong(nc, id, 'aspects.sinh_thai.taiNguyen.thu', -lam(layThu)));
     if (layCa > 0) patches.push(cong(nc, id, 'aspects.sinh_thai.taiNguyen.ca', -lam(layCa)));
 
-    // Cày quá tay thì đất bạc màu — vòng phản hồi khiến tăng trưởng không vô hạn.
+    /*
+     * Cày quá tay thì đất bạc màu — vòng phản hồi khiến tăng trưởng không vô hạn.
+     *
+     * Delta bị kẹp theo giá trị ĐANG CÓ, không cộng thẳng: `suyThoai` là một tỷ
+     * lệ `[0, 1]`, và một phép `add` không biết trần của trường nó cộng vào. Sau
+     * vài trăm nhịp cày liên tục, con số ấy vượt 1 và cả mặt `sinh_thai` thành
+     * không hợp lệ — thứ trước đây không ai thấy vì `EntitySchema` không kiểm
+     * bên trong `aspects`.
+     *
+     * `environment_cycle` chạy ở giai đoạn trước và đã ghi phần phục hồi của nó,
+     * nên `st.suyThoai` đọc ở đây là con số mới nhất trong nhịp này.
+     */
     if (tuLao > tuDat && tuDat > 0) {
       const ep = kep((tuLao - tuDat) / Math.max(1, tuDat), 0, 1);
-      patches.push(cong(nc, id, 'aspects.sinh_thai.suyThoai', lam(ep * 0.01 * n)));
+      const them = lam(kep(st.suyThoai + ep * 0.01 * n, 0, 1) - st.suyThoai);
+      if (them > 0) patches.push(cong(nc, id, 'aspects.sinh_thai.suyThoai', them));
     }
 
     const thieuHut = can > 0 ? kep(1 - an / can, 0, 1) : 0;

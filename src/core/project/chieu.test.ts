@@ -461,18 +461,18 @@ describe('[BB] 21.3 — chuyển tầng không tạo save mới, không đổi b
     expect(state.world.playerState.mode).toBe('sang_the');
 
     // → Thần
-    const e1 = eventChuyenTang(state, 'than', 'deity_1', 'nhập vào một vị thần của mình');
+    const e1 = eventChuyenTang(state, 'than', 'deity_1', 'nhập vào một vị thần của mình', log);
     expect(apDungEvent(state, e1, log).ok).toBe(true);
     expect(state.world.playerState.mode).toBe('than');
     expect(state.world.playerState.chuTheId).toBe('deity_1');
 
     // → Phàm
-    const e2 = eventChuyenTang(state, 'pham_nhan', 'mortal_1', 'hạ phàm');
+    const e2 = eventChuyenTang(state, 'pham_nhan', 'mortal_1', 'hạ phàm', log);
     expect(apDungEvent(state, e2, log).ok).toBe(true);
     expect(state.world.playerState.mode).toBe('pham_nhan');
 
     // → Sáng Thế
-    const e3 = eventChuyenTang(state, 'sang_the', null, 'thức tỉnh trở lại');
+    const e3 = eventChuyenTang(state, 'sang_the', null, 'thức tỉnh trở lại', log);
     expect(apDungEvent(state, e3, log).ok).toBe(true);
     expect(state.world.playerState.mode).toBe('sang_the');
     expect(state.world.playerState.chuTheId).toBeNull();
@@ -483,8 +483,22 @@ describe('[BB] 21.3 — chuyển tầng không tạo save mới, không đổi b
     expect(state.world.playerState.lichSuChuyenTang).toHaveLength(3);
   });
 
+  it('quay lại một mode đã ghé qua trong cùng tick không bị kẹt (id event không trùng)', () => {
+    // Cùng một tick, qua lại nhiều lần: sang_the → than → sang_the → than.
+    // Mỗi lượt tạo event mới (không tiến tick) nên id chỉ theo (tick, mode) sẽ
+    // trùng lần ghé thứ hai — đây chính là lỗi "chuyển tab ko được" người chơi gặp.
+    expect(apDungEvent(state, eventChuyenTang(state, 'than', 'deity_1', 'a', log), log).ok).toBe(true);
+    expect(apDungEvent(state, eventChuyenTang(state, 'sang_the', null, 'b', log), log).ok).toBe(true);
+    const veLaiThan = apDungEvent(state, eventChuyenTang(state, 'than', 'deity_1', 'c', log), log);
+    expect(veLaiThan.ok).toBe(true);
+    expect(state.world.playerState.mode).toBe('than');
+    const veLaiSangThe = apDungEvent(state, eventChuyenTang(state, 'sang_the', null, 'd', log), log);
+    expect(veLaiSangThe.ok).toBe(true);
+    expect(state.world.playerState.mode).toBe('sang_the');
+  });
+
   it('lịch sử chuyển tầng ghi đúng tu/den', () => {
-    apDungEvent(state, eventChuyenTang(state, 'than', 'deity_1', 'thử'), log);
+    apDungEvent(state, eventChuyenTang(state, 'than', 'deity_1', 'thử', log), log);
     const ls = state.world.playerState.lichSuChuyenTang;
     expect(ls[0]?.tu).toBe('sang_the');
     expect(ls[0]?.den).toBe('than');

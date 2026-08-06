@@ -304,16 +304,14 @@ export function bangTiepDia(kq: KetQuaHieuLuc): string {
     const day = Math.round(ty * 10);
     return '█'.repeat(day) + '░'.repeat(10 - day);
   };
+  const NHAN_BAC: Readonly<Record<string, string>> = {
+    ket_tinh: 'đã kết tinh',
+    luong_lu: 'đủ nặng nhưng chưa biết thành gì',
+    thanh_hinh: 'đã thành hình',
+    manh_nha: 'manh nha',
+  };
   const nhan = (m: ManhNoiTiepDia): string =>
-    !m.tonTai
-      ? 'vừa được tạo, chưa có nghĩa'
-      : m.giaiDoan === 'ket_tinh'
-        ? 'đã kết tinh'
-        : m.giaiDoan === 'thanh_hinh'
-          ? 'đã thành hình'
-          : m.giaiDoan === 'manh_nha'
-            ? 'manh nha'
-            : 'chưa có nghĩa';
+    !m.tonTai ? 'vừa được tạo, chưa có nghĩa' : (NHAN_BAC[m.giaiDoan] ?? 'chưa có nghĩa');
 
   const dong = ['TIẾP ĐỊA'];
   for (const m of kq.manhNoi) {

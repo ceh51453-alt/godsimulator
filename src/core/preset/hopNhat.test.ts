@@ -266,14 +266,36 @@ describe('Tương thích thẻ bài MVU — nhận cú pháp, KHÔNG nhận th�
 
   it('bản đồ đường dẫn của 31.7 với {_op:add} thành patch cộng dồn', () => {
     const kq = bocTach(
-      '<UpdateVariable>{"concept_x.aspects.conceptual.trongSo": {"_op":"add","_v":45}}</UpdateVariable>',
-      { eventId: 'ev1', idHopLe: new Set(['concept_x']) },
+      '<UpdateVariable>{"mortal_x.aspects.mortal.thanThe.doDoi": {"_op":"add","_v":45}}</UpdateVariable>',
+      { eventId: 'ev1', idHopLe: new Set(['mortal_x']) },
     );
     expect(kq.patches).toHaveLength(1);
     expect(kq.patches[0]?.op).toBe('add');
     expect(kq.patches[0]?.value).toBe(45);
     expect(kq.patches[0]?.target.table).toBe('entities');
-    expect(kq.patches[0]?.target.path).toBe('aspects.conceptual.trongSo');
+    expect(kq.patches[0]?.target.path).toBe('aspects.mortal.thanThe.doDoi');
+  });
+
+  /**
+   * Cú pháp MVU không mở thêm cửa nào cho vòng kết tinh.
+   *
+   * Bốn trường dưới đây là đầu vào và đầu ra của `vatly/vongKetTinh.ts`. Viết
+   * thẳng vào chúng là bỏ qua toàn bộ Phần 42–44: một điều luật có răng mà không
+   * cần khái niệm nền, hoặc một khái niệm leo thẳng lên bậc cuối nơi bảy trục
+   * Luật Nền đang chờ.
+   */
+  it.each([
+    'concept_x.aspects.conceptual.trongSo',
+    'concept_x.aspects.conceptual.giaiDoan',
+    'concept_x.aspects.conceptual.nguongKetTinh',
+    'concept_x.aspects.lawful.hieuLuc',
+  ])('[BB] 42.2, 8.1 — cú pháp MVU không viết được vào %s', (duong) => {
+    const kq = bocTach(`<UpdateVariable>{"${duong}": {"_op":"add","_v":9000}}</UpdateVariable>`, {
+      eventId: 'ev1',
+      idHopLe: new Set(['concept_x']),
+    });
+    expect(kq.patches).toHaveLength(0);
+    expect(kq.biTuChoi.some((b) => b.ma === 'DUONG_DAN_CAM')).toBe(true);
   });
 
   it('[BB] 31.7 — khóa bắt đầu bằng gạch dưới bị từ chối', () => {

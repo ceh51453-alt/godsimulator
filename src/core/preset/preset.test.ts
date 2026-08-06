@@ -38,6 +38,9 @@ import type { PresetPackRow, TransformDef } from './schema.js';
 
 import { TUNING_MAC_DINH } from '../tuning/schema.js';
 import { ModelProfileSchema } from '../schema/ai.js';
+import type { ModelProfile } from '../schema/ai.js';
+import { hoSoChoModel } from '../ai/hoSo.js';
+import { R, napDungSan } from '../registry/index.js';
 import { bocTach } from '../ai/bocTach.js';
 import { parseChoice } from '../ai/choice.js';
 import { taoState, taoEventLog, hashState } from '../engine/state.js';
@@ -1292,5 +1295,195 @@ describe('63.3 quy tắc 3 — không có prompt_order thì mới dùng prompts[
     const ids = (kq.row as PresetPackRow).pack.modules.map((m) => m.id);
     expect(new Set(ids).size).toBe(2);
     expect(ids[1]).toContain('#2');
+  });
+});
+
+// ─────────────────────────────────────────── preset thật chạy trọn vẹn
+
+/**
+ * Ba fixture C/D/E là ba preset thật người dùng đang chơi.
+ *
+ * Nhóm bài này không kiểm một hàm — nó kiểm **lời hứa**: nhập một preset thật vào
+ * rồi bật lên thì nội dung của nó tới được model, thông số của nó được áp, và
+ * regex của nó chạy. Trước khi registry có đủ hồ sơ model, cùng ba file này mất
+ * 33 và 18 module vì ngân sách 32K của hồ sơ dự phòng — pipeline nhập vẫn báo
+ * "ok", và không có bài nào bắt được điều đó.
+ */
+describe('preset thật — nhập xong là dùng được, không bị cắt vì hồ sơ model', () => {
+  napDungSan();
+  const dsHoSo = R.profile.tatCa().map((d) => ({ id: d.id, profile: d.profile }));
+  const duPhongHoSo = R.profile.lay('khong_ro')?.profile as ModelProfile;
+
+  const nhapVoi = (nhan: 'C' | 'D' | 'E', modelId: string): KetQuaNhap => {
+    const profile = hoSoChoModel({ modelId }, dsHoSo, duPhongHoSo);
+    return nhapPreset({
+      tenNguon: `${nhan}.json`,
+      noiDung: docFixture(nhan).text,
+      tick: 7,
+      tuning: TUNING_MAC_DINH,
+      profile,
+      viewGia: viewGia(),
+      sceneGia: sceneGia(),
+    });
+  };
+
+  for (const nhan of ['C', 'D', 'E'] as const) {
+    it(`fixture ${nhan} nhập sạch lỗi trên mọi họ model đang lưu hành`, () => {
+      for (const model of ['claude-opus-4-20250514', 'gemini-2.5-pro', 'deepseek-chat', 'mo-hinh-la']) {
+        const kq = nhapVoi(nhan, model);
+        expect(kq.ok, `${nhan} trên ${model}`).toBe(true);
+        expect(kq.dungOBuoc).toBe(12);
+        expect(kq.issues.filter((i) => i.severity === 'error')).toEqual([]);
+      }
+    });
+
+    it(`fixture ${nhan} không bị cắt module nào vì ngân sách token`, () => {
+      for (const model of ['claude-opus-4-20250514', 'gemini-2.5-pro', 'mo-hinh-la']) {
+        const n = nhapVoi(nhan, model).thuBienDich.narrator;
+        const cat = n?.issues.filter((i) => i.code === 'CAT_VI_NGAN_SACH') ?? [];
+        expect(cat, `${nhan} trên ${model} bị cắt vì ngân sách`).toEqual([]);
+      }
+    });
+
+    it(`fixture ${nhan} đưa được mọi module đang bật vào prompt tường thuật`, () => {
+      const kq = nhapVoi(nhan, 'claude-opus-4-20250514');
+      const row = kq.row as PresetPackRow;
+      const messages = kq.thuBienDich.narrator?.messages ?? [];
+      /*
+       * Tầng 6 gộp mọi module prefill thành MỘT message assistant, và `moduleId`
+       * của nó là các id nối bằng `+`. Nên "có mặt" phải hỏi theo từng mảnh id,
+       * không hỏi theo message — nếu không thì bài này báo thiếu đúng những
+       * module đã tới nơi.
+       */
+      const trongPrompt = new Set(messages.flatMap((m) => m.moduleId.split('+')));
+      // Marker rỗng lấy nội dung từ slot native nên không tính; phần còn lại phải có mặt.
+      const thieu = row.pack.modules.filter(
+        (m) => m.enabled && m.content.trim() !== '' && m.kind !== 'slot' && !trongPrompt.has(m.id),
+      );
+      expect(thieu.map((m) => m.name)).toEqual([]);
+      expect(messages.some((m) => m.role === 'assistant' && m.lane === 'prefill')).toBe(true);
+    });
+  }
+
+  it('seed = -1 của SillyTavern nghĩa là KHÔNG cố định seed, không phải seed số -1', () => {
+    // `gemini-pro` có `hoTro.seed`, nên đây là đúng chỗ mà -1 từng lọt lên API.
+    const kq = nhapVoi('C', 'gemini-2.5-pro');
+    const seed = kq.thamSo.find((t) => t.truong === 'seed');
+    expect(seed?.raw).toBe(-1);
+    expect(seed?.trangThai).toBe('khong_ho_tro');
+    expect(kq.thuBienDich.narrator?.params.seed).toBeNull();
+  });
+
+  it('seed dương thật thì vẫn được giữ và gửi đi', () => {
+    const profile = hoSoChoModel({ modelId: 'gemini-2.5-pro' }, dsHoSo, duPhongHoSo);
+    const { bang } = chuanHoaThamSo({ seed: 12_345, unknown: {} }, profile);
+    const seed = bang.find((b) => b.truong === 'seed');
+    expect(seed?.trangThai).toBe('giu_nguyen');
+    expect(seed?.dung).toBe(12_345);
+  });
+});
+
+// ─────────────────────────────────────────── công tắc regex phải có hiệu lực
+
+describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định cuối cùng', () => {
+  const dinh = (id: string, batONguon: boolean, activation: 'sandboxed' | 'disabled' | 'needs_adapter') =>
+    TransformDefSchema.parse({
+      id,
+      packId: 'p',
+      ten: id,
+      pattern: '/xin/g',
+      thayThe: 'chào',
+      placement: [2],
+      batONguon,
+      activation,
+    });
+
+  it('regex tắt sẵn trong file CHẠY khi người dùng bật lại', () => {
+    const t = dinh('rx.tat', false, 'disabled');
+    const tat = apTransform({ text: 'xin', transforms: [t], maxRegexMs: 50, dongHo: () => 0 });
+    expect(tat.daApDung).toEqual([]);
+    expect(tat.text).toBe('xin');
+
+    const bat = apTransform({
+      text: 'xin',
+      transforms: [t],
+      maxRegexMs: 50,
+      dongHo: () => 0,
+      daBat: new Set(['rx.tat']),
+    });
+    expect(bat.daApDung).toEqual(['rx.tat']);
+    expect(bat.text).toBe('chào');
+  });
+
+  it('regex bật sẵn trong file DỪNG khi người dùng tắt nó', () => {
+    const t = dinh('rx.bat', true, 'sandboxed');
+    const kq = apTransform({
+      text: 'xin',
+      transforms: [t],
+      maxRegexMs: 50,
+      dongHo: () => 0,
+      daBat: new Set<string>(),
+    });
+    expect(kq.daApDung).toEqual([]);
+    expect(kq.text).toBe('xin');
+    expect(kq.daBoQua[0]?.lyDo).toContain('cấu hình pack');
+  });
+
+  it('needs_adapter vẫn không chạy dù người dùng bật — pattern ấy chạy không được', () => {
+    const t = dinh('rx.can', true, 'needs_adapter');
+    const kq = apTransform({
+      text: 'xin',
+      transforms: [t],
+      maxRegexMs: 50,
+      dongHo: () => 0,
+      daBat: new Set(['rx.can']),
+    });
+    expect(kq.daApDung).toEqual([]);
+    expect(kq.daBoQua[0]?.lyDo).toContain('needs_adapter');
+  });
+
+  /*
+   * Fixture C là preset thật đã ẩn danh: pattern trong đó bị thay bằng chuỗi
+   * giữ chỗ, nên không bài nào ở đây chứng minh được một phép thay thế **khớp**.
+   * Thứ chứng minh được — và cũng là thứ từng hỏng — là **lý do bị bỏ qua**:
+   * trước khi sửa, cả sáu regex tắt-trong-file đều dừng ngay ở cửa "đã tắt
+   * trong preset nguồn" dù người dùng vừa bật chúng, nên công tắc trong giao
+   * diện không có hiệu lực nào.
+   */
+  it('regex thật bị tắt trong preset C không còn bị chặn ở cửa "tắt trong nguồn"', () => {
+    const kq = nhapPreset({
+      tenNguon: 'C.json',
+      noiDung: docFixture('C').text,
+      tick: 7,
+      tuning: TUNING_MAC_DINH,
+      profile: PROFILE,
+      viewGia: viewGia(),
+      sceneGia: sceneGia(),
+    });
+    const tatTrongFile = (kq.row as PresetPackRow).transformDefs.filter((t) => t.activation === 'disabled');
+    expect(tatTrongFile.length).toBeGreaterThan(0);
+
+    const mau = '<thinking>ý nghĩ</thinking>\n<choices>\n1|a|b\n</choices>';
+    const chay = (daBat?: ReadonlySet<string>) =>
+      apTransform({ text: mau, transforms: tatTrongFile, maxRegexMs: 50, dongHo: () => 0, daBat });
+
+    // Không có quyết định của người dùng: cả sáu dừng vì cờ nguồn, đúng như cũ.
+    const truoc = chay();
+    expect(truoc.daBoQua.length).toBe(tatTrongFile.length);
+    expect(truoc.daBoQua.every((b) => b.lyDo.includes('tắt trong preset nguồn'))).toBe(true);
+
+    // Người dùng bật lại: không cái nào còn bị chặn vì "đang tắt". Lý do còn lại
+    // đều là lý do THẬT của từng regex — sai placement, chỉ áp vào prompt, hoặc
+    // pattern không biên được — chứ không phải một công tắc bị bỏ qua.
+    const sau = chay(new Set(tatTrongFile.map((t) => t.id)));
+    expect(sau.daBoQua.some((b) => b.lyDo.includes('tắt'))).toBe(false);
+    /*
+     * Pattern trong bản ẩn danh không biên được, và ba regex kia là `promptOnly`
+     * nên không chạy ở đích hiển thị — hai lý do thuộc về chính từng regex. Điều
+     * bài này khẳng định là danh sách lý do KHÔNG còn chứa quyết định bật/tắt.
+     */
+    for (const b of sau.daBoQua) {
+      expect(b.lyDo, b.id).toMatch(/pattern không biên được|chỉ áp vào prompt|chỉ áp khi hiển thị/);
+    }
   });
 });

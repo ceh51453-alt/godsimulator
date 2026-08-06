@@ -26,6 +26,15 @@ import { BanTinhSchema, BAN_TINH_TRUC } from './soul.js';
 export const CACH_DAP_DI_HOA = ['chap_nhan', 'chong_lai', 'mac_ca', 'phan_than'] as const;
 export type CachDapDiHoa = (typeof CACH_DAP_DI_HOA)[number];
 
+/**
+ * Trần sổ tình huống Dị Hóa đang chờ.
+ *
+ * Xuất ra để `world/process/than.ts` cắt theo ĐÚNG con số schema đòi. Trước đây
+ * con số này chỉ nằm trong `.max(8)` còn tiến trình thì `push` mãi — trần thành
+ * một lời hứa suông, và mảng dài tới chín mươi ba phần tử sau bốn trăm nhịp.
+ */
+export const TRAN_TINH_HUONG_MO = 8;
+
 export const DivineIdentitySchema = z
   .object({
     /**
@@ -62,7 +71,7 @@ export const DivineIdentitySchema = z
               })
               .strict(),
           )
-          .max(8)
+          .max(TRAN_TINH_HUONG_MO)
           .prefault([]),
       })
       .prefault({}),

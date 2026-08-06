@@ -21,9 +21,10 @@ import { useAi } from '../../store/ai.js';
 import { NHAN_TRANG_THAI_CONG } from '../../core/ai/cong.js';
 import type { MucRail } from './KhungSanh.js';
 import { Icon } from '../design/Icon.js';
-import { BangLanhDia } from '../panels/BangLanhDia.js';
+import { BangThanDien } from '../panels/BangThanDien.js';
 import { SoTayPanel } from '../panels/SoTay.js';
-import type { DuLieuLanhDia } from '../panels/BangLanhDia.js';
+import { tinhBangThanDien } from '../../core/than/thanDien.js';
+import type { DuLieuThanDien } from '../../core/than/thanDien.js';
 import { KhungCauNguyen } from '../panels/TheCauNguyen.js';
 import { PanelOngKinh } from '../panels/OngKinh.js';
 import { KENH_DUNG_SAN } from '../../core/than/kenh.js';
@@ -33,8 +34,7 @@ import { tinhBangThongTin } from '../../core/bang/thongTin.js';
 import { ThanhThienTuong } from '../panels/ThanhThienTuong.js';
 import { BangThienDien } from './BangThienDien.js';
 import { BangThongTin } from './BangThongTin.js';
-import type { DivineIdentity, DomainState } from '../../core/schema/aspect/thanVi.js';
-import type { Venerable } from '../../core/schema/aspect/divine.js';
+import type { DivineIdentity } from '../../core/schema/aspect/thanVi.js';
 import { CACH_DAP_DI_HOA } from '../../core/schema/aspect/thanVi.js';
 import LuaChon from '../components/LuaChon.js';
 import { NoiDungPreset } from '../components/NoiDungPreset.js';
@@ -175,7 +175,7 @@ export function SanhThienDien(): JSX.Element | null {
 
   const [cau, setCau] = useState('');
   const [debug, setDebug] = useState(false);
-  const [khoi, setKhoi] = useState<'canh' | 'lanh_dia' | 'kenh'>('canh');
+  const [khoi, setKhoi] = useState<'canh' | 'than_dien' | 'kenh'>('canh');
   const [diff, setDiff] = useState<CanonDiff | null>(null);
   /** Tầng đang chờ người chơi chọn chủ thể; `null` nghĩa là không có hộp chọn. */
   const [chonTang, setChonTang] = useState<Exclude<ViewMode, 'sang_the'> | null>(null);
@@ -248,37 +248,15 @@ export function SanhThienDien(): JSX.Element | null {
   const mode = state?.world.playerState.mode ?? 'sang_the';
   const chuTheId = state?.world.playerState.chuTheId ?? null;
 
-  /** Dữ liệu Bảng Lãnh Địa — chỉ có nghĩa khi đang nhập một vị thần. */
-  const lanhDia: DuLieuLanhDia | null = useMemo(() => {
+  /**
+   * Dữ liệu Bảng Thần Điện — chỉ có nghĩa khi đang nhập một vị thần.
+   *
+   * Toàn bộ phép tính nằm ở `core/than/thanDien.ts`: màn này chỉ vẽ. Bảng cũ
+   * dựng dữ liệu ngay tại chỗ nên không có cách nào kiểm nó mà không dựng React.
+   */
+  const thanDien: DuLieuThanDien | null = useMemo(() => {
     if (!state || mode !== 'than' || !chuTheId) return null;
-    const e = state.entities.get(chuTheId);
-    if (!e) return null;
-    const bn = e.aspects['ban_nga'] as DivineIdentity | undefined;
-    const ven = e.aspects['venerable'] as Venerable | undefined;
-    const dom = e.aspects['domain'] as { domains?: DomainState[] } | undefined;
-    if (!bn) return null;
-
-    // [BB] 56.4 — thứ ngoài lãnh địa tới bằng TIN ĐỒN, không bằng số.
-    const ngoai = [...state.entities.values()]
-      .filter((x) => x.kind === 'deity' && x.id !== chuTheId && x.tickDiet === null)
-      .slice(0, 3)
-      .map((x) => ({
-        noiDung: `Nghe nói ${x.ten} đang được nhắc tới nhiều hơn trước.`,
-        soNguon: 1,
-        daXacNhan: false,
-      }));
-
-    return {
-      tenThan: e.ten,
-      domains: dom?.domains ?? [],
-      soTinDo: Math.round(ven?.soTinDoUocLuong ?? 0),
-      soDen: Object.values(ven?.matDoDen ?? {}).filter((m) => m > 0).length,
-      hienThanh: ven?.hienThanh ?? 0,
-      doLech: bn.pressure.distortion,
-      coreSelf: bn.coreSelf,
-      followerImage: bn.followerImage,
-      ngoaiLanhDia: ngoai,
-    };
+    return tinhBangThanDien(state, chuTheId);
   }, [state, mode, chuTheId]);
 
   const tinhHuong = useMemo(() => {
@@ -334,11 +312,11 @@ export function SanhThienDien(): JSX.Element | null {
   const rail: MucRail[] = [
     { id: 'canh', icon: 'gui', nhan: 'Cảnh đang diễn', bat: khoi === 'canh', onChon: () => setKhoi('canh') },
     {
-      id: 'lanh_dia',
-      icon: 'den',
-      nhan: 'Lãnh địa',
-      bat: khoi === 'lanh_dia',
-      onChon: () => setKhoi('lanh_dia'),
+      id: 'than_dien',
+      icon: 'vuong_mien',
+      nhan: 'Thần điện',
+      bat: khoi === 'than_dien',
+      onChon: () => setKhoi('than_dien'),
     },
     { id: 'kenh', icon: 'than', nhan: 'Kênh can thiệp', bat: khoi === 'kenh', onChon: () => setKhoi('kenh') },
     // ── Phase 11: cửa vào các màn toàn trang. Món nợ từ Phase 8 đã trả. ──
@@ -543,14 +521,14 @@ export function SanhThienDien(): JSX.Element | null {
             </div>
           ))}
 
-        {khoi === 'lanh_dia' &&
-          (lanhDia ? (
+        {khoi === 'than_dien' &&
+          (thanDien ? (
             <div style={{ maxWidth: 460 }}>
-              <BangLanhDia du={lanhDia} />
+              <BangThanDien du={thanDien} />
             </div>
           ) : (
             <p style={{ color: 'var(--mo)', fontSize: 14 }}>
-              Lãnh địa chỉ có nghĩa khi ngươi đang là một vị thần. Hãy chuyển sang tầng Thần.
+              Thần điện chỉ có nghĩa khi ngươi đang là một vị thần. Hãy chuyển sang tầng Thần.
             </p>
           ))}
 
@@ -752,10 +730,10 @@ export function SanhThienDien(): JSX.Element | null {
   const phai = (
     <>
       {/*
-       * [BB] 56.1 — ở tầng phàm nhân KHÔNG có Bảng Lãnh Địa và KHÔNG có bảng
+       * [BB] 56.1 — ở tầng phàm nhân KHÔNG có Bảng Thần Điện và KHÔNG có bảng
        * "Ngươi thấy" với bốn con số sương mù. Chỉ có Sổ Tay.
        */}
-      {so ? <SoTayPanel so={so} /> : lanhDia && khoi !== 'lanh_dia' && <BangLanhDia du={lanhDia} />}
+      {so ? <SoTayPanel so={so} /> : thanDien && khoi !== 'than_dien' && <BangThanDien du={thanDien} />}
 
       {/*
        * [BB] 29.1 — cột giữa không phải cuộc chat của người chơi. Panel này là
