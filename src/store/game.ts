@@ -226,6 +226,22 @@ export type TrangThaiGame = {
   /** Bỏ lời kể vừa rồi, lùi thế giới về trước nó, rồi kể lại đúng lượt ấy. */
   reroll(): Promise<void>;
 
+  /**
+   * Câu người chơi đã gõ ở lượt vừa rồi — để họ sửa lại trước khi kể lại.
+   *
+   * `null` nghĩa là lượt vừa rồi không sinh ra từ một câu gõ tay (trôi nhịp,
+   * trả lời lời cầu, đáp áp lực Dị Hóa…), nên không có gì để sửa. Reroll thường
+   * vẫn dùng được ở những lượt ấy.
+   */
+  cauLuotTruoc: string | null;
+  /**
+   * Sửa câu của lượt vừa rồi rồi kể lại từ đó — lùi xa hơn `reroll()` một bước.
+   *
+   * Câu khác thì engine phải phán lại, nên đường này lùi về TRƯỚC lúc engine
+   * nghe câu cũ chứ không chỉ trước lời kể.
+   */
+  rerollVoiCau(cauMoi: string): Promise<void>;
+
   // ── ván chơi: lưu, tiếp tục, file (Phase 12) ──
 
   /** Danh sách ván trên máy này — màn chính đọc nó. Rỗng trước khi nạp. */
@@ -932,7 +948,23 @@ const HAN_TRA_MAC_DINH = 60;
 const canhDaKe: { coNguoiChoi: boolean }[] = [];
 
 /**
- * Ảnh chụp ngay TRƯỚC lời kể — toàn bộ nguyên liệu của nút Reroll.
+ * Mốc để lùi thế giới về — phần chung của hai ảnh chụp dưới đây.
+ *
+ * Năm trường, và cả năm đều cần: `state` là thế giới, `soEvent` cắt log
+ * append-only về đúng chỗ, `scene` là khung kể, còn hai bộ đếm cuối nằm NGOÀI
+ * `WorldState` nên không lùi theo nó. Bỏ quên hai bộ đếm ấy thì mỗi lần reroll
+ * lại đẩy hạn ngạch vắng mặt và nhịp nền đi thêm một bước mà không ai thấy.
+ */
+type MocLui = {
+  state: WorldState;
+  soEvent: number;
+  scene: readonly DongScene[];
+  soCanhDaKe: number;
+  demLuotNhipNen: number;
+};
+
+/**
+ * Ảnh chụp ngay TRƯỚC lời kể — nguyên liệu của nút Reroll thường.
  *
  * ── Vì sao chụp ở ranh giới ấy chứ không ở đầu lượt ──
  *
@@ -949,13 +981,7 @@ const canhDaKe: { coNguoiChoi: boolean }[] = [];
  * và một ngăn xếp ảnh chụp trên thế giới năm mươi nghìn thực thể là một cách rất
  * chắc chắn để ăn hết bộ nhớ tab.
  */
-type AnhChupTruocKe = {
-  state: WorldState;
-  /** Số Event trong log lúc chụp — log là append-only nên cắt tới đây là lùi đúng. */
-  soEvent: number;
-  scene: readonly DongScene[];
-  soCanhDaKe: number;
-  demLuotNhipNen: number;
+type AnhChupTruocKe = MocLui & {
   cau: string;
   ketQuaEngine: readonly string[];
   nhipNen: boolean;
@@ -963,7 +989,50 @@ type AnhChupTruocKe = {
 let anhChupTruocKe: AnhChupTruocKe | null = null;
 
 /**
- * Vứt ảnh chụp — gọi ở mọi chỗ đổi ván.
+ * Ảnh chụp trước cả khi ENGINE nghe câu người chơi — cho đường "sửa câu rồi kể lại".
+ *
+ * ── Vì sao phải có ảnh chụp thứ hai ──
+ *
+ * Ảnh trên lùi được lời kể, nhưng lùi tới đó là quá muộn cho việc sửa câu: lúc
+ * ấy `parseIntent()` đã đọc câu cũ, `giaiQuyet()` đã phán theo câu cũ, và Event
+ * của phán quyết ấy đã nằm trong log. Đổi câu mà giữ nguyên phán quyết cũ thì
+ * lời kể mới sẽ kể về một việc người chơi không còn làm nữa.
+ *
+ * Nên đổi câu phải lùi xa hơn một bước — về trước lúc engine nghe — rồi chạy
+ * lại TRỌN vẹn `gui()` với câu mới. Đắt hơn reroll thường đúng một lần chạy
+ * engine, và đó là cái giá đúng: câu khác thì phán quyết cũng phải được hỏi lại.
+ *
+ * `null` nghĩa là lượt vừa rồi không sinh ra từ một câu gõ tay (trôi nhịp, trả
+ * lời lời cầu, đáp áp lực Dị Hóa…) — không có câu nào để sửa.
+ */
+type AnhChupTruocLuot = MocLui & {
+  cau: string;
+  /**
+   * Bộ đếm ý đồ lúc chụp — và nó BẮT BUỘC phải lùi theo.
+   *
+   * `resolve.ts` gieo RNG bằng `intent#${intent.id}`, mà `intent.id` là
+   * `it_${demIntent}`. Không lùi bộ đếm thì cùng một câu, trên cùng một thế
+   * giới, ở cùng một nhịp lại cho hai phán quyết khác nhau chỉ vì người chơi đã
+   * sửa câu hai lần — engine hết tất định, và đó là thứ cả Phần 5 dựng lên để
+   * giữ. Sửa câu là để đổi câu, không phải để quay lại xúc xắc.
+   */
+  demIntent: number;
+};
+let anhChupTruocLuot: AnhChupTruocLuot | null = null;
+
+/**
+ * Lượt sắp kể có phải do một câu gõ tay sinh ra không.
+ *
+ * Cờ này là thứ duy nhất nối `gui()` với `keLuot()` — `keLuot()` không biết ai
+ * gọi mình, và mười hai đường gọi nó thì mười đường không có câu nào để sửa.
+ * `gui()` bật cờ, `keLuot()` đọc rồi hạ ngay: một lượt trôi nhịp chen vào giữa
+ * phải xoá được ảnh chụp câu cũ, nếu không nút "sửa rồi kể lại" sẽ lùi nhịp ấy
+ * đi mất trong im lặng.
+ */
+let luotNayTuCauGoTay = false;
+
+/**
+ * Vứt cả hai ảnh chụp — gọi ở mọi chỗ đổi ván.
  *
  * Ảnh chụp trỏ vào một nhánh cụ thể. Giữ nó qua một lần "Rời ván" rồi mở ván
  * khác thì nút reroll sẽ lùi thế giới của ván MỚI về thế giới của ván CŨ, và
@@ -972,6 +1041,8 @@ let anhChupTruocKe: AnhChupTruocKe | null = null;
  */
 function boAnhChupTruocKe(): void {
   anhChupTruocKe = null;
+  anhChupTruocLuot = null;
+  luotNayTuCauGoTay = false;
 }
 
 /**
@@ -1163,6 +1234,64 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       ],
     });
     return false;
+  };
+
+  /**
+   * Cổng chung của hai đường reroll.
+   *
+   * Không đi qua `doiCong()`, và đó là chủ ý: `doiCong()` chặn đúng trạng thái
+   * `luotChuaKe`, mà `luotChuaKe` khác `null` thì `rerollDuoc` đã là `false` rồi
+   * — cửa ra của tình huống ấy là `keLai()`. Ở đây chỉ cần hỏi thẳng cổng AI.
+   *
+   * `dangMoPhongHauTruong` nằm trong danh sách vì mô phỏng chạy vài giây SAU khi
+   * lời kể đã hiện ra: đúng lúc trông như rảnh nhất thì thế giới vẫn đang bị ghi.
+   */
+  const sanSangReroll = (): boolean => {
+    const g = get();
+    if (
+      !g.rerollDuoc ||
+      g.log === null ||
+      g.dangKe ||
+      g.dangCapNhatBien ||
+      g.dangMoPhongHauTruong ||
+      g.dangDienHoa
+    ) {
+      return false;
+    }
+    const cong = useAi.getState().cong();
+    if (cong.choPhepChoi) return true;
+    set({
+      loi: [
+        ...get().loi,
+        loi('ai', `CONG_AI_${cong.trangThai.toUpperCase()}`, cong.lyDo.join(' '), { recoverable: true }),
+      ],
+    });
+    return false;
+  };
+
+  /**
+   * Lùi thế giới về một mốc đã chụp. Sau lời gọi này store sẵn sàng chạy lại lượt.
+   *
+   * Chép lại ảnh chụp thay vì trao thẳng nó cho store: lượt chạy lại sẽ sửa
+   * `state` tại chỗ, và nếu đó chính là ảnh chụp thì lần reroll thứ hai sẽ lùi
+   * về một thế giới đã bị lần reroll thứ nhất viết đè lên.
+   */
+  const luiVe = (moc: MocLui): void => {
+    const log = get().log;
+    if (log === null) return;
+    set({
+      state: saoChepNong(moc.state),
+      log: taoEventLog(log.tatCa().slice(0, moc.soEvent)),
+      scene: [...moc.scene],
+      luaChon: [],
+      patchBiTuChoi: [],
+      choXacNhan: null,
+      rerollDuoc: false,
+      cauLuotTruoc: null,
+    });
+    canhDaKe.length = moc.soCanhDaKe;
+    demLuotTuNhipNen = moc.demLuotNhipNen;
+    dongBo();
   };
 
   /**
@@ -1435,7 +1564,13 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       ketQuaEngine: [...ketQuaEngine],
       nhipNen: tuyChon.nhipNen !== false,
     };
-    set({ rerollDuoc: false });
+    /*
+     * Ảnh chụp thứ hai không do đây tạo ra — `gui()` tạo. Việc của chỗ này chỉ
+     * là canh nó đừng sống lâu hơn lượt của nó: xem chú thích `luotNayTuCauGoTay`.
+     */
+    if (!luotNayTuCauGoTay) anhChupTruocLuot = null;
+    luotNayTuCauGoTay = false;
+    set({ rerollDuoc: false, cauLuotTruoc: null });
 
     const ok = chieuOngKinh(s);
     const th = await chayTruyHoi(s, view, ok.machId, cauNguoiChoi);
@@ -1861,7 +1996,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * không ở chỗ Narrator trả lời — giữa hai chỗ ấy còn patch, phục bút, gieo
      * nền và nhịp nền, và lùi về giữa chừng sẽ để lại một nửa lượt.
      */
-    set({ rerollDuoc: true });
+    set({ rerollDuoc: true, cauLuotTruoc: anhChupTruocLuot?.cau ?? null });
 
     /**
      * Tự lưu sau MỖI lượt được kể trọn vẹn — món nợ mở từ Phase 3.
@@ -2344,6 +2479,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       banTin: null,
       patchBiTuChoi: [],
       rerollDuoc: false,
+      cauLuotTruoc: null,
     });
     dongBo();
 
@@ -2399,6 +2535,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     luaChon: [],
     luotChuaKe: null,
     rerollDuoc: false,
+    cauLuotTruoc: null,
     danhSachVan: [],
     dangLuu: false,
     tickDaLuu: null,
@@ -2680,6 +2817,24 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       const view = get().view;
       if (!s || !log || !view) return;
 
+      /*
+       * Mốc lùi cho đường "sửa câu rồi kể lại" — xem `AnhChupTruocLuot`.
+       *
+       * Chụp ở đây, TRƯỚC `themDong` và trước `parseIntent`: đây là khoảnh khắc
+       * cuối cùng mà thế giới còn chưa nghe thấy câu này. Chậm một dòng thôi là
+       * dòng của người chơi đã vào khung kể, và sửa câu sẽ để lại câu cũ nằm đó.
+       */
+      anhChupTruocLuot = {
+        state: saoChepNong(s),
+        soEvent: log.tatCa().length,
+        scene: get().scene,
+        soCanhDaKe: canhDaKe.length,
+        demLuotNhipNen: demLuotTuNhipNen,
+        cau,
+        demIntent,
+      };
+      luotNayTuCauGoTay = true;
+
       // Xóa lựa chọn cũ — lượt mới, choices cũ không còn ý nghĩa.
       set({ luaChon: [] });
       themDong('nguoi_choi', cau);
@@ -2723,10 +2878,20 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       set({ choXacNhan: null });
       if (!cho) return;
       if (!dongY) {
+        /*
+         * Người chơi rút lời: lượt không xảy ra, nên ảnh chụp `gui()` vừa lấy
+         * phải chết theo. Giữ nó lại thì một lượt trôi nhịp sau đó sẽ thừa kế
+         * mốc lùi của một câu chưa bao giờ được thực hiện, và "sửa rồi kể lại"
+         * sẽ nuốt mất nhịp ấy.
+         */
+        anhChupTruocLuot = null;
+        luotNayTuCauGoTay = false;
         themDong('he_thong', 'Bạn dừng lại.');
         return;
       }
       if (!doiCong()) return;
+      // Lượt này vẫn là lượt của câu ấy — hộp xác nhận chỉ chen vào giữa.
+      luotNayTuCauGoTay = anhChupTruocLuot !== null;
       const s = get().state;
       const log = get().log;
       const view = get().view;
@@ -2826,6 +2991,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         });
         return;
       }
+      // Kể lại một nhịp treo không đổi câu — đường sửa câu phải sống sót qua nó.
+      luotNayTuCauGoTay = anhChupTruocLuot !== null;
       await keLuot(treo.cau, treo.ketQuaEngine, { nhipNen: treo.nhipNen });
     },
 
@@ -2853,50 +3020,47 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * huống đó là `keLai()`, không phải chỗ này.
      */
     async reroll() {
+      if (anhChupTruocKe === null || !sanSangReroll()) return;
       const anh = anhChupTruocKe;
-      if (
-        anh === null ||
-        !get().rerollDuoc ||
-        get().dangKe ||
-        get().dangCapNhatBien ||
-        get().dangMoPhongHauTruong ||
-        get().dangDienHoa
-      ) {
-        return;
-      }
-      const log = get().log;
-      if (log === null) return;
 
-      const cong = useAi.getState().cong();
-      if (!cong.choPhepChoi) {
-        set({
-          loi: [
-            ...get().loi,
-            loi('ai', `CONG_AI_${cong.trangThai.toUpperCase()}`, cong.lyDo.join(' '), { recoverable: true }),
-          ],
-        });
-        return;
-      }
-
+      luiVe(anh);
       /*
-       * Chép lại ảnh chụp thay vì trao thẳng nó cho store: lượt kể mới sẽ sửa
-       * `state` tại chỗ, và nếu đó chính là ảnh chụp thì lần reroll thứ hai lùi
-       * về một thế giới đã bị lượt reroll thứ nhất viết đè lên.
+       * Kể lại KHÔNG đổi câu, nên ảnh chụp "trước lượt" vẫn đúng cho lượt mới —
+       * và phải nói ra điều đó, vì `keLuot()` mặc định coi mọi lượt là lượt
+       * không có câu gõ tay. Thiếu dòng này thì reroll một lần là mất luôn
+       * đường sửa câu, đúng lúc người chơi hay cần nó nhất.
        */
-      set({
-        state: saoChepNong(anh.state),
-        log: taoEventLog(log.tatCa().slice(0, anh.soEvent)),
-        scene: [...anh.scene],
-        luaChon: [],
-        patchBiTuChoi: [],
-        choXacNhan: null,
-        rerollDuoc: false,
-      });
-      canhDaKe.length = anh.soCanhDaKe;
-      demLuotTuNhipNen = anh.demLuotNhipNen;
-      dongBo();
-
+      luotNayTuCauGoTay = anhChupTruocLuot !== null;
       await keLuot(anh.cau, anh.ketQuaEngine, { nhipNen: anh.nhipNen });
+    },
+
+    /**
+     * Sửa câu rồi kể lại — biến thể "xa hơn một bước" của `reroll()`.
+     *
+     * Lùi về `anhChupTruocLuot` (trước lúc engine nghe câu cũ) rồi gọi thẳng
+     * `gui()` với câu mới. Gọi `gui()` chứ không dựng lại đường riêng: mọi thứ
+     * một câu người chơi phải đi qua — `doiCong()`, `parseIntent`, `giaiQuyet`,
+     * hộp xác nhận hành động không hoàn tác — đều nằm trong đó, và một đường
+     * song song sẽ bỏ sót đúng những chỗ ấy.
+     *
+     * Hệ quả cố ý: câu mới có thể dẫn tới một hành động cần xác nhận, và lúc
+     * ấy hộp xác nhận hiện lên đúng như khi gõ câu ấy lần đầu.
+     */
+    async rerollVoiCau(cauMoi) {
+      const anh = anhChupTruocLuot;
+      if (anh === null || cauMoi.trim() === '' || !sanSangReroll()) return;
+
+      luiVe(anh);
+      /*
+       * Lùi bộ đếm ý đồ — xem `AnhChupTruocLuot.demIntent`. Chỉ đường này lùi
+       * nó: reroll thường không chạy lại engine nên không tiêu một id nào, và
+       * lùi bộ đếm ở đó sẽ cho lượt sau mượn lại một id vừa dùng.
+       *
+       * Id `it_${demIntent}` cũ không đụng ai: Event mang nó đã bị `luiVe()`
+       * cắt khỏi log rồi.
+       */
+      demIntent = anh.demIntent;
+      await get().gui(cauMoi);
     },
 
     // ── ván chơi ──
@@ -3048,6 +3212,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         patchBiTuChoi: [],
         luotChuaKe: null,
         rerollDuoc: false,
+        cauLuotTruoc: null,
         tickDaLuu: state.world.tick,
       });
       dongBo();
@@ -3163,6 +3328,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         patchBiTuChoi: [],
         luotChuaKe: null,
         rerollDuoc: false,
+        cauLuotTruoc: null,
         tickDaLuu: null,
       });
       dongBo();
@@ -3959,6 +4125,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         patchBiTuChoi: [],
         luotChuaKe: null,
         rerollDuoc: false,
+        cauLuotTruoc: null,
       });
     },
 

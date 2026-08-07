@@ -507,6 +507,82 @@ describe('[BB] E2E — Reroll lùi thế giới về trước lời kể rồi k
     expect(useGame.getState().state?.entities.has('concept_reroll_b')).toBe(true);
   });
 
+  it('reroll thường KHÔNG làm mất đường sửa câu', () => {
+    // Kể lại không đổi câu, nên câu ấy vẫn còn đó để sửa. Mất nó ở đây nghĩa là
+    // người chơi phải chọn giữa "kể khác" và "sửa câu" ngay từ lần đầu.
+    expect(useGame.getState().cauLuotTruoc).toBe('ta đi tiếp');
+  });
+
+  it('sửa câu thì câu cũ rời khung kể và engine phán lại theo câu mới', async () => {
+    kichBan = ['Ngươi đổi ý giữa chừng.'];
+    soLanKe = 0;
+    await useGame.getState().rerollVoiCau('ta quay đầu lại');
+
+    const scene = useGame.getState().scene;
+    expect(scene.some((d) => d.loai === 'nguoi_choi' && d.noiDung === 'ta đi tiếp')).toBe(false);
+    expect(scene.filter((d) => d.loai === 'nguoi_choi' && d.noiDung === 'ta quay đầu lại').length).toBe(1);
+    // Câu mới trở thành câu sửa được của lượt mới — sửa tiếp được lần nữa.
+    expect(useGame.getState().cauLuotTruoc).toBe('ta quay đầu lại');
+  });
+
+  it('cùng một câu cho cùng một thế giới, sửa bao nhiêu lần cũng vậy', async () => {
+    /*
+     * Bài giữ tính TẤT ĐỊNH của engine qua đường sửa câu.
+     *
+     * `resolve.ts` gieo RNG bằng `it_${demIntent}` rồi ném kết quả vào
+     * `payload.thanhCong` của Event hành động — tức là vào chính câu engine đưa
+     * cho Narrator kể. Bộ đếm ấy không lùi theo thế giới thì hai lần gửi CÙNG
+     * một câu cho hai phán quyết khác nhau, và "sửa câu" lặng lẽ trở thành một
+     * cái nút quay lại xúc xắc.
+     *
+     * Đo trên EVENT LOG chứ không chỉ trên `hashState`: Event hành động không
+     * mang patch nào, nên một phán quyết lật ngược không làm state hash nhúc
+     * nhích lấy một chút — bài đo bằng state hash sẽ xanh cả khi hỏng.
+     */
+    const loiKe = 'Ngươi dừng bước ở đúng chỗ ấy.';
+    const dauVetPhanQuyet = (): string => {
+      const ds = [...(useGame.getState().log?.tatCa() ?? [])].reverse();
+      const ev = ds.find((e) => e.id.startsWith('ev_it_'));
+      return ev === undefined ? '(không có Event hành động)' : `${ev.id}|${ev.hash}`;
+    };
+
+    kichBan = [loiKe];
+    soLanKe = 0;
+    await useGame.getState().rerollVoiCau('ta đứng lại nhìn quanh');
+    const stateLanDau = hashState(useGame.getState().state as never);
+    const phanQuyetLanDau = dauVetPhanQuyet();
+    const soEventLanDau = useGame.getState().log?.soLuong() ?? 0;
+
+    // Bài chỉ có nghĩa khi câu ấy thật sự sinh ra một phán quyết để mà so.
+    expect(phanQuyetLanDau).not.toContain('không có');
+
+    kichBan = [loiKe];
+    soLanKe = 0;
+    await useGame.getState().rerollVoiCau('ta đứng lại nhìn quanh');
+
+    expect(dauVetPhanQuyet()).toBe(phanQuyetLanDau);
+    expect(hashState(useGame.getState().state as never)).toBe(stateLanDau);
+    // Và log không dài ra: lần sửa trước đã được cắt khỏi nó, không nằm lại.
+    expect(useGame.getState().log?.soLuong()).toBe(soEventLanDau);
+  });
+
+  it('lượt không do người chơi gõ thì không có câu nào để sửa', async () => {
+    kichBan = ['Thời gian đi một mình.'];
+    soLanKe = 0;
+    await useGame.getState().tick(1);
+
+    // Trôi nhịp vẫn reroll được — chỉ là không có câu nào để viết lại.
+    expect(useGame.getState().rerollDuoc).toBe(true);
+    expect(useGame.getState().cauLuotTruoc).toBeNull();
+
+    // Và gọi thẳng cũng không lùi lén về lượt gõ tay trước đó.
+    const truoc = hashState(useGame.getState().state as never);
+    const soGoi = soLanKe;
+    await useGame.getState().rerollVoiCau('ta thử chen vào');
+    expect(soLanKe).toBe(soGoi);
+    expect(hashState(useGame.getState().state as never)).toBe(truoc);
+  });
+
   it('cổng AI đóng thì reroll không kể gì — nó không phải cửa sau của ADR-0028', async () => {
     useAi.setState({ cfg: AiConfigSchema.parse({}) });
     expect(useAi.getState().cong().choPhepChoi).toBe(false);

@@ -121,6 +121,8 @@ export function SanhThienDien(): JSX.Element | null {
   const luaChon = useGame((s) => s.luaChon);
   const rerollDuoc = useGame((s) => s.rerollDuoc);
   const reroll = useGame((s) => s.reroll);
+  const cauLuotTruoc = useGame((s) => s.cauLuotTruoc);
+  const rerollVoiCau = useGame((s) => s.rerollVoiCau);
   const dangMoPhongHauTruong = useGame((s) => s.dangMoPhongHauTruong);
 
   const machDangChieu = useMemo(() => {
@@ -182,6 +184,13 @@ export function SanhThienDien(): JSX.Element | null {
   const [diff, setDiff] = useState<CanonDiff | null>(null);
   /** Tầng đang chờ người chơi chọn chủ thể; `null` nghĩa là không có hộp chọn. */
   const [chonTang, setChonTang] = useState<Exclude<ViewMode, 'sang_the'> | null>(null);
+  /**
+   * Câu đang được sửa trước khi kể lại; `null` nghĩa là hộp sửa đang đóng.
+   *
+   * Chuỗi rỗng KHÁC `null` — người chơi xoá sạch ô nhập vẫn là đang mở hộp sửa,
+   * chỉ là chưa gõ gì. Dùng `''` làm dấu đóng sẽ đóng sập hộp ngay dưới tay họ.
+   */
+  const [suaCau, setSuaCau] = useState<string | null>(null);
   const cuoiScene = useRef<HTMLDivElement>(null);
 
   // [BB] ADR-0028 — không có AI thì không gõ được. Khóa ô nhập là cách trung
@@ -204,9 +213,27 @@ export function SanhThienDien(): JSX.Element | null {
       ? 'Thế giới đang mô phỏng phần hậu trường của lượt này. Chờ nó xong đã.'
       : 'Chưa kể lại được lúc này.';
 
+  /**
+   * Sửa được câu hay không.
+   *
+   * Hẹp hơn reroll thường một bậc, và có lý do: lượt do trôi nhịp, lời cầu hay
+   * áp lực Dị Hóa sinh ra thì không có câu nào của người chơi để mà sửa. Ở đó
+   * reroll vẫn dùng được — chỉ nút này vắng mặt.
+   */
+  const suaDuoc = !khoaReroll && cauLuotTruoc !== null;
+
   useEffect(() => {
     cuoiScene.current?.scrollIntoView({ block: 'end' });
   }, [scene.length]);
+
+  /*
+   * Một lượt mới bắt đầu thì hộp sửa đóng lại. `cauLuotTruoc` về `null` ngay ở
+   * đầu mỗi lượt kể, nên nó là tín hiệu đúng: hộp đang mở cho câu của lượt cũ,
+   * và câu ấy vừa hết hạn để sửa.
+   */
+  useEffect(() => {
+    setSuaCau(null);
+  }, [cauLuotTruoc]);
 
   /**
    * [BB] 55.8 — ảnh chụp vật chất hoá ở RANH GIỚI TICK.
@@ -666,7 +693,70 @@ export function SanhThienDien(): JSX.Element | null {
                 />
               </div>
             )}
-            <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
+            {/*
+             * Hộp sửa câu — đường thứ hai của reroll.
+             *
+             * Nó mở ra ngay TRÊN hàng nút, không thay chỗ ô nhập ở dưới: hai ô
+             * nói hai chuyện khác nhau, và gộp lại thì người chơi không phân
+             * biệt được mình đang viết lượt tiếp theo hay viết lại lượt vừa rồi.
+             */}
+            {suaCau !== null && (
+              <div
+                className="kinh--cap2"
+                style={{
+                  border: '1px solid var(--kinh-vien)',
+                  borderRadius: 'var(--r-sm)',
+                  padding: '10px 14px',
+                  marginBottom: 10,
+                  display: 'grid',
+                  gap: 8,
+                }}
+              >
+                <label htmlFor="oSuaCau" style={nhanNho}>
+                  VIẾT LẠI CÂU CỦA NGƯƠI — THẾ GIỚI SẼ LÙI VỀ TRƯỚC KHI NGƯƠI NÓI NÓ
+                </label>
+                <textarea
+                  id="oSuaCau"
+                  value={suaCau}
+                  rows={3}
+                  autoFocus
+                  onChange={(e) => setSuaCau(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setSuaCau(null);
+                  }}
+                  style={{
+                    color: 'var(--sang)',
+                    border: '1px solid var(--kinh-vien)',
+                    padding: '9px 12px',
+                    font: 'inherit',
+                    fontSize: 14,
+                    lineHeight: 1.5,
+                    background: 'var(--kinh-nen-2)',
+                    resize: 'vertical',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    style={nut(true)}
+                    disabled={khoaReroll || suaCau.trim() === ''}
+                    onClick={() => {
+                      const moi = suaCau;
+                      setSuaCau(null);
+                      void rerollVoiCau(moi);
+                    }}
+                  >
+                    Kể lại với câu này
+                  </button>
+                  <button style={nut()} onClick={() => setSuaCau(null)}>
+                    Thôi
+                  </button>
+                  <span style={{ ...nhanNho, textTransform: 'none' }}>
+                    Engine sẽ phán lại từ đầu theo câu mới, không chỉ kể lại bằng lời khác.
+                  </span>
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
               <button
                 style={{ ...nut(true), display: 'flex', alignItems: 'center', gap: 6 }}
                 disabled={khoaNhap}
@@ -691,16 +781,42 @@ export function SanhThienDien(): JSX.Element | null {
                 <Icon ten="ban_do" co={14} /> Trôi 30 nhịp
               </button>
               {/*
-               * Đứng riêng ở mép phải vì nó đi NGƯỢC chiều ba nút kia: chúng đẩy
-               * thế giới tới, nút này kéo nó lùi một bước rồi kể lại bước ấy.
+               * Hai nút lùi đứng riêng ở mép phải vì chúng đi NGƯỢC chiều ba nút
+               * kia: ba nút trên đẩy thế giới tới, hai nút này kéo nó lùi rồi
+               * chạy lại. "Sửa câu" đứng trước vì nó lùi xa hơn.
+               *
+               * Nó chỉ có mặt khi có câu để sửa — ở một lượt trôi nhịp thì một
+               * nút xám vĩnh viễn chỉ là nhiễu, còn Reroll bên cạnh vẫn dùng được.
                */}
+              {cauLuotTruoc !== null && (
+                <button
+                  style={{
+                    ...nut(),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginLeft: 'auto',
+                    opacity: suaDuoc ? 1 : 0.45,
+                    cursor: suaDuoc ? 'pointer' : 'not-allowed',
+                  }}
+                  disabled={!suaDuoc}
+                  title={
+                    suaDuoc
+                      ? `Sửa lại câu "${cauLuotTruoc}" rồi kể lại từ đó. Thế giới lùi về trước lúc engine nghe câu ấy, nên phán quyết cũng được hỏi lại.`
+                      : viSaoKhoaReroll
+                  }
+                  onClick={() => setSuaCau(cauLuotTruoc)}
+                >
+                  <Icon ten="thu_tich" co={14} /> Sửa câu
+                </button>
+              )}
               <button
                 style={{
                   ...nut(),
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
-                  marginLeft: 'auto',
+                  marginLeft: cauLuotTruoc === null ? 'auto' : undefined,
                   opacity: khoaReroll ? 0.45 : 1,
                   cursor: khoaReroll ? 'not-allowed' : 'pointer',
                 }}
