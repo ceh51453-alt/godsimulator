@@ -127,6 +127,35 @@ export function saoChepState(s: WorldState): WorldState {
 }
 
 /**
+ * Bản sao NÔNG — đủ để lùi thế giới về một điểm trước đó **trong cùng phiên**.
+ *
+ * Rẻ hơn `saoChepState()` rất nhiều: nó chỉ chép con trỏ bản ghi, không chép nội
+ * dung. An toàn được là nhờ `apPatch()` theo lối copy-on-write — nó
+ * `structuredClone` bản nháp rồi THAY ô trong Map, không bao giờ sửa một bản ghi
+ * tại chỗ. Hai thứ không theo luật ấy là `world` (transaction sửa thẳng
+ * `tick`/`version`) và `metrics`, nên đúng hai thứ ấy được chép sâu.
+ *
+ * Đừng dùng nó để đưa state ra khỏi phiên: hai bản dùng chung con trỏ bản ghi,
+ * và một đường ghi tại chỗ nào đó sẽ kéo cả bản sao theo. Cần một bản độc lập
+ * thật thì dùng `saoChepState()`.
+ */
+export function saoChepNong(s: WorldState): WorldState {
+  const ban = taoState(structuredClone(s.world));
+  ban.metrics = structuredClone(s.metrics);
+  for (const ten of BANG) {
+    if (ten === 'worlds' || ten === 'metrics') continue;
+    /*
+     * Duyệt theo `BANG` chứ không liệt kê tay. Thêm một bảng vào `WorldState` mà
+     * quên chép nó ở đây là một lỗi hoàn toàn im lặng: thế giới lùi về đúng mọi
+     * mặt trừ một mảnh, và không có gì kêu lên.
+     */
+    const nguon = s[ten] as ReadonlyMap<string, unknown>;
+    (ban as unknown as Record<string, Map<string, unknown>>)[ten] = new Map(nguon);
+  }
+  return ban;
+}
+
+/**
  * Hash chính tắc của toàn bộ state.
  *
  * [BB] Cổng Phase 1: cùng seed + state đầu + event log → cùng hash.

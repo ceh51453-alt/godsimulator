@@ -119,6 +119,9 @@ export function SanhThienDien(): JSX.Element | null {
   const luotChuaKe = useGame((s) => s.luotChuaKe);
   const keLai = useGame((s) => s.keLai);
   const luaChon = useGame((s) => s.luaChon);
+  const rerollDuoc = useGame((s) => s.rerollDuoc);
+  const reroll = useGame((s) => s.reroll);
+  const dangMoPhongHauTruong = useGame((s) => s.dangMoPhongHauTruong);
 
   const machDangChieu = useMemo(() => {
     if (ongKinh.dangChieu.loai !== 'mach') return null;
@@ -185,6 +188,21 @@ export function SanhThienDien(): JSX.Element | null {
   // thực nhất để nói điều đó; để người chơi gõ rồi nuốt câu của họ thì không.
   // [BB] ADR-0056 — một nhịp chưa được kể cũng khóa, vì đi tiếp sẽ chôn nó.
   const khoaNhap = dangKe || dangCapNhatBien || !cong.choPhepChoi || luotChuaKe !== null;
+
+  /**
+   * Reroll — kể lại lượt vừa rồi.
+   *
+   * Thêm `dangMoPhongHauTruong` vào điều kiện khóa dù store cũng tự chặn: mô
+   * phỏng hậu trường chạy vài giây SAU khi lời kể đã hiện ra, nên đúng lúc nút
+   * trông sẵn sàng nhất thì nó lại là lúc bấm vào không có gì xảy ra. Một nút
+   * xám có lý do đọc được thì thành thật hơn một nút nuốt cú bấm.
+   */
+  const khoaReroll = khoaNhap || dangMoPhongHauTruong || !rerollDuoc;
+  const viSaoKhoaReroll = !rerollDuoc
+    ? 'Chưa có lượt kể nào để kể lại — hoặc lượt trước đó đã bị một lượt mới chôn đi.'
+    : dangMoPhongHauTruong
+      ? 'Thế giới đang mô phỏng phần hậu trường của lượt này. Chờ nó xong đã.'
+      : 'Chưa kể lại được lúc này.';
 
   useEffect(() => {
     cuoiScene.current?.scrollIntoView({ block: 'end' });
@@ -671,6 +689,30 @@ export function SanhThienDien(): JSX.Element | null {
                 onClick={() => void tick(30)}
               >
                 <Icon ten="ban_do" co={14} /> Trôi 30 nhịp
+              </button>
+              {/*
+               * Đứng riêng ở mép phải vì nó đi NGƯỢC chiều ba nút kia: chúng đẩy
+               * thế giới tới, nút này kéo nó lùi một bước rồi kể lại bước ấy.
+               */}
+              <button
+                style={{
+                  ...nut(),
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginLeft: 'auto',
+                  opacity: khoaReroll ? 0.45 : 1,
+                  cursor: khoaReroll ? 'not-allowed' : 'pointer',
+                }}
+                disabled={khoaReroll}
+                title={
+                  khoaReroll
+                    ? viSaoKhoaReroll
+                    : 'Reroll — bỏ lời kể vừa rồi, lùi thế giới về ngay trước nó, rồi kể lại đúng lượt ấy. Chỉ lùi được một lượt.'
+                }
+                onClick={() => void reroll()}
+              >
+                <Icon ten="ke_lai" co={14} /> Reroll
               </button>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>

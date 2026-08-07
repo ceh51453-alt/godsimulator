@@ -413,6 +413,117 @@ describe('[BB] E2E — lưu, rời ván, mở lại', () => {
   );
 });
 
+// ─────────────────────────────────────────── reroll
+
+/**
+ * Nút Reroll.
+ *
+ * Hợp đồng của nó gói trong một câu: lượt được kể lại phải chạy trên ĐÚNG thế
+ * giới mà lượt cũ đã chạy, không phải trên thế giới sau lượt cũ. Bài đầu đo câu
+ * ấy theo cách khó cãi nhất — bắt model kể y hệt lần trước rồi đòi `hashState`
+ * khớp từng chữ. Một patch bị áp hai lần, một Event thừa nằm lại trong log, một
+ * dòng cũ sót trong khung kể: cả ba đều làm hash lệch ngay tại đó.
+ *
+ * Nhịp nền tắt suốt khối này, và đó là chỉnh của bài test chứ không phải của sản
+ * phẩm: thứ đang đo là phép lùi, không phải chuyện thế giới tự đi tiếp.
+ */
+describe('[BB] E2E — Reroll lùi thế giới về trước lời kể rồi kể lại', () => {
+  /** Khối `<CapNhat>` tạo đúng một khái niệm — vết tay nhỏ nhất một lượt kể để lại. */
+  const khoiKhaiNiem = (id: string, ten: string): string => {
+    const s = useGame.getState().state;
+    return `<CapNhat>{"patches":[
+      {"op":"link","target":{"table":"entities","id":"${id}","path":""},"value":{
+        "id":"${id}","branchId":"${s?.world.branchId ?? ''}","kind":"concept","ten":"${ten}","moTa":"","tickSinh":${s?.world.tick ?? 0},
+        "aspects":{"conceptual":{"giaiDoan":"thanh_hinh","trongSo":300}}}}
+    ]}</CapNhat>`;
+  };
+
+  const CAU_NGUOI_CHOI = 'ta gọi một cái tên';
+
+  it('vừa mở ván, chưa kể lượt nào thì không reroll được — và bấm cũng không sao', async () => {
+    useGame.getState().datTuDienHoa({ bat: false });
+    expect(useGame.getState().rerollDuoc).toBe(false);
+
+    const truoc = hashState(useGame.getState().state as never);
+    const soGoi = soLanKe;
+    await useGame.getState().reroll();
+
+    // Không hỏi model, không đụng thế giới. Một nút chưa dùng được thì im lặng.
+    expect(soLanKe).toBe(soGoi);
+    expect(hashState(useGame.getState().state as never)).toBe(truoc);
+  });
+
+  it('kể lại y hệt cho ĐÚNG thế giới cũ — không patch nào bị áp hai lần', async () => {
+    const loiKe = `Một tên gọi rơi xuống. ${khoiKhaiNiem('concept_reroll_a', 'Tiếng Vọng')}`;
+    kichBan = [loiKe];
+    soLanKe = 0;
+    await useGame.getState().gui(CAU_NGUOI_CHOI);
+
+    expect(useGame.getState().rerollDuoc).toBe(true);
+    expect(useGame.getState().state?.entities.has('concept_reroll_a')).toBe(true);
+    const hashSauLuot = hashState(useGame.getState().state as never);
+    const soEvent = useGame.getState().log?.soLuong() ?? 0;
+    const soDong = useGame.getState().scene.length;
+
+    kichBan = [loiKe];
+    soLanKe = 0;
+    await useGame.getState().reroll();
+
+    expect(soLanKe).toBe(1);
+    expect(hashState(useGame.getState().state as never)).toBe(hashSauLuot);
+    expect(useGame.getState().log?.soLuong()).toBe(soEvent);
+    expect(useGame.getState().scene.length).toBe(soDong);
+  });
+
+  it('lời kể khác thì thứ lượt cũ tạo ra biến mất theo nó, chứ không chồng lên', async () => {
+    kichBan = [`Tên gọi ấy hoá ra là tên khác. ${khoiKhaiNiem('concept_reroll_b', 'Tiếng Vọng Khác')}`];
+    soLanKe = 0;
+    await useGame.getState().reroll();
+
+    const s = useGame.getState().state;
+    expect(s?.entities.has('concept_reroll_a')).toBe(false);
+    expect(s?.entities.has('concept_reroll_b')).toBe(true);
+  });
+
+  it('câu của người chơi ở lại — reroll thay lời KỂ, không thay lời họ nói', () => {
+    const scene = useGame.getState().scene;
+    expect(scene.filter((d) => d.loai === 'nguoi_choi' && d.noiDung === CAU_NGUOI_CHOI).length).toBe(1);
+
+    const cuoi = scene[scene.length - 1];
+    expect(cuoi?.loai).toBe('ket_qua');
+    expect(cuoi?.noiDung).toContain('hoá ra là tên khác');
+  });
+
+  it('chỉ lùi được MỘT lượt — một lượt mới chôn đường về lượt trước nó', async () => {
+    kichBan = ['Rồi ngươi đi tiếp.'];
+    soLanKe = 0;
+    await useGame.getState().gui('ta đi tiếp');
+
+    kichBan = ['Rồi ngươi đi tiếp, kể khác.'];
+    soLanKe = 0;
+    await useGame.getState().reroll();
+
+    // Lùi về đầu lượt VỪA RỒI, nên thứ lượt trước đó dựng lên vẫn còn nguyên.
+    expect(useGame.getState().state?.entities.has('concept_reroll_b')).toBe(true);
+  });
+
+  it('cổng AI đóng thì reroll không kể gì — nó không phải cửa sau của ADR-0028', async () => {
+    useAi.setState({ cfg: AiConfigSchema.parse({}) });
+    expect(useAi.getState().cong().choPhepChoi).toBe(false);
+
+    const truoc = hashState(useGame.getState().state as never);
+    const soGoi = soLanKe;
+    await useGame.getState().reroll();
+
+    expect(soLanKe).toBe(soGoi);
+    expect(hashState(useGame.getState().state as never)).toBe(truoc);
+    expect(useGame.getState().loi.some((l) => l.code.startsWith('CONG_AI_'))).toBe(true);
+
+    useAi.setState({ cfg: CAU_HINH_HOP_LE });
+    useGame.getState().datTuDienHoa({ bat: true });
+  });
+});
+
 // ─────────────────────────────────────────── cổng AI
 
 describe('[BB] E2E — ADR-0028 và ADR-0056 giữ được ở đường chơi thật', () => {

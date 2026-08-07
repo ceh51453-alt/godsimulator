@@ -35,6 +35,25 @@ const NHAN_NGUON: Readonly<Record<NguonLorebook, string>> = Object.freeze({
   di_san: 'Di sản — mang từ ván trước',
 });
 
+/**
+ * Sách dựng sẵn nằm ở `public/lorebooks/` và được dựng bằng script trong
+ * `tools/`. Chúng đi qua đúng đường nhập của một file người dùng kéo vào —
+ * không có đường tắt nào ghi thẳng vào state — nên một sách dựng sẵn hỏng thì
+ * hỏng y như một sách nhập vào, và hiện lỗi ở cùng một chỗ.
+ */
+const DUNG_SAN = Object.freeze([
+  Object.freeze({
+    tep: 'than-thoai-an-do.json',
+    ten: 'Thần thoại Ấn Độ',
+    moTa: 'Thế giới trống kết tinh dần thành Bharata; mười bốn cõi Loka mở dần chứ không bày ra một lượt.',
+  }),
+  Object.freeze({
+    tep: 'than-thoai-hy-lap.json',
+    ten: 'Thần thoại Hy Lạp',
+    moTa: 'Thế giới trống kết tinh dần thành Olympus qua năm tầng: dấu hiệu, danh xưng, luật, cõi giới, sử thi.',
+  }),
+]);
+
 const NHAN_KY_VONG: Readonly<Record<TrangThaiKyVong, string>> = Object.freeze({
   cho: 'đang chờ',
   da_thoa: 'đã thành',
@@ -70,7 +89,7 @@ export function Lorebook(): JSX.Element {
   const xoaKhoiThuVien = useThuVienLorebook((s) => s.xoaKhoiThuVien);
   const oFile = useRef<HTMLInputElement>(null);
   const [tin, setTin] = useState('');
-  const [dangThemDungSan, setDangThemDungSan] = useState(false);
+  const [dangThemDungSan, setDangThemDungSan] = useState('');
 
   /*
    * `WorldState` chứa Map và Event engine sửa Map tại chỗ. Theo dõi thêm hash
@@ -98,27 +117,27 @@ export function Lorebook(): JSX.Element {
     return ok;
   };
 
-  const themDungSan = async (): Promise<void> => {
-    setDangThemDungSan(true);
+  const themDungSan = async (muc: (typeof DUNG_SAN)[number]): Promise<void> => {
+    setDangThemDungSan(muc.tep);
     try {
-      const url = `${import.meta.env.BASE_URL}lorebooks/than-thoai-an-do.json`;
+      const url = `${import.meta.env.BASE_URL}lorebooks/${muc.tep}`;
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const noiDung = await response.text();
-      const okThuVien = await themThuVien(noiDung, 'Thần thoại Ấn Độ', {
+      const okThuVien = await themThuVien(noiDung, muc.ten, {
         dungSan: true,
         chonChoVanMoi: state === null,
       });
       if (!okThuVien) return;
       if (state !== null) {
-        await themMucVaoVan(noiDung, 'Thần thoại Ấn Độ');
+        await themMucVaoVan(noiDung, muc.ten);
       } else {
-        setTin('Đã thêm và chọn “Thần thoại Ấn Độ” cho ván mới. Bạn có thể bỏ tick nếu chưa muốn dùng.');
+        setTin(`Đã thêm và chọn “${muc.ten}” cho ván mới. Bạn có thể bỏ tick nếu chưa muốn dùng.`);
       }
     } catch (error) {
       setTin(`Không đọc được Lorebook dựng sẵn: ${error instanceof Error ? error.message : String(error)}.`);
     } finally {
-      setDangThemDungSan(false);
+      setDangThemDungSan('');
     }
   };
 
@@ -140,14 +159,18 @@ export function Lorebook(): JSX.Element {
       phu={`${thuVien.filter((x) => x.chonChoVanMoi).length}/${thuVien.length} sách sẽ tự nạp và bật khi tạo ván`}
     >
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          style={nut(false, dangThemDungSan || dangXuLyThuVien)}
-          disabled={dangThemDungSan || dangXuLyThuVien}
-          onClick={() => void themDungSan()}
-        >
-          {dangThemDungSan ? 'Đang thêm…' : 'Thêm Thần thoại Ấn Độ'}
-        </button>
+        {DUNG_SAN.map((muc) => (
+          <button
+            key={muc.tep}
+            type="button"
+            title={muc.moTa}
+            style={nut(false, dangThemDungSan !== '' || dangXuLyThuVien)}
+            disabled={dangThemDungSan !== '' || dangXuLyThuVien}
+            onClick={() => void themDungSan(muc)}
+          >
+            {dangThemDungSan === muc.tep ? 'Đang thêm…' : `Thêm ${muc.ten}`}
+          </button>
+        ))}
         <button
           type="button"
           style={nut(true, dangXuLyThuVien)}

@@ -33,7 +33,8 @@ export type TenIcon =
   | 'di_hoa'
   | 'tinh_do'
   | 'canh_bao'
-  | 'nhip';
+  | 'nhip'
+  | 'ke_lai';
 
 type Props = SVGProps<SVGSVGElement> & { ten: TenIcon; co?: number };
 
@@ -116,6 +117,13 @@ const NET: Readonly<Record<TenIcon, JSX.Element>> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 6.5V12l3.5 2.5" />
+    </>
+  ),
+  // Vòng khép hụt một quãng, có mũi tên — kể lại chính chỗ vừa kể.
+  ke_lai: (
+    <>
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+      <path d="M20.5 4.5V9.5H15.5" />
     </>
   ),
 };
