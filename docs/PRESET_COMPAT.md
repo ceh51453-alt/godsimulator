@@ -156,15 +156,21 @@ Fixture A còn có **7 prompt ngoài order** — chúng phải được lưu đ�
 
 ## Chuẩn hóa
 
-| Hạng mục                             | Quy tắc                                                 |
-| ------------------------------------ | ------------------------------------------------------- |
-| ID                                   | namespace theo `pack/hash`, tránh đụng id native        |
-| Raw source                           | giữ **bất biến** để round-trip lại đúng file gốc        |
-| `context` / `output` / `top-k`       | giữ **raw**, rồi clamp theo `ModelProfile` + Probe      |
-| Macro var                            | nằm trong namespace của pack, **không** ghi World       |
-| Marker                               | đọc từ `WorldView` **đã chiếu**, không đọc từ World thô |
-| `<thinking>` và yêu cầu lộ reasoning | **không hiển thị, không lưu**                           |
-| `personaDescription`, `{{user}}`     | chỉ nhận `ProjectedPlayerPersona` (Phần 78.11)          |
+| Hạng mục                             | Quy tắc                                                             |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| ID                                   | namespace theo `pack/hash`, tránh đụng id native                    |
+| Raw source                           | giữ **bất biến** để round-trip lại đúng file gốc                    |
+| `context` / `output` / `top-k`       | giữ **raw**, rồi clamp theo `ModelProfile` + Probe                  |
+| Macro var                            | nằm trong namespace của pack, **không** ghi World                   |
+| Marker                               | đọc từ `WorldView` **đã chiếu**, không đọc từ World thô             |
+| `<thinking>` và yêu cầu lộ reasoning | **không hiển thị, không lưu**                                       |
+| `personaDescription`, `{{user}}`     | chỉ nhận `ProjectedPlayerPersona` (Phần 78.11)                      |
+| `assistant_prefill` (trường cấp cao) | dựng thành module lane `prefill` — không nằm lại trong bảng tham số |
+
+`assistant_prefill` không có trong `prompts[]`, nên nó từng đi lọt cả pipeline: lưu được,
+export lại được, và không lượt kể nào nhận được nó. Giờ nó là một module bình thường và đi
+đúng tầng 6 của 63.6 — model không nhận prefill thì nó bị bỏ **kèm** issue
+`PREFILL_KHONG_HO_TRO`, chứ không biến mất lặng lẽ.
 
 ---
 
@@ -201,6 +207,91 @@ maxRegexMs              20
 
 Fixture A có 5 helper script (3 bật ở nguồn) và 8 regex (4 bật). Fixture B có 4 helper
 (3 bật) và 21 regex (20 bật). **Không cái nào được chạy khi nhập.**
+
+---
+
+## Regex — bám sát SillyTavern ở đúng chỗ dễ lệch
+
+Sandbox (timeout, chặn quay lui, trần ký tự) là phần Thiên Diễn thêm vào. Còn **ngữ nghĩa**
+của pattern và chuỗi thay thế thì phải giống SillyTavern, vì người dùng đã thử preset ở đó
+rồi mới mang sang. Lệch ở đây không làm hỏng lượt — nó chỉ cho ra một văn bản khác, im lặng.
+
+| Chi tiết                                | Quy tắc                                                          |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| `"pattern"` viết trần                   | `new RegExp(pattern)` **không cờ** → thay **lần khớp đầu**       |
+| `/pattern/flags`                        | cờ do preset khai; `/…/g` mới thay hết                           |
+| `{{match}}` và `$&`                     | toàn bộ phần khớp                                                |
+| `$0`–`$99`, `$<tên>`                    | nhóm tương ứng, đã lọc `trimStrings`                             |
+| nhóm không tham gia · `$n` vượt số nhóm | **giữ nguyên `$n`** trong output                                 |
+| `placement` rỗng                        | không chạy ở đâu (`placement.includes` của ST)                   |
+| `markdownOnly` + `promptOnly` cùng bật  | chạy cả khi hiển thị lẫn khi ghép prompt                         |
+| `minDepth < -1` · `maxDepth < 0`        | coi như **không đặt guard**, không phải "chặn tất"               |
+| `disabled: true` trong file             | vẫn bật lại được từ cấu hình pack — công tắc UI có hiệu lực thật |
+
+Hai dòng giữa bảng là hai lỗi đã sửa, không phải lựa chọn phong cách: trả chuỗi rỗng cho
+nhóm không tham gia là **nuốt nội dung**, và đếm `args` từ đầu mảng khiến `$4` của một regex
+hai nhóm bốc phải cả chuỗi đầu vào rồi chèn nó vào output.
+
+Đo trên 8 regex của fixture A: sau sửa, **cả 8 pattern cho ra cùng cờ với
+`regexFromString` của ST**, kể cả mẫu trần `^([\s\S]*)$` đang bật.
+
+### Regex nội tuyến `<regex>` trong prompt
+
+Preset kiểu Tawa nhúng thẳng khối `<regex order=N>"/mẫu/cờ" : "thay thế"</regex>` vào nội dung
+prompt. Ba luật:
+
+- Chỉ chạy trên module **nhập**; message `td:*` giữ nguyên từng byte.
+- Trần `maxBlockChars` áp cho **từng message**, không cho tổng. Cộng dồn cả mảng rồi hủy tất là
+  đo sai đại lượng — Tawa v3.0.3 có 233.928 ký tự tổng nhưng message dài nhất chỉ 18.554, và
+  cả 42 khối `<regex>` của nó từng không chạy lần nào.
+- Mẫu được phép chứa dấu `/` thô (`"/<a>(.*?)</a>/gs"`) như `regexFromString` của ST. Khối sai
+  dạng thì **báo ra**, không biến mất im lặng.
+
+**Cố ý khác ST**, và đây là lý do:
+
+| Chỗ khác                     | ST làm gì                              | Thiên Diễn làm gì và tại sao                                       |
+| ---------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `$n` không có nhóm tương ứng | trả `''` (hoặc chèn nhầm offset)       | giữ `$n` — `replaceString` thật hay chứa `$5` là **giá số tiền**   |
+| pattern quay lui hàm mũ      | vẫn chạy                               | từ chối trước, `needs_adapter`                                     |
+| regex chạy lâu               | không đo                               | quá `maxRegexMs` → bỏ kết quả, giữ văn bản gốc, tắt cho lượt sau   |
+| `placement` 3 / 5 / 6        | slash-command · world info · reasoning | chưa hỗ trợ — chỉ 1 (user input) và 2 (AI output)                  |
+| `substituteRegex` 1/2        | thay macro vào `findRegex`             | ghi cảnh báo, dùng pattern thô (fixture A: cả 8 script đều là `0`) |
+
+---
+
+## Macro — bám sát ST, trừ ba chỗ có lý do
+
+Đo trên fixture A: **10 tên macro khác nhau** trong 182 prompt, nhiều nhất là `{{trim}}`
+(69 prompt) và `{{addvar}}` (63).
+
+| Macro                                                 | Trạng thái                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `char` `user` `persona` `description`                 | từ `WorldView` đã chiếu + `ProjectedPlayerPersona`                   |
+| `setvar` `getvar` `addvar` `incvar` `decvar`          | ngữ nghĩa ST đầy đủ (xem dưới), namespace `preset.<packId>`          |
+| `setglobalvar` … `decglobalvar`                       | ánh xạ về biến pack, **kèm cảnh báo đổi phạm vi** (không xuyên save) |
+| `random` `pick` `roll` `reverse`                      | cả `{{tên::a::b}}` lẫn `{{tên:a,b}}` và `{{roll d6}}`                |
+| `newline` `noop` `{{//chú thích}}`                    | như ST                                                               |
+| `lastusermessage`                                     | có                                                                   |
+| `time` `date` `weekday` `idle_duration` …             | **không** — `core/` không đọc đồng hồ máy (luật bất biến #7)         |
+| `input` `lastMessage` `lastCharMessage` `maxPrompt` … | chưa có — giữ nguyên văn kèm cảnh báo, không đoán bằng regex         |
+
+**`addvar` không ép về số.** Đây là ngữ nghĩa `addLocalVariable` của ST: mảng JSON thì push,
+hai vế đều đọc được thành số thì cộng số, **còn lại nối chuỗi**. Fixture A gọi `addvar` 64
+lần và **62 lần giá trị là văn bản** — preset gom luật nhiều dòng vào biến rồi in lại bằng
+`{{getvar}}`. Render tuần tự toàn bộ prompt đang bật cho ra **13 biến, trong đó 8 biến giữ
+tổng cộng hơn 8.000 ký tự chỉ dẫn**, và cả 8 đều được đọc lại bằng `{{getvar}}` trong một
+prompt đang bật. Ép số biến từng biến ấy thành `0`: preset vẫn chạy, prompt vẫn gửi, chỉ là
+8.000 ký tự luật đã bốc hơi mà không có một cảnh báo nào.
+
+`incvar` / `decvar` **in ra** giá trị mới (ST trả về nó); `setvar` / `addvar` ghi im lặng.
+
+Ba chỗ cố ý khác ST:
+
+| Chỗ khác         | ST làm gì                                     | Thiên Diễn làm gì và tại sao                                                                                                                        |
+| ---------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{{random}}`     | entropy thật, mỗi lần render một khác         | seeded theo `sceneId + moduleId + turn` — replay xác định là bất biến của engine                                                                    |
+| `{{trim}}`       | xóa `\r?\n` **hai bên** vị trí đặt macro      | cắt whitespace hai đầu khối. Đo fixture A: sau khi bỏ macro rỗng, 56 ở đầu khối, 13 ở cuối, **1 ở giữa** — hai cách cho cùng kết quả, nên không đổi |
+| macro không biết | thử tra biến cùng tên, không có thì để nguyên | **luôn** giữ nguyên văn + ghi `MACRO_CAN_ADAPTER`; 63.5 cấm đoán mò                                                                                 |
 
 ---
 

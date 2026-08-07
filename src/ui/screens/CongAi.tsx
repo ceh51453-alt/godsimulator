@@ -242,7 +242,7 @@ function CotEndpoint({ ten, batBuoc }: { ten: TenEndpoint; batBuoc: boolean }): 
       </div>
 
       {/* Thông số sinh — slider + preset, gập mặc định để không lấn chỗ. */}
-      <ThongSoSinh params={paramsHienThi} tat={tat} onThayDoi={doiParams} />
+      <ThongSoSinh params={paramsHienThi} tat={tat} onThayDoi={doiParams} hoSo={hoSo} />
       {coPresetBat && (
         <p style={{ ...nhanNho, margin: 0, color: 'var(--ngoc)', lineHeight: 1.4 }}>
           Preset đang bật — thông số hiện tại đã gộp giá trị từ preset. Chỉnh ở đây sẽ lưu theo preset/nhánh,

@@ -34,6 +34,9 @@ import { calibMoi, tuHieuChinh } from '../core/ai/nganSach.js';
 import type { Calib, LoaiCall } from '../core/ai/nganSach.js';
 import { docCauHinhAi, luuCauHinhAi } from '../db/aiConfig.js';
 import { coIndexedDb, layDb } from '../db/instance.js';
+import { hoSoChoModel } from '../core/ai/hoSo.js';
+import { R } from '../core/registry/index.js';
+import type { ModelProfile } from '../core/schema/ai.js';
 
 /** Ba điểm cuối của 46.1. */
 export type TenEndpoint = 'narrator' | 'updater' | 'workflow';
@@ -408,6 +411,28 @@ export const useAi = create<TrangThaiAi>((set, get) => {
 /** Đọc cổng ngoài React — `useGame` dùng cái này, không dùng hook. */
 export function congCuaAi(): HoSoCong {
   return useAi.getState().cong();
+}
+
+/**
+ * Hồ sơ model đang có hiệu lực cho một điểm cuối.
+ *
+ * [BB] 31.2 — "giá trị max của mọi slider lấy từ Profile đang chọn, không
+ * hardcode trong component". Giải nó ở một chỗ để mọi màn hình hỏi cùng một câu
+ * và nhận cùng một đáp án; trước đây `CongAi` tự tính còn `ThongSoSinh` thì đọc
+ * một bảng hằng, nên nâng registry lên 2M không tới được cái slider.
+ */
+export function hoSoCuaEndpoint(ten: TenEndpoint): ModelProfile {
+  const ep = useAi.getState().cfg[ten];
+  const ds = R.profile.tatCa().map((d) => ({ id: d.id, profile: d.profile }));
+  return hoSoChoModel(
+    {
+      modelId: ep.modelId,
+      profileId: ep.profileId,
+      contextMaxDaQuet: ep.availableModels.find((m) => m.id === ep.modelId)?.contextMax ?? null,
+    },
+    ds,
+    R.profile.lay('khong_ro')?.profile ?? (ds[0]?.profile as ModelProfile),
+  );
 }
 
 export type { ThieuSot };
