@@ -15,6 +15,7 @@ import { taoEvent } from './transaction.js';
 import type { Tuning } from '../tuning/schema.js';
 import { vongKetTinh } from '../vatly/vongKetTinh.js';
 import { apLuat } from '../vatly/apLuat.js';
+import { patchTienTrinhVuTru } from '../thanThoai/tienTrinh.js';
 
 export type BuocTick = {
   readonly so: number;
@@ -286,6 +287,7 @@ export function buocEngineThuan(nc: NgocCanhBuoc): {
     suKien.push(...r.suKien);
   }
   patches.push(...buoc10(nc), ...buoc11(nc), ...buoc14(nc));
+  patches.push(...patchTienTrinhVuTru(nc.state, nc.eventId, nc.tickMoi));
   return { patches, suKien };
 }
 

@@ -9,6 +9,50 @@
 import { z } from 'zod';
 import { PATCH_OPS, ViewModeSchema } from './primitives.js';
 
+/** Sáu nguyên mẫu khởi nguyên — dữ liệu tiền đề, không tự sinh sẵn thực thể. */
+export const NGUYEN_MAU_SANG_THE = [
+  'phan_tach_hon_don',
+  'vu_tru_noan',
+  'hien_te_nguyen_thuy',
+  'ngon_tu',
+  'tho_lan_dat',
+  'giao_phoi_troi_dat',
+] as const;
+export type NguyenMauSangThe = (typeof NGUYEN_MAU_SANG_THE)[number];
+
+/**
+ * Tiến trình vũ trụ có thể kiểm chứng.
+ *
+ * Năm bậc giữa lấy từ chính bằng chứng của WorldState; `tan_the` và `tai_tao`
+ * là hai bậc chu kỳ, không phải một con số trang trí trong registry kết cục.
+ */
+export const GIAI_DOAN_SANG_THE = [
+  'hu_vo',
+  'dau_hieu',
+  'danh_xung',
+  'luat_thanh',
+  'coi_gioi',
+  'su_thi',
+  'tan_the',
+  'tai_tao',
+] as const;
+export type GiaiDoanSangThe = (typeof GIAI_DOAN_SANG_THE)[number];
+
+export const SangTheStateSchema = z
+  .object({
+    nguyenMau: z.enum(NGUYEN_MAU_SANG_THE).prefault('phan_tach_hon_don'),
+    giaiDoan: z.enum(GIAI_DOAN_SANG_THE).prefault('hu_vo'),
+    /** Id entity/link/storyline đang làm bằng chứng cho bậc hiện tại. */
+    bangChungIds: z.array(z.string()).max(24).prefault([]),
+    chuKy: z.number().int().min(1).prefault(1),
+    tickBatDauChuKy: z.number().int().min(0).prefault(0),
+    ketCucHienTai: z.string().nullable().prefault(null),
+    tickKetCuc: z.number().int().nullable().prefault(null),
+    /** Mỗi chu kỳ cũ co lại thành một câu, không bị xóa khỏi lịch sử. */
+    diSanChuKy: z.array(z.string().max(500)).max(12).prefault([]),
+  })
+  .prefault({});
+
 export const PatchOpSchema = z
   .object({
     op: z.enum(PATCH_OPS),
@@ -133,6 +177,8 @@ export const WorldSchema = z
      * `GhiChuHauTruongSchema` mới là chỗ kiểm hình dạng thật.
      */
     hauTruong: z.array(z.unknown()).prefault([]),
+    /** Sáng thế và vòng tận thế–tái tạo của chính nhánh này. */
+    sangThe: SangTheStateSchema,
     version: z.number().int().min(0),
   })
   .strict();
@@ -142,3 +188,4 @@ export type Event = z.infer<typeof EventSchema>;
 export type Scene = z.infer<typeof SceneSchema>;
 export type PlayerState = z.infer<typeof PlayerStateSchema>;
 export type World = z.infer<typeof WorldSchema>;
+export type SangTheState = z.infer<typeof SangTheStateSchema>;

@@ -188,6 +188,7 @@ export function nhapLorebook(input: {
       nhomKichHoat: chuoi(t['nhomKichHoat'] ?? t['group']),
       giaiDoanMo: so(t['giaiDoanMo'] ?? t['phase'], 0),
       triHoanHienThuc: t['triHoanHienThuc'] === true || t['deferMaterialization'] === true,
+      kyVongKhaiBao: t['kyVongKhaiBao'] ?? t['expectations'] ?? [],
       chuDe: mangChuoi(t['chuDe']),
       doTinCay: input.nguon === 'nguoi_dung' ? 100 : so(t['doTinCay'], 0),
       suKienChongLung: mangChuoi(t['suKienChongLung']),

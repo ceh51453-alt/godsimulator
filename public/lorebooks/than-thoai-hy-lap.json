@@ -28,6 +28,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[ĐẠO DIỄN · THẾ GIỚI ĐANG TRỞ THÀNH THẦN THOẠI HY LẠP]\nGiai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> \"<%= dien.nhan %>\", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.\nNeo đã thành lịch sử: <%= lore.realizedNames %>.\n\n[ĐA THẦN THOẠI] <%= daThan.khungCanh %>\n<%= daThan.giaoUoc %>\n\n1. Thế giới KHÔNG bắt đầu là Olympus. Nó bắt đầu trống và kết tinh dần thành Olympus qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Hy Lạp, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: Olympus là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.\n2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>\n3. Không đảo thứ tự năm tầng. Một địa danh của sách xuất hiện trước khi luật ở đó đứng vững là lỗi thấy được ngay; một vị thần bước ra chào ở lượt đầu là tiêu mất hai mươi lượt còn lại.\n4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới. Thế giới lớn lên bằng chiều sâu, không bằng danh sách.\n5. Trần kết tinh không bao giờ chạm 100 vì lực hút chỉ có <%= lore.gravity %>/100. Phần còn thiếu ấy KHÔNG phải thiếu sót — nó là phần của <%= user.name %>, và phải được lấp bằng chuyện xảy ra trong ván chứ không bằng nguyên tác.\n6. <%= user.name %> ở BÊN TRONG thần thoại này, không phải khán giả. Việc <%= user.name %> làm quyết định thần thoại kết tinh theo hướng nào — nhưng KHÔNG được tự trao cho <%= user.name %> thân phận, quan hệ, vật phẩm hay quyền năng nào. Mọi thứ phải giành được qua sự kiện trong game.\n7. Các thần và nhân vật giữ động cơ riêng. Không ai tự yêu, tự phục tùng hay tự trao đặc quyền cho <%= user.name %> chỉ vì đó là người chơi.\n8. Khi sách bị TẮT, không dùng bất kỳ entry, quy luật, lời tiên tri hay tên gọi nào của sách để dẫn dắt lượt mới. Những gì đã xảy ra vẫn là lịch sử của thế giới; những gì sách mới chỉ hứa thì thôi."
     },
     {
@@ -47,6 +48,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[CHỐNG XUNG ĐỘT · áp cho MỌI entry của sách này]\nSách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry cùng vào một cảnh là chuyện bình thường và KHÔNG được xử lý bằng cách nói hết.\n\n1. MỘT TRỌNG TÂM MỘT LƯỢT. Trong các entry cùng nhóm, chỉ một entry được làm trọng tâm; các entry còn lại nhiều nhất là một câu nền. Bảy entry về Hera là bảy MẶT của Hera, không phải bảy điều phải nói về Hera.\n2. ENTRY LÀ ỨNG VIÊN, KHÔNG PHẢI DÀN Ý. Không có nghĩa vụ dùng hết những gì được đưa vào ngữ cảnh. Một entry không dùng tới thì im — không cần nhắc để chứng tỏ đã đọc.\n3. SỬ THẮNG NGUỒN. Nếu entry nói khác điều đã xảy ra trong ván, điều đã xảy ra thắng. Không sửa lại quá khứ và không giả vờ entry đã tiên đoán đúng.\n4. HAI ENTRY MÂU THUẪN NHAU thì kể mâu thuẫn ấy như hai lời truyền khác nhau trong thế giới, đừng chọn bừa một bên rồi giấu bên kia. Chỗ hai lời truyền vênh nhau là chỗ thế giới còn sống.\n5. TRÙNG LẶP thì gộp, không nói hai lần bằng hai giọng.\n6. Entry được người chơi GỌI ĐÍCH DANH luôn thắng entry do engine gợi ý, kể cả khi nó chưa tới giai đoạn mở.\n7. Entry không đủ chỗ trong lượt này KHÔNG mất — nó là ứng viên của lượt sau. Không dồn nội dung của nó vào một câu tóm tắt cho kịp."
     },
     {
@@ -70,6 +72,28 @@
       "group": "quy_luat",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "so_phan",
+          "loai": "quy_luat",
+          "moTa": "Luật số phận có hiệu lực trong thế giới.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "so_phan"
+          },
+          "doUuTien": 95
+        },
+        {
+          "id": "loi_the",
+          "loai": "quy_luat",
+          "moTa": "Lời thề trở thành một luật có hậu quả.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "loi_the"
+          },
+          "doUuTien": 85
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[BỐN LUẬT NỀN · tầng <%= dien.tang %> \"<%= dien.nhan %>\" · <%= dien.tyLe %>%]\nThần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 \"luật thành\" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.\n\n1. SỐ PHẬN. Cái đã được định sẽ tới, và nó tới CHÍNH VÌ kẻ nghe cố tránh. Lời tiên tri không mô tả tương lai — nó tạo ra tương lai bằng cách khiến người ta hành động. Nhưng nội dung lời tiên tri trong ván này phải chừa chỗ cho <%= user.name %>, và nếu <%= user.name %> làm nó lệch thì phần lệch là Sử.\n2. THẦN CÁCH. Quyền năng có lõi, và lõi ấy chuyển được: giành được, cướp được, chia được, trao được. Một vị thần mất thần cách thì mất tất cả; một kẻ không sinh ra làm thần mà có được thần cách thì thành thần. Đây là cửa của <%= user.name %>.\n3. LỜI THỀ. Lời thề trên dòng sông ranh giới trói được cả Thần Vương. Đây là thứ duy nhất trong thế giới này mạnh hơn quyền lực, và vì thế nó là vũ khí của kẻ yếu. Ai bội thề phải chịu hậu quả THẤY ĐƯỢC, không phải một lời rủa suông.\n4. TÍN NGƯỠNG. Người phàm tin thì thần mạnh lên, người phàm quên thì thần yếu đi. Đây là nguồn sức mạnh MỚI mà phần lớn thần điện chưa nhận ra là đang làm lỗi thời bảng xếp hạng cũ. Ai hiểu ra trước — thần hay người — đều nguy hiểm.\n\nRÀNG BUỘC: <%= dien.khoaLai %>\nBốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho người chơi; nếu có ngoại lệ, nó phải được giành lấy và phải có người chứng kiến."
     },
     {
@@ -94,6 +118,30 @@
       "group": "coi_gioi",
       "phase": 1,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "minh_phu",
+          "loai": "ton_tai",
+          "moTa": "Một cõi chết tương ứng Minh phủ đứng vững.",
+          "dieuKien": {
+            "kieu": "ton_tai_kind",
+            "kind": "realm",
+            "tag": "minh_phu"
+          },
+          "doUuTien": 88
+        },
+        {
+          "id": "olympus",
+          "loai": "ton_tai",
+          "moTa": "Một thần điện mang dấu Olympus đã hình thành.",
+          "dieuKien": {
+            "kieu": "ton_tai_kind",
+            "kind": "pantheon",
+            "tag": "olympus"
+          },
+          "doUuTien": 82
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[BẢN ĐỒ THIÊNG · tầng <%= dien.tang %> · <%= dien.tyLe %>%]\nĐịa lý thiêng dựng lên SAU luật, không trước. Một nơi chốn mang tên của sách trong khi luật ở đó chưa đứng vững là lỗi thấy ngay: người chơi sẽ thấy một cái tên đẹp không có gì đỡ.\n\nThứ tự được phép hiện ra:\n· Tầng 0–1 — chỉ là HƯỚNG: một dãy núi không ai lên tới, một hang không ai vào lại, một khúc sông người ta không uống nước. Chưa có tên.\n· Tầng 2 — có TÊN nhưng còn tranh chấp: mỗi vùng gọi một kiểu, và người kể chuyện không được chốt hộ.\n· Tầng 3 — bản đồ thiêng ĐỨNG: Olympus là nơi ở của thần điện; Minh phủ là cõi người chết; Tartarus là đáy giam thế hệ cũ; dòng sông ranh giới là chỗ để thề. Các nơi này bắt đầu có cư dân, có lối vào, có kẻ canh.\n· Tầng 4 — địa danh gắn với sử thi: đảo trú ẩn, thành bị vây, thành phố dưới biển. Chúng chỉ hiện ra khi sử thi tương ứng đã có nguyên nhân trong ván.\n\nCÁCH DÙNG: <%= dien.tenGoi %>\nKHÓA: <%= dien.khoaLai %>\nNơi nào <%= user.name %> đã đặt tên hoặc đã làm nên lịch sử ở đó thì tên ấy THẮNG tên trong sách. Bảng này không được ghi đè lên Sử."
     },
     {

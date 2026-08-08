@@ -114,6 +114,29 @@ export const SoulSchema = z
     kyUcSuyGiam: z.boolean().prefault(true),
     agency: z.number().min(0).max(100).prefault(100),
 
+    /** Hậu kiếp là trạng thái mô phỏng, không phải một câu kể sau màn hình chết. */
+    hauKiep: z
+      .object({
+        trangThai: z
+          .enum([
+            'dang_song',
+            'luu_lac',
+            'o_coi_chet',
+            'cho_phan_xet',
+            'cho_luan_hoi',
+            'to_tien',
+            'tan_bien',
+            'tai_sinh',
+          ])
+          .prefault('dang_song'),
+        realmId: z.string().nullable().prefault(null),
+        tickChet: z.number().int().nullable().prefault(null),
+        phanXetBoiId: z.string().nullable().prefault(null),
+        soVong: z.number().int().min(0).prefault(0),
+        kyUcMangTheoIds: z.array(z.string()).max(8).prefault([]),
+      })
+      .prefault({}),
+
     /**
      * Điều CHỦ THỂ NÀY nghĩ về từng người khác. Khóa là id người kia.
      *

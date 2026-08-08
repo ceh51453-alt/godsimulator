@@ -29,6 +29,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[ĐẠO DIỄN · THẾ GIỚI ĐANG TRỞ THÀNH THẦN THOẠI NHẬT BẢN]\nGiai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> \"<%= dien.nhan %>\", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.\nNeo đã thành lịch sử: <%= lore.realizedNames %>.\n\n[ĐA THẦN THOẠI] <%= daThan.khungCanh %>\n<%= daThan.giaoUoc %>\n\n1. Thế giới KHÔNG bắt đầu là Ashihara no Nakatsukuni. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Nhật Bản, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: thần thoại Nhật là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.\n2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>\n3. Không đảo thứ tự năm tầng. Kami ở thần thoại này nhập thế bằng MỘT CHỖ CỤ THỂ trước khi có tên: đúng tảng đá ấy, đúng khúc sông ấy, đúng cái cây không ai dám chặt. Một vị thần bước ra tự giới thiệu ở lượt đầu là tiêu mất hai mươi lượt còn lại.\n4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Thần thoại này có tám triệu kami và cám dỗ lớn nhất của nó là gọi tên hàng loạt. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới; thế giới lớn lên bằng chiều sâu, không bằng danh sách.\n5. HAI THỜI, và không trộn. Kamiyo — thời thần linh — là thời của Izanagi, Amaterasu, Okuninushi. Thời của người là thời của thầy Âm Dương, của tướng diệt quỷ, của đền và của oán linh. Người của thời sau chỉ bước vào cảnh khi thế giới đã đủ luật và đủ cõi để có một \"thời trước\" đáng nhớ về, và khi đó thần chỉ còn hiện ra qua đền, qua bệnh, qua giấc mơ và qua yêu quái.\n6. Trần kết tinh không bao giờ chạm 100 vì lực hút chỉ có <%= lore.gravity %>/100. Phần còn thiếu ấy KHÔNG phải thiếu sót — nó là phần của <%= user.name %>, và phải được lấp bằng chuyện xảy ra trong ván chứ không bằng nguyên tác.\n7. <%= user.name %> ở BÊN TRONG thần thoại này, không phải khán giả. Việc <%= user.name %> làm quyết định thần thoại kết tinh theo hướng nào — nhưng KHÔNG được tự trao cho <%= user.name %> thân phận, thị tộc, thần bảo hộ, huyết thống hay quyền năng nào. Mọi thứ phải giành được qua sự kiện trong game.\n8. Các kami và nhân vật giữ động cơ riêng. Không ai tự yêu, tự phục tùng hay tự trao đặc quyền cho <%= user.name %> chỉ vì đó là người chơi. Kami ở đây không toàn năng, không toàn thiện, và giận dai.\n9. Cuộc chuyển giao cõi trần, việc mặt trời trốn vào hang, và sự kết thúc của thời thần KHÔNG phải kịch bản phải chạy cho hết. Chúng chỉ khởi động khi nguyên nhân của chúng đã có mặt trong chính ván này, và <%= user.name %> phải kịp can thiệp trước khi chúng không còn ngăn được nữa.\n10. Khi sách bị TẮT, không dùng bất kỳ entry, quy luật, lời tiên tri hay tên gọi nào của sách để dẫn dắt lượt mới. Những gì đã xảy ra vẫn là lịch sử của thế giới; những gì sách mới chỉ hứa thì thôi."
     },
     {
@@ -49,6 +50,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[CHỐNG XUNG ĐỘT · áp cho MỌI entry của sách này]\nSách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry cùng vào một cảnh là chuyện bình thường và KHÔNG được xử lý bằng cách nói hết.\n\n1. MỘT TRỌNG TÂM MỘT LƯỢT. Trong các entry cùng nhóm, chỉ một entry được làm trọng tâm; các entry còn lại nhiều nhất là một câu nền. Thang cõi là một nhóm — một cảnh lấy một tầng, không lấy cả thang. Ba báu vật thiêng là một nhóm — một cảnh nhắc một món, không bày cả ba.\n2. ENTRY LÀ ỨNG VIÊN, KHÔNG PHẢI DÀN Ý. Không có nghĩa vụ dùng hết những gì được đưa vào ngữ cảnh. Một entry không dùng tới thì im — không cần nhắc để chứng tỏ đã đọc.\n3. SỬ THẮNG NGUỒN. Nếu entry nói khác điều đã xảy ra trong ván, điều đã xảy ra thắng. Không sửa lại quá khứ và không giả vờ entry đã tiên đoán đúng.\n4. HAI ENTRY MÂU THUẪN NHAU thì kể mâu thuẫn ấy như hai truyền thống của hai vùng — thần thoại này vốn có Kojiki một đằng, Nihon Shoki một nẻo, Izumo kể khác Yamato, và sự vênh ấy là ĐẶC ĐIỂM chứ không phải lỗi. Đừng chọn bừa một bên rồi giấu bên kia.\n5. TRÙNG LẶP thì gộp, không nói hai lần bằng hai giọng.\n6. KHÔNG TRỘN HAI THỜI trong một cảnh. Nếu một entry của thời thần và một entry của thời người cùng được đưa vào, chọn một; muốn để cả hai thì phải nói rõ cái sau đang NHỚ VỀ hoặc đang thờ cái trước, chứ không cho chúng đứng cạnh nhau như người cùng thời.\n7. Entry được người chơi GỌI ĐÍCH DANH luôn thắng entry do engine gợi ý, kể cả khi nó chưa tới giai đoạn mở.\n8. Entry không đủ chỗ trong lượt này KHÔNG mất — nó là ứng viên của lượt sau. Không dồn nội dung của nó vào một câu tóm tắt cho kịp.\n9. ENTRY KHÔNG CÓ MẶT THÌ KHÔNG TỒN TẠI. Không suy ra nội dung của một entry chưa được đưa vào, không nhắc tên một thứ chỉ vì \"sách chắc có\". Nhờ vậy tắt bớt entry hay tắt cả sách đều không để lại lỗ hổng: thế giới chỉ mất đi những lời hứa chưa thành, còn mọi thứ đã xảy ra vẫn nguyên vẹn."
     },
     {
@@ -76,6 +78,28 @@
       "group": "quy_luat",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "o_ue",
+          "loai": "quy_luat",
+          "moTa": "Ô uế bám và lan như một luật hữu hiệu.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "o_ue"
+          },
+          "doUuTien": 94
+        },
+        {
+          "id": "ngon_linh",
+          "loai": "quy_luat",
+          "moTa": "Ngôn linh khiến tên và lời nói có lực.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "ngon_linh"
+          },
+          "doUuTien": 90
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[BỐN LUẬT NỀN · tầng <%= dien.tang %> \"<%= dien.nhan %>\" · <%= dien.tyLe %>%]\nThần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 \"luật thành\" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.\n\n1. Ô UẾ VÀ THANH TẨY. Uế không phải tội: nó là một thứ BÁM VÀO, lây được, và nó bám vào cả nạn nhân lẫn kẻ gây ra. Đứng cạnh một cái xác là dơ; sinh nở là dơ; máu là dơ. Đổi lại, thanh tẩy là một THỦ TỤC chạy đúng như nhau cho người vô tội lẫn kẻ vừa giết người — làm đủ nghi thức thì sạch. Đây là lối về mà thế giới này luôn để mở, và cũng là chỗ hở lớn nhất của nó: muốn hạ một người không cần chứng minh họ có tội, chỉ cần khiến họ dơ trước mặt đủ đông người.\n2. NGÔN LINH. Lời nói là vật: gọi đúng tên là chạm vào, hứa là buộc, đọc sai thứ tự trong nghi thức là hỏng thật chứ không chỉ thất lễ. Người ta giấu tên thật, và một cái tên bị kẻ khác biết là một lỗ hổng đã mở. Lời nguyền của kẻ yếu có hiệu lực ngang lệnh của kẻ mạnh — đây là vũ khí luôn nằm trong tầm tay <%= user.name %>, và cũng là thứ có thể trói <%= user.name %> lại.\n3. SINH THÀNH. Mọi thứ ở đây được SINH RA, kể cả từ chỗ không ai ngờ: thần sinh từ nước rửa mắt, từ máu trên chuôi kiếm, từ xác một nữ thần bị giết mà mọc lên lúa và tằm. Bạo lực trong thế giới này không chỉ hủy — nó đẻ. Mỗi lần có kẻ chết oan, hỏi ngay cái gì vừa được sinh ra từ đó, vì thứ ấy sẽ quay lại.\n4. TÁM TRIỆU KAMI, KHÔNG CÓ TÒA PHÚC THẨM. Kami có ở mọi nơi và phần lớn không tên. Trên đỉnh thần giai là những vị ẨN MÌNH và không can thiệp, nên trong thế giới này không ai ở trên để kêu: mọi tranh chấp giải bằng thương lượng, bằng lời thề, bằng thi đấu có luật, hoặc bằng vũ lực. Thứ bậc do biến cố xếp chứ không do sắc phong — nó đã đổi rồi, và còn đổi được nữa.\n\nRÀNG BUỘC: <%= dien.khoaLai %>\nBốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho người chơi; nếu có ngoại lệ, nó phải được giành lấy và phải có người chứng kiến."
     },
     {
@@ -100,6 +124,19 @@
       "group": "coi_gioi",
       "phase": 1,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "yomi",
+          "loai": "ton_tai",
+          "moTa": "Hoàng Tuyền trở thành một cõi chết thật.",
+          "dieuKien": {
+            "kieu": "ton_tai_kind",
+            "kind": "realm",
+            "tag": "yomi"
+          },
+          "doUuTien": 90
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[THANG CÕI VÀ HAI THỜI · tầng <%= dien.tang %> · <%= dien.tyLe %>%]\nVũ trụ này có ba tầng chính và mấy cõi bên, và cả thang KHÔNG được bày ra một lần. Một bản đồ đầy đủ giao cho người chơi ở lượt đầu là một bản đồ không ai còn muốn đi.\n\nThứ tự được phép hiện ra:\n· Tầng 0–1 — chỉ là HƯỚNG và CẢM GIÁC: một con dốc mà đi xuống thì dễ, một cái cổng không ai bước qua lúc chạng vạng, một khúc biển mà thuyền về thiếu người. Chưa tên, chưa tầng, chưa biết trên hay dưới.\n· Tầng 2 — có TÊN nhưng còn tranh chấp: mỗi vùng gọi một kiểu, xếp thứ tự khác nhau, và người kể chuyện không được chốt hộ thang nào đúng.\n· Tầng 3 — thang ĐỨNG. Cao Thiên Nguyên ở trên, và nó là một LÀNG NÔNG NGHIỆP có ruộng, có sông, có nhà dệt — không phải cung điện cẩm thạch. Cõi trần ở giữa, là đất tranh chấp đã đổi chủ một lần. Hoàng Tuyền ở dưới, bịt bằng một tảng đá chứ không bằng cổng có người canh, và luật của nó tàn nhẫn kiểu đơn giản: ăn đồ ăn ở đó là thuộc về đó. Bên cạnh còn cõi ngầm để đi xuống LẤY SỨC MẠNH rồi quay lên, cõi vĩnh hằng bên kia biển mà đi rồi thì gần như không về, và Long Cung chạy theo nhịp thời gian khác.\n· Tầng 4 — ĐẤT THIÊNG của thời người: những ngôi đền và ngọn núi chỉ dựng lên được SAU khi có biến cố sinh ra chúng. Đền lớn ở Izumo là cái giá của một cuộc chuyển giao; ngôi đền cao quý nhất tồn tại vì một tấm gương được gửi vào đó; ngọn núi mỏng ranh giới là nơi yêu quái dạy nghề cho người. Chưa có biến cố thì chưa có đền.\n\nRÀNG BUỘC: mỗi cảnh nhiều nhất MỘT tầng cõi. Đi giữa các cõi phải TỐN — thời gian, một lời thề, hoặc một cái giá; và cây cầu nối trời với đất không còn dùng chung được nữa.\nCÁCH DÙNG: <%= dien.tenGoi %>\nKHÓA: <%= dien.khoaLai %>\nNơi nào <%= user.name %> đã đặt tên hoặc đã làm nên lịch sử ở đó thì tên ấy THẮNG tên trong sách."
     },
     {

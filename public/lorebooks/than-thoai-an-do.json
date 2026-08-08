@@ -28,6 +28,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[ĐẠO DIỄN · THẾ GIỚI ĐANG TRỞ THÀNH THẦN THOẠI ẤN ĐỘ]\nGiai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> \"<%= dien.nhan %>\", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.\nNeo đã thành lịch sử: <%= lore.realizedNames %>.\n\n[ĐA THẦN THOẠI] <%= daThan.khungCanh %>\n<%= daThan.giaoUoc %>\n\n1. Thế giới KHÔNG bắt đầu là Bharata. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Ấn Độ, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: Bharata là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.\n2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>\n3. Không đảo thứ tự năm tầng. Mười bốn cõi Loka bày ra hết ở lượt đầu là mất trắng phần còn lại của ván; một vị trong Trimurti bước ra chào sớm cũng vậy.\n4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới. Thế giới lớn lên bằng chiều sâu, không bằng danh sách.\n5. Trần kết tinh không bao giờ chạm 100 vì lực hút chỉ có <%= lore.gravity %>/100. Phần còn thiếu ấy KHÔNG phải thiếu sót — nó là phần của <%= user.name %>, và phải được lấp bằng chuyện xảy ra trong ván chứ không bằng nguyên tác.\n6. <%= user.name %> ở BÊN TRONG thần thoại này, không phải khán giả. Việc <%= user.name %> làm quyết định thần thoại kết tinh theo hướng nào — nhưng KHÔNG được tự trao cho <%= user.name %> thân phận, dòng dõi, ơn huệ hay quyền năng nào. Mọi thứ phải giành được qua sự kiện trong game.\n7. Các thần và nhân vật giữ động cơ riêng. Không ai tự yêu, tự phục tùng hay tự trao đặc quyền cho <%= user.name %> chỉ vì đó là người chơi.\n8. Sử thi Ramayana và Mahabharata KHÔNG phải kịch bản phải chạy cho hết. Chúng chỉ được khởi động khi nguyên nhân của chúng đã có mặt trong chính ván này, và <%= user.name %> phải kịp can thiệp trước khi chúng không còn ngăn được nữa.\n9. Khi sách bị TẮT, không dùng bất kỳ entry, quy luật, lời tiên tri hay tên gọi nào của sách để dẫn dắt lượt mới. Những gì đã xảy ra vẫn là lịch sử của thế giới; những gì sách mới chỉ hứa thì thôi."
     },
     {
@@ -47,6 +48,7 @@
       "group": "dieu_phoi",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[CHỐNG XUNG ĐỘT · áp cho MỌI entry của sách này]\nSách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry cùng vào một cảnh là chuyện bình thường và KHÔNG được xử lý bằng cách nói hết.\n\n1. MỘT TRỌNG TÂM MỘT LƯỢT. Trong các entry cùng nhóm, chỉ một entry được làm trọng tâm; các entry còn lại nhiều nhất là một câu nền. Mười bốn cõi Loka là một nhóm — một cảnh lấy một tầng, không lấy cả thang.\n2. ENTRY LÀ ỨNG VIÊN, KHÔNG PHẢI DÀN Ý. Không có nghĩa vụ dùng hết những gì được đưa vào ngữ cảnh. Một entry không dùng tới thì im — không cần nhắc để chứng tỏ đã đọc.\n3. SỬ THẮNG NGUỒN. Nếu entry nói khác điều đã xảy ra trong ván, điều đã xảy ra thắng. Không sửa lại quá khứ và không giả vờ entry đã tiên đoán đúng.\n4. HAI ENTRY MÂU THUẪN NHAU thì kể mâu thuẫn ấy như hai truyền thống khác nhau trong thế giới — thần thoại này vốn có nhiều dị bản của cùng một chuyện, và sự vênh ấy là đặc điểm chứ không phải lỗi. Đừng chọn bừa một bên rồi giấu bên kia.\n5. TRÙNG LẶP thì gộp, không nói hai lần bằng hai giọng.\n6. Entry được người chơi GỌI ĐÍCH DANH luôn thắng entry do engine gợi ý, kể cả khi nó chưa tới giai đoạn mở.\n7. Entry không đủ chỗ trong lượt này KHÔNG mất — nó là ứng viên của lượt sau. Không dồn nội dung của nó vào một câu tóm tắt cho kịp."
     },
     {
@@ -72,6 +74,28 @@
       "group": "quy_luat",
       "phase": 0,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "nghiep",
+          "loai": "quy_luat",
+          "moTa": "Nghiệp trở thành luật nhân quả hữu hiệu.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "nghiep"
+          },
+          "doUuTien": 95
+        },
+        {
+          "id": "luan_hoi",
+          "loai": "quy_luat",
+          "moTa": "Luân hồi vận hành như một luật thật.",
+          "dieuKien": {
+            "kieu": "luat_co_the_tag",
+            "tag": "luan_hoi"
+          },
+          "doUuTien": 92
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[BỐN LUẬT NỀN · tầng <%= dien.tang %> \"<%= dien.nhan %>\" · <%= dien.tyLe %>%]\nThần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 \"luật thành\" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.\n\n1. DHARMA VÀ KARMA. Bổn phận phụ thuộc vào anh LÀ AI và đang ở GIAI ĐOẠN NÀO của đời — nên hai bên trong một cuộc chiến đều có thể đúng dharma của mình, và đó là bi kịch trung tâm. Nghiệp là sổ nợ do chính mình ghi: trả sớm được, hoãn được, chuyển sang kiếp sau được. Mọi lời hứa và mọi lời đe dọa trong thế giới này đều là khoản nợ có kỳ hạn.\n2. KHỔ HẠNH, ƠN HUỆ VÀ LỜI NGUYỀN. Tapasya sinh ra quyền năng THẬT và không hỏi anh là ai — kẻ phàm tu đủ lâu vượt được một vị thần lười. Ơn huệ đã ban thì không rút lại được, kể cả khi kẻ nhận dùng nó để giết người ban; thắng một kẻ có ơn huệ phải bằng chỗ hở trong CÂU CHỮ. Lời nguyền trói được cả thần, nên một rishi giận dữ nguy hiểm hơn một đạo quân. Đây là cửa của <%= user.name %>, và cũng là thứ khiến thiên giới mất ngủ.\n3. LUÂN HỒI VÀ GIẢI THOÁT. Chết là bị cân rồi trả về một kiếp khác, nên cõi chết là cửa khẩu chứ không phải nhà tù, và \"ta sẽ giết ngươi\" là lời đe dọa yếu. Lối ra duy nhất khỏi vòng là moksha — và kẻ đạt được nó thôi tham gia mọi cuộc chơi, nên nó vừa là phần thưởng cao nhất vừa là nước đi từ bỏ tất cả.\n4. ẢO ẢNH VÀ GIÁNG PHÀM. Cảnh đang diễn ra có thể không phải cái nó trông như, và bất kỳ ai cũng có thể đang mang một phần của thần mà chính họ không biết — kể cả <%= user.name %>. Dùng cả hai TIẾT CHẾ: maya phải tốn kém, phải có kẻ dựng ra, và phải vỡ được; giáng phàm phải được khám phá qua sự kiện, không được tuyên bố sẵn.\n\nRÀNG BUỘC: <%= dien.khoaLai %>\nBốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho người chơi; nếu có ngoại lệ, nó phải được giành lấy và phải có người chứng kiến."
     },
     {
@@ -96,6 +120,19 @@
       "group": "coi_gioi",
       "phase": 1,
       "deferMaterialization": true,
+      "expectations": [
+        {
+          "id": "loka",
+          "loai": "ton_tai",
+          "moTa": "Ít nhất một cõi loka đã hiện hữu.",
+          "dieuKien": {
+            "kieu": "ton_tai_kind",
+            "kind": "realm",
+            "tag": "loka"
+          },
+          "doUuTien": 88
+        }
+      ],
       "content": "<%# Entry điều phối: luôn đi cùng sách, không tự tạo thực thể nào. %>\n[THANG MƯỜI BỐN CÕI · tầng <%= dien.tang %> · <%= dien.tyLe %>%]\nVũ trụ này có mười bốn cõi xếp thành thang, và cả thang KHÔNG được bày ra một lần. Một bản đồ đầy đủ giao cho người chơi ở lượt đầu là một bản đồ không ai còn muốn đi.\n\nThứ tự được phép hiện ra:\n· Tầng 0–1 — chỉ là HƯỚNG và CẢM GIÁC: một ngọn núi không ai lên tới, một hang thở ra hơi lạnh, một khúc sông người ta không dám lội. Chưa tên, chưa tầng, chưa biết trên hay dưới.\n· Tầng 2 — có TÊN nhưng còn tranh chấp: mỗi vùng gọi một kiểu và xếp thứ tự khác nhau. Người kể chuyện không được chốt hộ thang nào đúng.\n· Tầng 3 — thang ĐỨNG. Bhuloka là trần gian; Swarga là cõi Indra; Naraka là nơi trả nghiệp CÓ KỲ HẠN; bảy tầng Patala ở dưới là vương quốc của asura và naga, giàu hơn thiên giới; Kailash của Shiva và Vaikuntha của Vishnu đứng ngoài tôn ti của Indra. Các cõi bắt đầu có cư dân, có lối đi lại, có kẻ canh.\n· Tầng 4 — cõi gắn với sử thi và với giải thoát: Satya Loka, Tapoloka, Janaloka. Chúng chỉ hiện ra khi có người trong ván thật sự đang đi về phía đó.\n\nRÀNG BUỘC: mỗi cảnh nhiều nhất MỘT tầng cõi. Đi giữa các cõi phải TỐN — thời gian, ơn huệ, hoặc một cái giá.\nCÁCH DÙNG: <%= dien.tenGoi %>\nKHÓA: <%= dien.khoaLai %>\nNơi nào <%= user.name %> đã đặt tên hoặc đã làm nên lịch sử ở đó thì tên ấy THẮNG tên trong sách."
     },
     {

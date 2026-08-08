@@ -73,6 +73,16 @@ export const SpatialSchema = z
     vanHoaId: z.string().nullable().prefault(null),
     danSo: z.number().min(0).prefault(0),
     doPhuThuoc: z.number().min(0).max(100).prefault(0),
+    /** Địa lý linh thiêng phải có cường độ, nguồn và lịch sử hành hương thật. */
+    thieng: z
+      .object({
+        mucDo: z.number().min(0).max(100).prefault(0),
+        loai: z.enum(['thuong', 'thanh_dia', 'truc_the_gioi', 'cua_coi', 'mo_coi']).prefault('thuong'),
+        thanIds: z.array(z.string()).max(12).prefault([]),
+        nguonThiengIds: z.array(z.string()).max(12).prefault([]),
+        luotHanhHuong: z.number().int().min(0).prefault(0),
+      })
+      .prefault({}),
   })
   .prefault({});
 

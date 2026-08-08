@@ -58,12 +58,14 @@ import {
 } from './ho.js';
 import { noi, mucHieu, nguoiNgheLon, xuLyLoiHua } from './doiThoai.js';
 import { datQuanHe, quanHeCua, nguoiTaQuen } from './quanHe.js';
-import { chet, duongDiTiep, anhLinhHoaThan, huyenThoaiHoa, NGUONG_ANH_LINH } from './caiChet.js';
+import { chet, duongDiTiep, anhLinhHoaThan, huyenThoaiHoa, NGUONG_ANH_LINH, taiSinh } from './caiChet.js';
 import { lichCua, dangODau, aiDangO, noiOCua } from './lich.js';
 import { giangHang, thangHang, hangNenO, KHOA_NEN } from './phanGiaiNguoi.js';
 import { dungSoTay, quetSoRo, doTinTheoChang, KHOA_ENGINE_CAM } from './soTay.js';
 import { loaiCuaDuAn, moDuAnNguoi, raSoatDuAnNguoi, ungVienDuAnNguoi } from './duAnNguoi.js';
 import { rngCuaTick } from '../engine/rng.js';
+import { EntitySchema } from '../schema/entity.js';
+import { LawfulSchema } from '../schema/aspect/lawful.js';
 
 const TUNING = TUNING_MAC_DINH;
 const NGUOI = 'mortal_1';
@@ -1006,6 +1008,53 @@ describe('[BB] 20.3 — chết không Game Over', () => {
     expect(ds.some((x) => x.duong === 'chung_kien')).toBe(true);
   });
 
+  it('luật luân hồi giữ linh hồn và mở một đời mới có dấu nối với đời cũ', () => {
+    const { state, log } = theGioi();
+    const khaiNiemId = [...state.entities.values()].find((e) => e.kind === 'concept')?.id;
+    expect(khaiNiemId).toBeDefined();
+    if (!khaiNiemId) return;
+    const lawId = 'law_luan_hoi_test';
+    state.entities.set(
+      lawId,
+      EntitySchema.parse({
+        id: lawId,
+        branchId: state.world.branchId,
+        kind: 'law',
+        ten: 'Luật Luân Hồi',
+        tickSinh: state.world.tick,
+        aspects: {
+          lawful: LawfulSchema.parse({
+            vanBan: 'Linh hồn trở lại qua một đời khác.',
+            trangThai: 'hieu_luc',
+            hieuLuc: 100,
+            theTag: ['luan_hoi'],
+            tiepDia: [{ khaiNiemId, vaiTro: 'pham_tru', batBuoc: true }],
+          }),
+        },
+      }),
+    );
+
+    const c = chet(state, NGUOI, { eventId: 'ev_chet_luan_hoi', tick: state.world.tick });
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    ap(state, log, 'ev_chet_luan_hoi', c.value.patches, 'nguoi_chet');
+    expect(
+      (state.entities.get(NGUOI)?.aspects['soul'] as { hauKiep?: { trangThai?: string } }).hauKiep?.trangThai,
+    ).toBe('cho_luan_hoi');
+    expect(duongDiTiep(state, NGUOI).some((x) => x.duong === 'tai_sinh')).toBe(true);
+
+    const r = taiSinh(state, NGUOI, { eventId: 'ev_tai_sinh', tick: state.world.tick });
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.errors)).toBe(true);
+    if (!r.ok) return;
+    ap(state, log, 'ev_tai_sinh', r.value.patches, 'tai_sinh');
+    expect(state.entities.get(r.value.nguoiMoiId)?.kind).toBe('mortal');
+    expect(
+      [...state.links.values()].some(
+        (x) => x.tuId === r.value.nguoiMoiId && x.denId === NGUOI && x.quanHe === 'ke_thua_tu',
+      ),
+    ).toBe(true);
+  });
+
   it('anh linh hóa thần THÊM aspect, giữ nguyên hồn và quan hệ', () => {
     const { state, log } = theGioi();
     const [b] = themNguoi(state, log, 1);
@@ -1031,12 +1080,12 @@ describe('[BB] 20.3 — chết không Game Over', () => {
       'test_nho',
     );
 
-    const soulTruoc = JSON.stringify(state.entities.get(NGUOI)?.aspects['soul']);
     expect(duongDiTiep(state, NGUOI).some((x) => x.duong === 'anh_linh')).toBe(false); // chưa chết
 
     const c = chet(state, NGUOI, { eventId: 'ev_chet', tick: state.world.tick });
     if (!c.ok) return;
     ap(state, log, 'ev_chet', c.value.patches, 'nguoi_chet');
+    const soulTruoc = JSON.stringify(state.entities.get(NGUOI)?.aspects['soul']);
     expect(duongDiTiep(state, NGUOI).some((x) => x.duong === 'anh_linh')).toBe(true);
 
     const r = anhLinhHoaThan(state, NGUOI, { eventId: 'ev_anh_linh', tick: state.world.tick });

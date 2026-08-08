@@ -26,6 +26,7 @@ import { trichKyVong } from '../core/lore/kyVong.js';
 import { dungChiMuc } from '../core/retrieval/chiMuc.js';
 import type { Lorebook } from '../core/lore/schema.js';
 import type { WorldState } from '../core/engine/state.js';
+import { moDuBangChungLore } from './lorebook-evidence.js';
 
 function docSach(): unknown {
   return JSON.parse(
@@ -44,6 +45,7 @@ function theGioi(): WorldState {
   const state = taoState(world);
   const result = apDungChuoi(state, events, taoEventLog());
   if (!result.ok) throw new Error(result.errors.map((e) => e.message).join('; '));
+  moDuBangChungLore(state);
   return state;
 }
 
@@ -217,7 +219,7 @@ describe('Lorebook dựng sẵn — Thần thoại Hy Lạp', () => {
     const book = batSach(state);
 
     expect(vatChatHoaLorebook(book, state, 'ev.greek-on')).toHaveLength(0);
-    expect(trichKyVong(book, state.world.branchId)).toHaveLength(0);
+    expect(trichKyVong(book, state.world.branchId)).toHaveLength(4);
 
     state.world = { ...state.world, tick: state.world.tick + book.nhipMoGiaiDoan * 4 };
     expect(chunkLore(state).length).toBeGreaterThan(0);

@@ -27,7 +27,7 @@
  */
 import { z } from 'zod';
 import type { Event, PatchOp, World } from '../contracts/core.js';
-import { WorldSchema } from '../contracts/core.js';
+import { NGUYEN_MAU_SANG_THE, WorldSchema } from '../contracts/core.js';
 import { taoEvent } from '../engine/transaction.js';
 import { EntitySchema, LinkSchema } from '../schema/entity.js';
 import type { Entity } from '../schema/entity.js';
@@ -43,14 +43,21 @@ import type { Rng } from '../engine/rng.js';
 export const CUA_VAO = ['hu_vo', 'mot_cau', 'day_du'] as const;
 export type CuaVao = (typeof CUA_VAO)[number];
 
-export const NguyenMauSangThe = [
-  'phan_tach_hon_don',
-  'vu_tru_noan',
-  'hien_te_nguyen_thuy',
-  'ngon_tu',
-  'tho_lan_dat',
-  'giao_phoi_troi_dat',
-] as const;
+/** Tên cũ được giữ để pack/test ngoài không phải đổi import. */
+export const NguyenMauSangThe = NGUYEN_MAU_SANG_THE;
+
+export const MO_TA_NGUYEN_MAU: Readonly<Record<(typeof NguyenMauSangThe)[number], string>> = Object.freeze({
+  phan_tach_hon_don:
+    'Khởi nguyên theo nguyên mẫu Phân Tách Hỗn Độn: những đối cực tự tách và để lại ranh giới.',
+  vu_tru_noan: 'Khởi nguyên theo nguyên mẫu Vũ Trụ Noãn: mọi khả thể nằm trong một vật chứa sắp nở.',
+  hien_te_nguyen_thuy:
+    'Khởi nguyên theo nguyên mẫu Hiến Tế Nguyên Thủy: thế giới có thể được dựng từ phần còn lại của tồn tại đầu tiên.',
+  ngon_tu: 'Khởi nguyên theo nguyên mẫu Ngôn Từ: gọi đúng tên là hành vi khiến sự vật có mặt.',
+  tho_lan_dat:
+    'Khởi nguyên theo nguyên mẫu Thợ Lặn Đất: vật chất đầu tiên được mang lên từ vực sâu chưa có bờ.',
+  giao_phoi_troi_dat:
+    'Khởi nguyên theo nguyên mẫu Trời Đất Giao Phối: sinh thành tới từ hai nửa vũ trụ gặp nhau.',
+});
 
 export const KhoiTaoWorldSchema = z
   .object({
@@ -78,6 +85,7 @@ export function worldRong(ct: KhoiTaoWorld): World {
     year: 0,
     tuningProfileId: ct.tuningProfileId,
     playerState: { mode: 'sang_the', chuTheId: null, setupCompleted: false, setupVersion: 1 },
+    sangThe: { nguyenMau: ct.nguyenMau, giaiDoan: 'hu_vo', chuKy: 1, tickBatDauChuKy: 0 },
     version: 0,
   });
 }

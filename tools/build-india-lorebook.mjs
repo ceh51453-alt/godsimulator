@@ -407,6 +407,10 @@ Sách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry
     group: 'quy_luat',
     phase: 0,
     order: 2,
+    expectations: [
+      { id: 'nghiep', loai: 'quy_luat', moTa: 'Nghiệp trở thành luật nhân quả hữu hiệu.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'nghiep' }, doUuTien: 95 },
+      { id: 'luan_hoi', loai: 'quy_luat', moTa: 'Luân hồi vận hành như một luật thật.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'luan_hoi' }, doUuTien: 92 },
+    ],
     content: `${NEN}
 [BỐN LUẬT NỀN · tầng <%= dien.tang %> "<%= dien.nhan %>" · <%= dien.tyLe %>%]
 Thần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 "luật thành" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.
@@ -426,6 +430,9 @@ Bốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho ng�
     group: 'coi_gioi',
     phase: 1,
     order: 3,
+    expectations: [
+      { id: 'loka', loai: 'ton_tai', moTa: 'Ít nhất một cõi loka đã hiện hữu.', dieuKien: { kieu: 'ton_tai_kind', kind: 'realm', tag: 'loka' }, doUuTien: 88 },
+    ],
     content: `${NEN}
 [THANG MƯỜI BỐN CÕI · tầng <%= dien.tang %> · <%= dien.tyLe %>%]
 Vũ trụ này có mười bốn cõi xếp thành thang, và cả thang KHÔNG được bày ra một lần. Một bản đồ đầy đủ giao cho người chơi ở lượt đầu là một bản đồ không ai còn muốn đi.
@@ -465,6 +472,7 @@ const entries = [
     group: d.group,
     phase: d.phase,
     deferMaterialization: true,
+    expectations: d.expectations ?? [],
     content: d.content,
   })),
   ...noiDungEntries.map((e, i) => {

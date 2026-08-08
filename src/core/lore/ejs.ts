@@ -7,11 +7,20 @@
  */
 import type { WorldState } from '../engine/state.js';
 import type { ConflictPolicy, Lorebook, LorebookEntry } from './schema.js';
+import { bangChungThanThoai } from '../thanThoai/tienTrinh.js';
+import { MO_TA_NGUYEN_MAU } from '../world/khoiTao.js';
 
 export type QuanHeDaThan = ConflictPolicy;
 
 export type NguCanhEjsLore = Readonly<{
-  world: Readonly<{ tick: number; year: number; phase: number; phaseLabel: string }>;
+  world: Readonly<{
+    tick: number;
+    year: number;
+    phase: number;
+    phaseLabel: string;
+    creationArchetype: string;
+    creationPrinciple: string;
+  }>;
   user: Readonly<{ id: string; name: string; mode: string }>;
   lore: Readonly<{
     bookName: string;
@@ -82,9 +91,14 @@ const CAM = new Set(['__proto__', 'prototype', 'constructor']);
 const THE_EJS = /<%([_=#-]?)([\s\S]*?)%>/g;
 const TRAN_KY_TU = 100_000;
 
-export function giaiDoanLore(lorebook: Lorebook, tick: number): number {
-  const tu = lorebook.tickBat ?? 0;
-  return Math.max(0, Math.min(9, Math.floor(Math.max(0, tick - tu) / lorebook.nhipMoGiaiDoan)));
+export function giaiDoanLore(lorebook: Lorebook, tick: number, state?: WorldState): number {
+  const dauChuKy = state?.world.sangThe.tickBatDauChuKy ?? 0;
+  const tu = Math.max(lorebook.tickBat ?? 0, dauChuKy);
+  const theoThoiGian = Math.max(0, Math.min(9, Math.floor(Math.max(0, tick - tu) / lorebook.nhipMoGiaiDoan)));
+  // Đường gọi cũ không có state vẫn dùng được cho xem trước file. Đường chơi
+  // luôn truyền state và bị chặn bởi bằng chứng thật của thế giới.
+  if (state === undefined) return theoThoiGian;
+  return Math.min(theoThoiGian, bangChungThanThoai(state).bacLore);
 }
 
 function nhanGiaiDoan(n: number): string {
@@ -318,7 +332,7 @@ export function taoNguCanhEjsLore(s: WorldState, lorebook: Lorebook, entry: Lore
     if (ten !== '' && tenEntity.has(ten.toLowerCase())) tenDaThanh.add(ten);
     if (tenDaThanh.size >= 12) break;
   }
-  const phase = giaiDoanLore(lorebook, s.world.tick);
+  const phase = giaiDoanLore(lorebook, s.world.tick, s);
   const tang = Math.min(THANG_DIEN.length - 1, phase);
   const bac = THANG_DIEN[tang] as (typeof THANG_DIEN)[number];
 
@@ -333,7 +347,14 @@ export function taoNguCanhEjsLore(s: WorldState, lorebook: Lorebook, entry: Lore
   const tenNguoiChoi = chuThe?.ten ?? 'Người Chơi';
 
   return {
-    world: { tick: s.world.tick, year: s.world.year, phase, phaseLabel: nhanGiaiDoan(phase) },
+    world: {
+      tick: s.world.tick,
+      year: s.world.year,
+      phase,
+      phaseLabel: nhanGiaiDoan(phase),
+      creationArchetype: s.world.sangThe.nguyenMau,
+      creationPrinciple: MO_TA_NGUYEN_MAU[s.world.sangThe.nguyenMau],
+    },
     user: {
       id: chuTheId ?? 'nguoi_choi',
       name: tenNguoiChoi,

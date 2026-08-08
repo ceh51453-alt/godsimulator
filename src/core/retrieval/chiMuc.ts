@@ -21,6 +21,7 @@ import type { Chunk } from './chunk.js';
 import { duocNap } from '../lore/tinCay.js';
 import { khoaNoiDungLore } from '../lore/quanLy.js';
 import { giaiDoanLore, renderEjsLore, taoNguCanhEjsLore } from '../lore/ejs.js';
+import { MO_TA_NGUYEN_MAU } from '../world/khoiTao.js';
 
 function doc<T>(e: Entity, ten: string): T | undefined {
   const a = e.aspects[ten];
@@ -87,6 +88,18 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
   const nhap: Nhap[] = [];
   const branchId = s.world.branchId;
 
+  // Tiền đề sáng thế là lực định hình, không tự đẻ ra thực thể nhưng luôn có mặt ở tầng Sáng Thế.
+  nhap.push({
+    id: `ck_nguyen_mau_${branchId}_${s.world.sangThe.chuKy}`,
+    nguon: 'bien_nien',
+    nguonId: `sang_the:${s.world.sangThe.nguyenMau}`,
+    noiDung: MO_TA_NGUYEN_MAU[s.world.sangThe.nguyenMau],
+    tick: s.world.sangThe.tickBatDauChuKy,
+    trust: 1,
+    tamNhin: { tangToiThieu: 'sang_the' },
+    meta: { loai: 'nguyen_mau_sang_the', chuKy: s.world.sangThe.chuKy },
+  });
+
   // ── Lorebook người dùng: chỉ sách ĐANG BẬT và entry đủ tin cậy mới vào RAG ──
   // Nguồn này là điểm hút cho Narrator. Nó không tự biến thành Sử; khi một yếu
   // tố thật sự xuất hiện, Narrator/engine vẫn phải tạo entity/event tương ứng.
@@ -101,7 +114,7 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
     );
   const noiDungLoreDaNap = new Set<string>();
   for (const lb of lorebooks) {
-    const giaiDoanHienTai = giaiDoanLore(lb, s.world.tick);
+    const giaiDoanHienTai = giaiDoanLore(lb, s.world.tick, s);
     const query = loreQuery.trim().toLowerCase();
     const entries = [...lb.entries].sort(
       (a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
@@ -179,6 +192,57 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
   }
 
   for (const e of moiEntity(s)) {
+    // Dị bản là tri thức địa phương: người ngoài vùng không được thấy nó như một chân lý chung.
+    const vh = doc<{
+      thanThoai?: {
+        id: string;
+        chuDeId: string;
+        noiDung: string;
+        vungId: string;
+        doTin: number;
+        uyQuyen: number;
+        tickSinh: number;
+        trangThai: string;
+        phienBanGocId?: string | null;
+      }[];
+    }>(e, 'van_hoa');
+    for (const claim of vh?.thanThoai ?? []) {
+      if (claim.trangThai === 'mai_mot' || claim.noiDung.trim() === '') continue;
+      nhap.push({
+        id: `ck_di_ban_${claim.id}`,
+        nguon: 'bien_nien',
+        nguonId: claim.chuDeId,
+        noiDung: claim.noiDung,
+        tick: claim.tickSinh,
+        entityIds: [e.id, claim.vungId],
+        trust: Math.max(0, Math.min(1, claim.doTin / 100)),
+        tamNhin: { tangToiThieu: 'pham_nhan', vungHanChe: [claim.vungId], laTinDon: claim.uyQuyen < 35 },
+        meta: {
+          loai: 'di_ban_than_thoai',
+          chuDeId: claim.chuDeId,
+          phienBanGocId: claim.phienBanGocId ?? null,
+          trangThai: claim.trangThai,
+        },
+      });
+    }
+
+    const sp = doc<{
+      thieng?: { mucDo?: number; loai?: string; thanIds?: string[]; nguonThiengIds?: string[] };
+    }>(e, 'spatial');
+    if ((sp?.thieng?.mucDo ?? 0) >= 50) {
+      nhap.push({
+        id: `ck_thanh_dia_${e.id}`,
+        nguon: 'bien_nien',
+        nguonId: e.id,
+        noiDung: `${e.ten} được biết đến như một ${sp?.thieng?.loai === 'thanh_dia' ? 'thánh địa' : 'nơi linh thiêng'}.`,
+        tick: e.tickSinh,
+        entityIds: [e.id, ...(sp?.thieng?.thanIds ?? [])],
+        trust: Math.max(0.5, Math.min(1, (sp?.thieng?.mucDo ?? 0) / 100)),
+        tamNhin: { tangToiThieu: 'pham_nhan', vungHanChe: [e.id] },
+        meta: { loai: sp?.thieng?.loai ?? 'thanh_dia', nguonThiengIds: sp?.thieng?.nguonThiengIds ?? [] },
+      });
+    }
+
     // ── Định luật: văn bản gốc + MỖI DIỄN GIẢI MỘT CHUNK RIÊNG (54.2) ──
     const l = doc<{
       vanBan?: string;

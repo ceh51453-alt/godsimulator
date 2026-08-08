@@ -109,6 +109,21 @@ export function trichKyVong(lorebook: Lorebook, branchId: string): LoreExpectati
   const ra: LoreExpectation[] = [];
   for (const e of lorebook.entries) {
     if (e.trangThai !== 'hoat_dong') continue;
+    for (const khai of e.kyVongKhaiBao) {
+      ra.push(
+        LoreExpectationSchema.parse({
+          id: `kv.${lorebook.id}.${e.id}.khai.${khai.id}`,
+          branchId,
+          lorebookId: lorebook.id,
+          entryId: e.id,
+          loai: khai.loai,
+          moTa: khai.moTa,
+          dieuKien: khai.dieuKien,
+          trangThai: 'cho',
+          doUuTien: Math.round((khai.doUuTien * lorebook.lucHapDan) / 100),
+        }),
+      );
+    }
     if (e.triHoanHienThuc) continue;
     let i = 0;
     const truocEntry = ra.length;
@@ -149,6 +164,22 @@ export function trichKyVong(lorebook: Lorebook, branchId: string): LoreExpectati
     }
   }
   return ra;
+}
+
+/**
+ * Một kỳ vọng đang chờ trở thành lỗ hổng thật để Bồi Đắp/Narrator nhìn thấy.
+ * Nó không tạo entity; bộ giải và lượt kể vẫn phải tìm một con đường hợp lệ.
+ */
+export function gapChoKyVong(kv: LoreExpectation, tick: number): Gap {
+  return GapSchema.parse({
+    id: `gap.lore.${kv.id}`,
+    branchId: kv.branchId,
+    loai: 'diem_hut_than_thoai',
+    chuTheId: null,
+    moTa: `Điểm hút thần thoại đang chờ: ${kv.moTa}`,
+    uuTien: kv.doUuTien,
+    tickPhatHien: tick,
+  });
 }
 
 // ─────────────────────────────────────────── đánh giá

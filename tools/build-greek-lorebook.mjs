@@ -442,6 +442,10 @@ Sách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry
     group: 'quy_luat',
     phase: 0,
     order: 2,
+    expectations: [
+      { id: 'so_phan', loai: 'quy_luat', moTa: 'Luật số phận có hiệu lực trong thế giới.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'so_phan' }, doUuTien: 95 },
+      { id: 'loi_the', loai: 'quy_luat', moTa: 'Lời thề trở thành một luật có hậu quả.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'loi_the' }, doUuTien: 85 },
+    ],
     content: `${NEN}
 [BỐN LUẬT NỀN · tầng <%= dien.tang %> "<%= dien.nhan %>" · <%= dien.tyLe %>%]
 Thần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 "luật thành" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.
@@ -461,6 +465,10 @@ Bốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho ng�
     group: 'coi_gioi',
     phase: 1,
     order: 3,
+    expectations: [
+      { id: 'minh_phu', loai: 'ton_tai', moTa: 'Một cõi chết tương ứng Minh phủ đứng vững.', dieuKien: { kieu: 'ton_tai_kind', kind: 'realm', tag: 'minh_phu' }, doUuTien: 88 },
+      { id: 'olympus', loai: 'ton_tai', moTa: 'Một thần điện mang dấu Olympus đã hình thành.', dieuKien: { kieu: 'ton_tai_kind', kind: 'pantheon', tag: 'olympus' }, doUuTien: 82 },
+    ],
     content: `${NEN}
 [BẢN ĐỒ THIÊNG · tầng <%= dien.tang %> · <%= dien.tyLe %>%]
 Địa lý thiêng dựng lên SAU luật, không trước. Một nơi chốn mang tên của sách trong khi luật ở đó chưa đứng vững là lỗi thấy ngay: người chơi sẽ thấy một cái tên đẹp không có gì đỡ.
@@ -554,6 +562,7 @@ const entries = [
     group: d.group,
     phase: d.phase,
     deferMaterialization: true,
+    expectations: d.expectations ?? [],
     content: d.content,
   })),
   // `BIEN_SO` đi qua đúng đường của một entry nội dung — cùng khối EJS, cùng

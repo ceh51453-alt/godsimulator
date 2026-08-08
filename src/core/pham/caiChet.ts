@@ -24,11 +24,12 @@
  */
 import type { PatchOp } from '../contracts/core.js';
 import type { WorldState } from '../engine/state.js';
-import type { Entity } from '../schema/entity.js';
+import { EntitySchema, LinkSchema, type Entity } from '../schema/entity.js';
 import { DomainSchema, VenerableSchema } from '../schema/aspect/divine.js';
 import { DivineIdentitySchema } from '../schema/aspect/thanVi.js';
 import type { CanCuoc } from '../schema/aspect/pham.js';
-import type { Soul } from '../schema/aspect/soul.js';
+import { SoulSchema, type Soul } from '../schema/aspect/soul.js';
+import { GenealogicalSchema, MortalSchema, SpatialSchema } from '../schema/aspect/living.js';
 import { phamThan, daChet } from './thanThe.js';
 import { chuyenThuaKe, giaiTheHo, hoCuaNguoi, roiHo } from './ho.js';
 import { datQuanHe, nguoiTaQuen } from './quanHe.js';
@@ -93,6 +94,45 @@ export function chet(
     set(nguoiId, 'aspects.mortal.nguyenNhanChet', chuoi.slice(0, 8), nc.eventId),
   ];
 
+  // Hậu kiếp được quyết định bởi những cõi, luật và thần phán xét thật đang tồn tại.
+  const soul = docAspect<Soul>(e, 'soul');
+  if (soul) {
+    const coiChet = [...state.entities.values()]
+      .filter((x) => x.kind === 'realm' && x.tickDiet === null)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .find((x) => x.tags.some((t) => ['coi_chet', 'minh_phu', 'yomi'].includes(t)));
+    const luanHoi = [...state.entities.values()].some((x) => {
+      const law = docAspect<{ hieuLuc?: number; trangThai?: string; theTag?: string[] }>(x, 'lawful');
+      return x.tickDiet === null && (law?.hieuLuc ?? 0) > 0 && (law?.theTag ?? []).includes('luan_hoi');
+    });
+    const nguoiPhanXet = [...state.entities.values()]
+      .filter((x) => x.kind === 'deity' && x.tickDiet === null)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .find((x) => x.tags.some((t) => ['phan_xet', 'cong_ly_chet', 'dia_nguc'].includes(t)));
+    const trangThai = luanHoi
+      ? 'cho_luan_hoi'
+      : nguoiPhanXet
+        ? 'cho_phan_xet'
+        : coiChet
+          ? 'o_coi_chet'
+          : 'luu_lac';
+    patches.push(
+      set(
+        nguoiId,
+        'aspects.soul.hauKiep',
+        {
+          trangThai,
+          realmId: coiChet?.id ?? null,
+          tickChet: nc.tick,
+          phanXetBoiId: nguoiPhanXet?.id ?? null,
+          soVong: soul.hauKiep.soVong,
+          kyUcMangTheoIds: soul.kyUc.slice(-3).map((x) => x.id),
+        },
+        nc.eventId,
+      ),
+    );
+  }
+
   // ── thừa kế ──
   const tk = chuyenThuaKe(state, nguoiId, nc);
   patches.push(...tk.patches);
@@ -130,7 +170,7 @@ export function chet(
 
 // ─────────────────────────────────────────── ba đường
 
-export const DUONG_SAU_CHET = ['ke_thua', 'chung_kien', 'anh_linh'] as const;
+export const DUONG_SAU_CHET = ['ke_thua', 'chung_kien', 'anh_linh', 'tai_sinh'] as const;
 export type DuongSauChet = (typeof DUONG_SAU_CHET)[number];
 
 export type LuaChonTiepTuc = {
@@ -202,7 +242,120 @@ export function duongDiTiep(state: WorldState, nguoiChetId: string): readonly Lu
     });
   }
 
+  // 4. tái sinh — chỉ mở khi một luật luân hồi hữu hiệu đã bắt lấy linh hồn.
+  const soul = docAspect<Soul>(e, 'soul');
+  if (soul?.hauKiep.trangThai === 'cho_luan_hoi') {
+    ra.push({
+      duong: 'tai_sinh',
+      chuTheMoiId: `tai_sinh_${nguoiChetId}_${state.world.sangThe.chuKy}_${state.world.tick}`,
+      ten: `Hậu kiếp của ${e.ten}`,
+      vi: soul.hauKiep.realmId
+        ? `linh hồn đi qua ${state.entities.get(soul.hauKiep.realmId)?.ten ?? 'cõi chết'} rồi trở lại`
+        : 'luật luân hồi của thế giới kéo linh hồn trở lại',
+    });
+  }
+
   return Object.freeze(ra);
+}
+
+/** Tạo một đời mới nhưng để lại liên kết và vài ký ức đã thực sự được mang qua cửa chết. */
+export function taiSinh(
+  state: WorldState,
+  nguoiChetId: string,
+  nc: NgocCanhChet,
+): KetQua<{ patches: readonly PatchOp[]; nguoiMoiId: string; loiKe: string }> {
+  const cu = state.entities.get(nguoiChetId);
+  const soulCu = docAspect<Soul>(cu, 'soul');
+  if (!cu || cu.tickDiet === null || !soulCu) {
+    return hong([loi('intent', 'CHUA_QUA_CUA_CHET', 'Chỉ một linh hồn đã chết mới có thể tái sinh.')]);
+  }
+  if (soulCu.hauKiep.trangThai !== 'cho_luan_hoi') {
+    return hong([
+      loi('intent', 'KHONG_CO_LUAN_HOI', 'Thế giới này chưa có luật luân hồi đang giữ linh hồn ấy.'),
+    ]);
+  }
+
+  const nguoiMoiId = `tai_sinh_${nguoiChetId}_${state.world.sangThe.chuKy}_${state.world.tick}`;
+  if (state.entities.has(nguoiMoiId)) {
+    return hong([loi('intent', 'DA_TAI_SINH', 'Đời kế tiếp đã bắt đầu rồi.', { recoverable: true })]);
+  }
+  const noi = [...state.entities.values()]
+    .filter((x) => x.kind === 'place' && x.tickDiet === null)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+  const spNoi = docAspect<{ vanHoaId?: string | null }>(noi, 'spatial');
+  const mangTheo = new Set(soulCu.hauKiep.kyUcMangTheoIds);
+  const kyUc = soulCu.kyUc
+    .filter((x) => mangTheo.has(x.id))
+    .map((x) => ({ ...x, dienTich: Math.min(x.dienTich, 35), lienQuan: [...x.lienQuan] }));
+  const soulMoi = SoulSchema.parse({
+    tang: soulCu.tang,
+    banTinh: { ...soulCu.banTinh },
+    ducVong: { ...soulCu.ducVong },
+    tamTrang: [],
+    kyUc,
+    kyUcSuyGiam: true,
+    agency: soulCu.agency,
+    quanHe: {},
+    hauKiep: {
+      trangThai: 'tai_sinh',
+      realmId: soulCu.hauKiep.realmId,
+      tickChet: soulCu.hauKiep.tickChet,
+      phanXetBoiId: soulCu.hauKiep.phanXetBoiId,
+      soVong: soulCu.hauKiep.soVong + 1,
+      kyUcMangTheoIds: kyUc.map((x) => x.id),
+    },
+  });
+  const moi = EntitySchema.parse({
+    id: nguoiMoiId,
+    branchId: state.world.branchId,
+    kind: 'mortal',
+    ten: `Hậu kiếp của ${cu.ten}`,
+    aliases: [],
+    moTa:
+      kyUc.length > 0
+        ? 'Một đứa trẻ mang theo những giấc nhớ không thuộc đời này.'
+        : 'Một đời mới vừa bắt đầu.',
+    tickSinh: nc.tick,
+    aspects: {
+      soul: soulMoi,
+      mortal: MortalSchema.parse({ tuoiTho: 70, tickSinh: nc.tick, ageBand: 'child' }),
+      genealogical: GenealogicalSchema.parse({ theHe: 0 }),
+      spatial: SpatialSchema.parse({ chaId: noi?.id ?? null, vanHoaId: spNoi?.vanHoaId ?? null }),
+    },
+    tags: ['tai_sinh'],
+  });
+  const linkId = `lk_${nguoiMoiId}_ke_thua_${nguoiChetId}`;
+  return dat({
+    nguoiMoiId,
+    patches: [
+      {
+        op: 'link',
+        target: { table: 'entities', id: nguoiMoiId, path: '' },
+        value: moi,
+        sourceEventId: nc.eventId,
+      },
+      {
+        op: 'link',
+        target: { table: 'links', id: linkId, path: '' },
+        value: LinkSchema.parse({
+          id: linkId,
+          branchId: state.world.branchId,
+          tuId: nguoiMoiId,
+          denId: nguoiChetId,
+          quanHe: 'ke_thua_tu',
+          trongSo: kyUc.length > 0 ? 70 : 40,
+          tickTao: nc.tick,
+          nguon: 'engine',
+        }),
+        sourceEventId: nc.eventId,
+      },
+      set(nguoiChetId, 'aspects.soul.hauKiep.trangThai', 'tai_sinh', nc.eventId),
+    ],
+    loiKe:
+      kyUc.length > 0
+        ? `${cu.ten} trở lại trong một đời mới. Vài ký ức cũ chỉ còn như những giấc mơ khó gọi tên.`
+        : `${cu.ten} trở lại trong một đời mới, không còn nhớ được đời trước.`,
+  });
 }
 
 /**

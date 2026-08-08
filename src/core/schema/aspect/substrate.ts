@@ -159,12 +159,33 @@ export const TapTucSchema = z
   })
   .strict();
 
+/**
+ * Một lời kể đã bám vào một cộng đồng. Các bản có cùng `chuDeId` có thể cùng
+ * tồn tại và tranh chấp; engine không ép toàn thế giới phải tin một chính sử.
+ */
+export const DiBanThanThoaiSchema = z
+  .object({
+    id: z.string(),
+    chuDeId: z.string(),
+    noiDung: z.string().max(600),
+    vungId: z.string(),
+    nguonEventIds: z.array(z.string()).max(8).prefault([]),
+    phienBanGocId: z.string().nullable().prefault(null),
+    doTin: thang(20),
+    uyQuyen: thang(20),
+    tickSinh: z.number().int().prefault(0),
+    trangThai: z.enum(['song', 'tranh_chap', 'mai_mot']).prefault('song'),
+  })
+  .strict();
+
 export const VanHoaSchema = z
   .object({
     ngonNguId: z.string().prefault('ngon_ngu_goc'),
     /** Ngôn ngữ trôi theo thế hệ; đủ xa thì hai vùng không hiểu nhau. */
     doLechNgonNgu: tyLe(),
     tapTuc: z.array(TapTucSchema).prefault([]),
+    /** Dị bản địa phương, có xuất xứ và mức tín nhiệm riêng. */
+    thanThoai: z.array(DiBanThanThoaiSchema).max(32).prefault([]),
     nghiLeIds: z.array(z.string()).prefault([]),
     /** Giáo lý lệch khỏi bản gốc — cùng thang với `lawful.dienGiai[].doLech`. */
     giaoLyLech: thang(),
@@ -265,6 +286,7 @@ export type SinhThai = z.infer<typeof SinhThaiSchema>;
 export type KinhTe = z.infer<typeof KinhTeSchema>;
 export type VanHoa = z.infer<typeof VanHoaSchema>;
 export type TapTuc = z.infer<typeof TapTucSchema>;
+export type DiBanThanThoai = z.infer<typeof DiBanThanThoaiSchema>;
 export type AnNinh = z.infer<typeof AnNinhSchema>;
 export type XungDot = z.infer<typeof XungDotSchema>;
 export type HoaUoc = z.infer<typeof HoaUocSchema>;

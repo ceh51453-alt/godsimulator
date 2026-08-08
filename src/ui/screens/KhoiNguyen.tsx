@@ -22,6 +22,8 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../../store/game.js';
 import type { CuaVao } from '../../core/world/khoiTao.js';
+import { NGUYEN_MAU_SANG_THE } from '../../core/contracts/core.js';
+import type { NguyenMauSangThe } from '../../core/contracts/core.js';
 import { PlayerProfileSchema, CreatorIdentitySchema, hoSoToiThieu } from '../../core/schema/player.js';
 import type { PlayerProfile, CreatorIdentity } from '../../core/schema/player.js';
 import { diffCongBo } from '../../core/privacy/project.js';
@@ -80,6 +82,18 @@ const CUA: { id: CuaVao; ten: string; moTa: string }[] = [
     moTa: 'Thêm nguyên mẫu sáng thế — vẫn chỉ là tiền đề, không phải nội dung.',
   },
 ];
+
+const NHAN_NGUYEN_MAU: Readonly<Record<NguyenMauSangThe, { ten: string; moTa: string }>> = {
+  phan_tach_hon_don: { ten: 'Phân Tách Hỗn Độn', moTa: 'Nhẹ và nặng, sáng và tối tự tách khỏi nhau.' },
+  vu_tru_noan: { ten: 'Vũ Trụ Noãn', moTa: 'Mọi khả thể nằm trong một quả trứng chưa nở.' },
+  hien_te_nguyen_thuy: {
+    ten: 'Hiến Tế Nguyên Thủy',
+    moTa: 'Thế giới được dựng từ thân thể của tồn tại đầu tiên.',
+  },
+  ngon_tu: { ten: 'Ngôn Từ', moTa: 'Tên gọi đầu tiên khiến cái được gọi bắt đầu tồn tại.' },
+  tho_lan_dat: { ten: 'Thợ Lặn Đất', moTa: 'Một kẻ lặn xuống vực nước và mang mẩu đất đầu tiên lên.' },
+  giao_phoi_troi_dat: { ten: 'Trời Đất Giao Phối', moTa: 'Sự sống sinh ra từ hai nửa vũ trụ tìm tới nhau.' },
+};
 
 function Muc({ id, ten, children }: { id: string; ten: string; children: React.ReactNode }): JSX.Element {
   return (
@@ -151,6 +165,7 @@ export function KhoiNguyen({ onQuayLai }: { onQuayLai?: () => void } = {}) {
   const [cheDo, setCheDo] = useState<CheDo>('nhanh');
   const [cua, setCua] = useState<CuaVao>('hu_vo');
   const [motCau, setMotCau] = useState('');
+  const [nguyenMau, setNguyenMau] = useState<NguyenMauSangThe>('phan_tach_hon_don');
 
   // ── hồ sơ ──
   const [ten, setTen] = useState('');
@@ -237,7 +252,7 @@ export function KhoiNguyen({ onQuayLai }: { onQuayLai?: () => void } = {}) {
       void batDauBoQua();
       return;
     }
-    void batDau({ hoSo, danhTinh, cua, motCau });
+    void batDau({ hoSo, danhTinh, cua, motCau, nguyenMau });
   };
 
   return (
@@ -449,6 +464,17 @@ export function KhoiNguyen({ onQuayLai }: { onQuayLai?: () => void } = {}) {
                 onDoi={setMotCau}
                 goiY="Một thế giới nơi máu đã đổ thì không rửa được."
                 dai={2_000}
+              />
+            )}
+            {cua === 'day_du' && (
+              <Chon
+                nhan="Nguyên mẫu sáng thế"
+                giaTri={nguyenMau}
+                onDoi={setNguyenMau}
+                ds={NGUYEN_MAU_SANG_THE.map((id) => ({
+                  id,
+                  ten: `${NHAN_NGUYEN_MAU[id].ten} — ${NHAN_NGUYEN_MAU[id].moTa}`,
+                }))}
               />
             )}
           </Muc>

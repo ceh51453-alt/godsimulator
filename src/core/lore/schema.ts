@@ -39,6 +39,39 @@ export function daiCuaNguon(nguon: NguonLorebook): TenDai {
   return nguon === 'nguoi_dung' ? 'nguoi_dung' : nguon === 'di_san' ? 'di_san' : 'tu_sinh';
 }
 
+export const LOAI_KY_VONG = ['ton_tai', 'quan_he', 'su_kien', 'quy_luat', 'ket_cuc', 'tinh_cach'] as const;
+export type LoaiKyVong = (typeof LOAI_KY_VONG)[number];
+
+export const LoreExpectationConditionSchema = z
+  .object({
+    kieu: z.enum([
+      'ton_tai_kind',
+      'ton_tai_ten',
+      'ton_tai_tag',
+      'ton_tai_link',
+      'luat_co_the_tag',
+      'khai_niem_ket_tinh',
+    ]),
+    kind: z.string().prefault(''),
+    ten: z.string().prefault(''),
+    tag: z.string().prefault(''),
+    quanHe: z.string().prefault(''),
+    nguong: z.number().prefault(0),
+    duongDan: z.string().prefault(''),
+  })
+  .strict();
+
+/** Neo khai báo đi cùng entry; khác regex ở chỗ tác giả nói rõ engine phải theo dõi gì. */
+export const LoreExpectationDeclarationSchema = z
+  .object({
+    id: z.string(),
+    loai: z.enum(LOAI_KY_VONG),
+    moTa: z.string().min(1).max(500),
+    dieuKien: LoreExpectationConditionSchema,
+    doUuTien: z.number().min(0).max(100).prefault(50),
+  })
+  .strict();
+
 export const LorebookEntrySchema = z
   .object({
     id: z.string(),
@@ -63,6 +96,8 @@ export const LorebookEntrySchema = z
     giaiDoanMo: z.number().int().min(0).max(9).prefault(0),
     /** Không tạo entity ngay lúc bật sách; Narrator chỉ hiện thực hóa khi entry đi vào truy hồi. */
     triHoanHienThuc: z.boolean().prefault(false),
+    /** Neo engine có cấu trúc; được theo dõi ngay cả khi entity còn trì hoãn. */
+    kyVongKhaiBao: z.array(LoreExpectationDeclarationSchema).max(12).prefault([]),
 
     // ── 51.3: che không phải xóa ──
     trangThai: z.enum(['hoat_dong', 'bi_che', 'da_xoa']).prefault('hoat_dong'),
@@ -140,9 +175,6 @@ export type Lorebook = z.infer<typeof LorebookSchema>;
 
 // ─────────────────────────────────────────── kỳ vọng và dị bản
 
-export const LOAI_KY_VONG = ['ton_tai', 'quan_he', 'su_kien', 'quy_luat', 'ket_cuc', 'tinh_cach'] as const;
-export type LoaiKyVong = (typeof LOAI_KY_VONG)[number];
-
 export const TRANG_THAI_KY_VONG = ['cho', 'da_thoa', 'da_lech', 'bat_kha'] as const;
 export type TrangThaiKyVong = (typeof TRANG_THAI_KY_VONG)[number];
 
@@ -162,25 +194,7 @@ export const LoreExpectationSchema = z
     loai: z.enum(LOAI_KY_VONG),
     moTa: z.string(),
     /** Vị từ khai báo được engine kiểm; xem `kyVong.ts`. */
-    dieuKien: z
-      .object({
-        kieu: z.enum([
-          'ton_tai_kind',
-          'ton_tai_ten',
-          'ton_tai_tag',
-          'ton_tai_link',
-          'luat_co_the_tag',
-          'khai_niem_ket_tinh',
-        ]),
-        kind: z.string().prefault(''),
-        ten: z.string().prefault(''),
-        tag: z.string().prefault(''),
-        quanHe: z.string().prefault(''),
-        /** Ngưỡng phụ, ví dụ `domainStrength > 70`. */
-        nguong: z.number().prefault(0),
-        duongDan: z.string().prefault(''),
-      })
-      .strict(),
+    dieuKien: LoreExpectationConditionSchema,
     trangThai: z.enum(TRANG_THAI_KY_VONG).prefault('cho'),
     doUuTien: z.number().min(0).max(100).prefault(50),
     lyDoLech: z.string().prefault(''),

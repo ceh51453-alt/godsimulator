@@ -32,9 +32,10 @@ import { apDungChuoi, apDungEvent } from '../core/engine/transaction.js';
 import { chieu } from '../core/project/chieu.js';
 import type { WorldView } from '../core/contracts/view.js';
 import type { PatchOp, Event as SuKien } from '../core/contracts/core.js';
+import type { NguyenMauSangThe } from '../core/contracts/core.js';
 import { VIEW_MODES } from '../core/contracts/primitives.js';
 import type { ViewMode } from '../core/contracts/primitives.js';
-import { moTheGioiTrong, KhoiTaoWorldSchema } from '../core/world/khoiTao.js';
+import { moTheGioiTrong, KhoiTaoWorldSchema, MO_TA_NGUYEN_MAU } from '../core/world/khoiTao.js';
 import type { CuaVao } from '../core/world/khoiTao.js';
 import { eventHienDien, eventChuyenTang } from '../core/world/hienDien.js';
 import type { CanonDiff } from '../core/world/hienDien.js';
@@ -77,7 +78,7 @@ import { noi as noiMotCau } from '../core/pham/doiThoai.js';
 import type { PhatNgon } from '../core/pham/doiThoai.js';
 import { xinHoc } from '../core/pham/sinhKe.js';
 import { lapHo } from '../core/pham/ho.js';
-import { anhLinhHoaThan, duongDiTiep } from '../core/pham/caiChet.js';
+import { anhLinhHoaThan, duongDiTiep, taiSinh } from '../core/pham/caiChet.js';
 import type { LuaChonTiepTuc } from '../core/pham/caiChet.js';
 import { noiOCua } from '../core/pham/lich.js';
 import { bocTach, hopNhatCapNhat } from '../core/ai/bocTach.js';
@@ -132,7 +133,7 @@ import type { TrangThaiLich } from '../core/workflow/lich.js';
 import { goiTacVuWorkflow } from '../ai/client.js';
 import type { AiEndpoint } from '../core/ai/cauHinh.js';
 import { kiemEjs, nhapLorebook } from '../core/lore/nhap.js';
-import { capNhatKyVong, trichKyVong } from '../core/lore/kyVong.js';
+import { capNhatKyVong, gapChoKyVong, trichKyVong } from '../core/lore/kyVong.js';
 import { vatChatHoaLorebook } from '../core/lore/hienThuc.js';
 import { giaiDoanLore } from '../core/lore/ejs.js';
 import { boChe } from '../core/lore/doiSoat.js';
@@ -173,6 +174,7 @@ import {
 } from '../core/world/hauTruong.js';
 import type { GhiChuHauTruong, ThongKeSo } from '../core/world/hauTruong.js';
 import { tuaThoiGian } from '../core/world/process/catchUp.js';
+import { patchesTaiTaoChuKy } from '../core/thanThoai/tienTrinh.js';
 import { useAi } from './ai.js';
 
 export type DongScene = {
@@ -463,6 +465,7 @@ export type TrangThaiGame = {
     danhTinh: CreatorIdentity | null;
     cua: CuaVao;
     motCau: string;
+    nguyenMau: NguyenMauSangThe;
   }): Promise<void>;
   batDauNhanh(displayName: string, cua: CuaVao, motCau: string): Promise<void>;
   batDauBoQua(): Promise<void>;
@@ -484,6 +487,8 @@ export type TrangThaiGame = {
   gui(cau: string): Promise<void>;
   xacNhan(dongY: boolean): Promise<void>;
   tick(soLan?: number): Promise<void>;
+  /** Mở chu kỳ kế sau khi một kết cục đã được engine xác nhận. */
+  taiTaoChuKy(): Promise<void>;
   lamMoi(): void;
   /** Đổi văn bản hiển thị của một dòng khung kể — script preset dùng cửa này. */
   datNoiDungDong(chiSo: number, noiDung: string): void;
@@ -1368,7 +1373,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       .filter((lb) => lb.bat)
       .sort((a, b) => b.uuTien - a.uuTien || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     for (const lb of lorebooks) {
-      const phase = giaiDoanLore(lb, s.world.tick);
+      const phase = giaiDoanLore(lb, s.world.tick, s);
       const entries = [...lb.entries]
         .filter(
           (e) => e.trangThai === 'hoat_dong' && e.doTinCay > 0 && e.lop !== 'loi' && e.giaiDoanMo <= phase,
@@ -1419,6 +1424,19 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           value: moi[path],
           sourceEventId: evId,
         });
+      }
+      const gapId = `gap.lore.${moi.id}`;
+      const gap = s.gaps.get(gapId);
+      if (gap) {
+        const trangThaiGap = moi.trangThai === 'da_thoa' ? 'da_giai' : 'mo';
+        if (gap.trangThai !== trangThaiGap) {
+          patches.push({
+            op: 'set',
+            target: { table: 'gaps', id: gapId, path: 'trangThai' },
+            value: trangThaiGap,
+            sourceEventId: evId,
+          });
+        }
       }
     }
     for (const db of kq.diBanMoi) {
@@ -2674,6 +2692,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     danhTinh: CreatorIdentity | null,
     cua: CuaVao,
     motCau: string,
+    nguyenMau: NguyenMauSangThe = 'phan_tach_hon_don',
   ): Promise<void> => {
     if (!doiCong()) return;
 
@@ -2697,6 +2716,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       worldId: 'w1',
       branchId: 'br_goc',
       motCau,
+      nguyenMau,
     });
     /**
      * [BB] ADR-0055 — mở ra HƯ VÔ.
@@ -2762,10 +2782,14 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     await keLuot(
       motCau.trim(),
       motCau.trim() === ''
-        ? ['Chưa có gì tồn tại. Không đất, không luật, không tên gọi nào.']
+        ? [
+            'Chưa có gì tồn tại. Không đất, không luật, không tên gọi nào.',
+            ...(cua === 'day_du' ? [MO_TA_NGUYEN_MAU[nguyenMau]] : []),
+          ]
         : [
             'Chưa có gì tồn tại ngoài điều người chơi vừa nói ra.',
             `Tiền đề người chơi đặt: ${motCau.trim()}`,
+            ...(cua === 'day_du' ? [MO_TA_NGUYEN_MAU[nguyenMau]] : []),
           ],
       { nhipNen: false },
     );
@@ -2812,8 +2836,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     danhGiaTruyHoi: null,
     dangDanhGia: false,
 
-    async batDau({ hoSo, danhTinh, cua, motCau }) {
-      await khoiTao(hoSo, danhTinh, cua, motCau);
+    async batDau({ hoSo, danhTinh, cua, motCau, nguyenMau }) {
+      await khoiTao(hoSo, danhTinh, cua, motCau, nguyenMau);
     },
 
     async batDauNhanh(displayName, cua, motCau) {
@@ -3226,6 +3250,40 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         [`Thời gian trôi tới nhịp ${s.world.tick}.`, ...bt.muc.slice(0, 6).map((m) => m.loiKe)],
         { nhipNen: false },
       );
+    },
+
+    async taiTaoChuKy() {
+      if (!doiCong()) return;
+      const s = get().state;
+      const log = get().log;
+      if (!s || !log || s.world.sangThe.ketCucHienTai === null) return;
+      const evId = `ev_tai_tao_${s.world.branchId}_${s.world.tick}_${s.world.sangThe.chuKy + 1}`;
+      const patches = patchesTaiTaoChuKy(s, evId);
+      if (patches.length === 0) return;
+      const ev = taoEvent({
+        id: evId,
+        branchId: s.world.branchId,
+        tick: s.world.tick,
+        loai: 'tai_tao_chu_ky',
+        actorIds: [],
+        targetIds: [],
+        causeEventIds: [],
+        locationId: null,
+        patches,
+        visibility: 'cong_khai',
+        source: 'player',
+        payload: { chuKyCu: s.world.sangThe.chuKy, ketCuc: s.world.sangThe.ketCucHienTai },
+      });
+      const ok = apDungEvent(s, ev, log);
+      if (!ok.ok) {
+        set({ loi: [...ok.errors] });
+        return;
+      }
+      dongBo();
+      await keLuot('', [
+        `Chu kỳ ${s.world.sangThe.chuKy} mở ra trên tàn tích của chu kỳ trước.`,
+        'Những gì đã xảy ra còn là di sản; những điều từng được hứa phải tìm đường trở lại từ đầu.',
+      ]);
     },
 
     lamMoi() {
@@ -3749,6 +3807,15 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             value: kv,
             sourceEventId: evId,
           });
+          const gap = gapChoKyVong(kv, s.world.tick);
+          if (!s.gaps.has(gap.id)) {
+            patches.push({
+              op: 'link',
+              target: { table: 'gaps', id: gap.id, path: '' },
+              value: gap,
+              sourceEventId: evId,
+            });
+          }
         }
         for (const entity of vatChatHoaLorebook(lbMoi, s, evId)) {
           if (s.entities.has(entity.id)) continue;
@@ -3769,6 +3836,14 @@ export const useGame = create<TrangThaiGame>((set, get) => {
             target: { table: 'loreExpectations', id: kv.id, path: '' },
             sourceEventId: evId,
           });
+          const gapId = `gap.lore.${kv.id}`;
+          if (s.gaps.has(gapId)) {
+            patches.push({
+              op: 'unlink',
+              target: { table: 'gaps', id: gapId, path: '' },
+              sourceEventId: evId,
+            });
+          }
         }
       }
       const ev = taoEvent({
@@ -4849,6 +4924,16 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
       if (chon.duong === 'anh_linh') {
         const r = anhLinhHoaThan(s, chon.chuTheMoiId, { eventId: evId, tick: s.world.tick });
+        if (!r.ok) {
+          set({ loi: [...get().loi, ...r.errors] });
+          return;
+        }
+        patches.push(...r.value.patches);
+        loiKe = r.value.loiKe;
+      } else if (chon.duong === 'tai_sinh') {
+        const nguoiChetId = s.world.playerState.chuTheId;
+        if (nguoiChetId === null) return;
+        const r = taiSinh(s, nguoiChetId, { eventId: evId, tick: s.world.tick });
         if (!r.ok) {
           set({ loi: [...get().loi, ...r.errors] });
           return;

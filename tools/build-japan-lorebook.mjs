@@ -790,6 +790,10 @@ Sách đang có <%= lore.activeEntryCount %> entry hoạt động. Nhiều entry
     group: 'quy_luat',
     phase: 0,
     order: 2,
+    expectations: [
+      { id: 'o_ue', loai: 'quy_luat', moTa: 'Ô uế bám và lan như một luật hữu hiệu.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'o_ue' }, doUuTien: 94 },
+      { id: 'ngon_linh', loai: 'quy_luat', moTa: 'Ngôn linh khiến tên và lời nói có lực.', dieuKien: { kieu: 'luat_co_the_tag', tag: 'ngon_linh' }, doUuTien: 90 },
+    ],
     content: `${NEN}
 [BỐN LUẬT NỀN · tầng <%= dien.tang %> "<%= dien.nhan %>" · <%= dien.tyLe %>%]
 Thần thoại này kết tinh bằng LUẬT trước khi kết tinh bằng nhân vật. Bốn luật dưới đây là bộ xương; mỗi luật chỉ được cho ra kết quả đo được từ tầng 2 "luật thành" trở lên. Trước đó chúng chỉ là kiêng kỵ mà người ta giữ nhưng chưa giải thích nổi.
@@ -818,6 +822,9 @@ Bốn luật này áp cho CẢ <%= user.name %>. Không có ngoại lệ cho ng�
     group: 'coi_gioi',
     phase: 1,
     order: 3,
+    expectations: [
+      { id: 'yomi', loai: 'ton_tai', moTa: 'Hoàng Tuyền trở thành một cõi chết thật.', dieuKien: { kieu: 'ton_tai_kind', kind: 'realm', tag: 'yomi' }, doUuTien: 90 },
+    ],
     content: `${NEN}
 [THANG CÕI VÀ HAI THỜI · tầng <%= dien.tang %> · <%= dien.tyLe %>%]
 Vũ trụ này có ba tầng chính và mấy cõi bên, và cả thang KHÔNG được bày ra một lần. Một bản đồ đầy đủ giao cho người chơi ở lượt đầu là một bản đồ không ai còn muốn đi.
@@ -914,6 +921,7 @@ const entries = [
     group: d.group,
     phase: d.phase,
     deferMaterialization: true,
+    expectations: d.expectations ?? [],
     content: d.content,
   })),
   // `BIEN_SO` đi qua đúng đường của một entry nội dung — cùng khối EJS, cùng

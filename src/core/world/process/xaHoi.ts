@@ -12,8 +12,9 @@ import type { PatchOp } from '../../contracts/core.js';
 import type { KetQuaTienTrinh, NgocCanhTienTrinh, UngVienSuKien } from './types.js';
 import { cong, dat, docAspect, kep, lam, langGieng, moiNoiChon, tongCohort, PHAN_KHO } from './tienIch.js';
 import { TRAN_LAY_MOT_LAN } from './danSo.js';
-import type { AnNinh, DanCu, KinhTe, TapTuc, VanHoa } from '../../schema/aspect/substrate.js';
-import type { Institutional } from '../../schema/aspect/living.js';
+import type { AnNinh, DanCu, DiBanThanThoai, KinhTe, TapTuc, VanHoa } from '../../schema/aspect/substrate.js';
+import type { Institutional, Spatial } from '../../schema/aspect/living.js';
+import type { Venerable } from '../../schema/aspect/divine.js';
 
 // ─────────────────────────────────────────── institution_governance
 
@@ -221,6 +222,144 @@ export function chayVanHoa(nc: NgocCanhTienTrinh): KetQuaTienTrinh {
     }
 
     if (doi) patches.push(dat(nc, id, 'aspects.van_hoa.tapTuc', conLai));
+
+    // ── thần thoại địa phương: cùng một thần có thể được kể khác nhau theo vùng ──
+    const thanThoai: DiBanThanThoai[] = vh.thanThoai.map((x) => ({
+      ...x,
+      nguonEventIds: [...x.nguonEventIds],
+    }));
+    const thanChinh = Object.entries(vh.theoThan)
+      .filter(([, tyLe]) => tyLe >= 0.12)
+      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0];
+    let doiThanThoai = false;
+    if (thanChinh) {
+      const [thanId, tyLeTheo] = thanChinh;
+      const than = nc.state.entities.get(thanId);
+      if (than) {
+        const chuDeId = `than:${thanId}`;
+        const gocId = `tt:${id}:${thanId}:goc`;
+        let goc = thanThoai.find((x) => x.id === gocId);
+        if (!goc) {
+          const noiDung =
+            kt.thieuHut > 0.3
+              ? `${than.ten} giữ lại mùa màng để thử lòng người ${e.ten}.`
+              : an.deDoa >= 40
+                ? `${than.ten} đặt hiểm họa trước ${e.ten}, và chỉ người biết giữ nhau mới vượt qua.`
+                : `${than.ten} gìn giữ trật tự quanh ${e.ten} và nghe những lời gọi từ nơi này.`;
+          goc = {
+            id: gocId,
+            chuDeId,
+            noiDung,
+            vungId: id,
+            nguonEventIds: [nc.eventId],
+            phienBanGocId: null,
+            doTin: kep(20 + tyLeTheo * 60, 0, 100),
+            uyQuyen: kep(15 + tyLeTheo * 70, 0, 100),
+            tickSinh: nc.tick,
+            trangThai: 'song',
+          };
+          thanThoai.push(goc);
+          doiThanThoai = true;
+          suKien.push({
+            loai: 'than_thoai_dia_phuong_sinh',
+            mucDo: 'lon',
+            moTa: `Ở ${e.ten}, người ta bắt đầu kể rằng ${noiDung.charAt(0).toLocaleLowerCase()}${noiDung.slice(1)}`,
+            tienTrinhId: 'culture_language_religion',
+            chuTheIds: [id, thanId],
+            locationId: id,
+            payload: { thanThoaiId: gocId, chuDeId },
+          });
+        }
+
+        // Giáo lý trôi đủ xa thì sinh dị bản thật, không ghi đè bản cũ.
+        if (lech >= 35 && goc) {
+          const bacDi = Math.min(4, Math.floor(lech / 20));
+          const diId = `tt:${id}:${thanId}:di:${bacDi}`;
+          if (!thanThoai.some((x) => x.id === diId)) {
+            goc.trangThai = 'tranh_chap';
+            thanThoai.push({
+              id: diId,
+              chuDeId,
+              noiDung:
+                kt.thieuHut > 0.3
+                  ? `${than.ten} không hề giữ mùa màng; chính lời hứa của người ${e.ten} đã làm đất kiệt đi.`
+                  : `${than.ten} từng rời bỏ ${e.ten}, và trật tự còn lại là công của người sống.`,
+              vungId: id,
+              nguonEventIds: [nc.eventId],
+              phienBanGocId: goc.id,
+              doTin: kep(10 + lech * 0.6, 0, 100),
+              uyQuyen: kep(8 + lech * 0.45, 0, 100),
+              tickSinh: nc.tick,
+              trangThai: 'tranh_chap',
+            });
+            doiThanThoai = true;
+            suKien.push({
+              loai: 'di_ban_than_thoai_sinh',
+              mucDo: 'lon',
+              moTa: `Một dị bản về ${than.ten} lan ở ${e.ten}; chuyện cũ từ nay không còn là lời kể duy nhất.`,
+              tienTrinhId: 'culture_language_religion',
+              chuTheIds: [id, thanId],
+              locationId: id,
+              payload: { thanThoaiId: diId, phienBanGocId: goc.id },
+            });
+          }
+        }
+      }
+    }
+    if (doiThanThoai) patches.push(dat(nc, id, 'aspects.van_hoa.thanThoai', thanThoai.slice(-32)));
+
+    // ── địa lý linh thiêng: tín đồ và đền thờ khiến một nơi đổi trạng thái ──
+    const spatial = docAspect<Spatial>(e, 'spatial');
+    if (spatial) {
+      const thanIds: string[] = [];
+      let matDoDen = 0;
+      for (const thanId of Object.keys(vh.theoThan).sort()) {
+        const ven = docAspect<Venerable>(nc.state.entities.get(thanId), 'venerable');
+        const mat = Math.max(0, ven?.matDoDen[id] ?? 0);
+        if (mat <= 0 && (vh.theoThan[thanId] ?? 0) < 0.12) continue;
+        thanIds.push(thanId);
+        matDoDen += mat;
+      }
+      const cu = spatial.thieng;
+      const mucTinh = kep(
+        matDoDen * 8 + thanIds.reduce((t, x) => t + (vh.theoThan[x] ?? 0) * 35, 0) + thanThoai.length * 3,
+        0,
+        100,
+      );
+      const mucMoi = Math.max(cu.mucDo, mucTinh);
+      const loaiMoi = cu.loai !== 'thuong' ? cu.loai : mucMoi >= 50 ? 'thanh_dia' : 'thuong';
+      const hanhHuongMoi =
+        cu.luotHanhHuong + (mucMoi >= 50 ? Math.max(1, Math.floor(tongCohort(dc.cohort) * 0.002 * n)) : 0);
+      const nguon = [...new Set([...cu.nguonThiengIds, ...thanThoai.map((x) => x.id)])].slice(-12);
+      if (
+        lam(mucMoi) !== lam(cu.mucDo) ||
+        loaiMoi !== cu.loai ||
+        hanhHuongMoi !== cu.luotHanhHuong ||
+        JSON.stringify(thanIds) !== JSON.stringify(cu.thanIds) ||
+        JSON.stringify(nguon) !== JSON.stringify(cu.nguonThiengIds)
+      ) {
+        patches.push(
+          dat(nc, id, 'aspects.spatial.thieng', {
+            mucDo: lam(mucMoi),
+            loai: loaiMoi,
+            thanIds,
+            nguonThiengIds: nguon,
+            luotHanhHuong: hanhHuongMoi,
+          }),
+        );
+      }
+      if (cu.mucDo < 50 && mucMoi >= 50) {
+        suKien.push({
+          loai: 'noi_chon_thanh_thanh_dia',
+          mucDo: 'trong_dai',
+          moTa: `${e.ten} đã thành thánh địa: dấu tích, lời kể và những bước hành hương cùng bám vào nơi này.`,
+          tienTrinhId: 'culture_language_religion',
+          chuTheIds: [id, ...thanIds],
+          locationId: id,
+          payload: { mucDoThieng: lam(mucMoi), thanIds },
+        });
+      }
+    }
   }
 
   return { patches, suKien };

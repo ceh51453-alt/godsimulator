@@ -186,7 +186,17 @@ function dinhTinhHoa(ten: string, o: Record<string, unknown>): Record<string, un
   if (ten === 'van_hoa') {
     // Tập tục là thứ ai cũng thấy; độ lệch giáo lý thì không.
     const tt = Array.isArray(o['tapTuc']) ? (o['tapTuc'] as { ten?: string }[]) : [];
-    return { tapTuc: tt.map((t) => t.ten ?? '').filter((x) => x !== '') };
+    const thanThoai = Array.isArray(o['thanThoai'])
+      ? (o['thanThoai'] as { noiDung?: string; trangThai?: string }[])
+      : [];
+    return {
+      tapTuc: tt.map((t) => t.ten ?? '').filter((x) => x !== ''),
+      loiKe: thanThoai
+        .filter((x) => x.trangThai !== 'mai_mot')
+        .map((x) => x.noiDung ?? '')
+        .filter((x) => x !== '')
+        .slice(0, 6),
+    };
   }
   if (ten === 'duong') {
     return {

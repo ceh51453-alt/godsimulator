@@ -130,6 +130,7 @@ export function SanhThienDien(): JSX.Element | null {
   const chayDanhGiaTruyHoi = useGame((s) => s.chayDanhGiaTruyHoi);
   const gui = useGame((s) => s.gui);
   const tick = useGame((s) => s.tick);
+  const taiTaoChuKy = useGame((s) => s.taiTaoChuKy);
   const dangCapNhatBien = useGame((s) => s.dangCapNhatBien);
   const capNhatBienNgay = useGame((s) => s.capNhatBienNgay);
   const chuyenTang = useGame((s) => s.chuyenTang);
@@ -543,6 +544,19 @@ export function SanhThienDien(): JSX.Element | null {
             </ul>
             <button style={{ ...nut(), marginTop: 10 }} onClick={() => setDiff(null)}>
               Đã rõ
+            </button>
+          </div>
+        )}
+
+        {state.world.sangThe.ketCucHienTai !== null && (
+          <div className="kinh" style={{ padding: 14, marginBottom: 14, borderLeft: '2px solid var(--van)' }}>
+            <div style={nhanNho}>KẾT CỤC · CHU KỲ {state.world.sangThe.chuKy}</div>
+            <p style={{ margin: '8px 0 12px', color: 'var(--tro)' }}>
+              {state.world.sangThe.ketCucHienTai.replace(/_/g, ' ')}. Lịch sử này đã khép, nhưng di sản của nó
+              có thể trở thành nền cho một lần sáng thế khác.
+            </p>
+            <button style={nut(true)} disabled={khoaNhap} onClick={() => void taiTaoChuKy()}>
+              Mở chu kỳ kế tiếp
             </button>
           </div>
         )}

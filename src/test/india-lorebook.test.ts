@@ -10,6 +10,7 @@ import { renderEjsLore, taoNguCanhEjsLore } from '../core/lore/ejs.js';
 import { vatChatHoaLorebook } from '../core/lore/hienThuc.js';
 import { trichKyVong } from '../core/lore/kyVong.js';
 import { dungChiMuc } from '../core/retrieval/chiMuc.js';
+import { moDuBangChungLore } from './lorebook-evidence.js';
 
 function docSach() {
   return JSON.parse(
@@ -28,6 +29,7 @@ function theGioi() {
   const state = taoState(world);
   const result = apDungChuoi(state, events, taoEventLog());
   if (!result.ok) throw new Error(result.errors.map((e) => e.message).join('; '));
+  moDuBangChungLore(state);
   return state;
 }
 
@@ -221,7 +223,7 @@ describe('Lorebook dựng sẵn — Thần thoại Ấn Độ', () => {
     const book = { ...imported, bat: true, tickBat: state.world.tick };
 
     expect(vatChatHoaLorebook(book, state, 'ev.india-on')).toHaveLength(0);
-    expect(trichKyVong(book, state.world.branchId)).toHaveLength(0);
+    expect(trichKyVong(book, state.world.branchId)).toHaveLength(3);
 
     state.lorebooks.set(book.id, { ...book, bat: false, tickBat: null });
     expect(dungChiMuc(state).filter((c) => c.id.startsWith('ck_lore_'))).toHaveLength(0);
