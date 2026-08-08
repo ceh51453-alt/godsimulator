@@ -736,7 +736,10 @@ const DIEU_PHOI = [
 Giai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> "<%= dien.nhan %>", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.
 Neo đã thành lịch sử: <%= lore.realizedNames %>.
 
-1. Thế giới KHÔNG bắt đầu là Ashihara no Nakatsukuni. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Nhật Bản, không phải bản sao của nó.
+[ĐA THẦN THOẠI] <%= daThan.khungCanh %>
+<%= daThan.giaoUoc %>
+
+1. Thế giới KHÔNG bắt đầu là Ashihara no Nakatsukuni. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Nhật Bản, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: thần thoại Nhật là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.
 2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>
 3. Không đảo thứ tự năm tầng. Kami ở thần thoại này nhập thế bằng MỘT CHỖ CỤ THỂ trước khi có tên: đúng tảng đá ấy, đúng khúc sông ấy, đúng cái cây không ai dám chặt. Một vị thần bước ra tự giới thiệu ở lượt đầu là tiêu mất hai mươi lượt còn lại.
 4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Thần thoại này có tám triệu kami và cám dỗ lớn nhất của nó là gọi tên hàng loạt. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới; thế giới lớn lên bằng chiều sâu, không bằng danh sách.

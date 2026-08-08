@@ -368,7 +368,10 @@ const DIEU_PHOI = [
 Giai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> "<%= dien.nhan %>", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.
 Neo đã thành lịch sử: <%= lore.realizedNames %>.
 
-1. Thế giới KHÔNG bắt đầu là Bharata. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Ấn Độ, không phải bản sao của nó.
+[ĐA THẦN THOẠI] <%= daThan.khungCanh %>
+<%= daThan.giaoUoc %>
+
+1. Thế giới KHÔNG bắt đầu là Bharata. Nó bắt đầu trống và kết tinh dần qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Ấn Độ, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: Bharata là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.
 2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>
 3. Không đảo thứ tự năm tầng. Mười bốn cõi Loka bày ra hết ở lượt đầu là mất trắng phần còn lại của ván; một vị trong Trimurti bước ra chào sớm cũng vậy.
 4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới. Thế giới lớn lên bằng chiều sâu, không bằng danh sách.

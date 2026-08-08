@@ -6,7 +6,9 @@
  * comment `<%# ... %>` và macro `{{user}}`. Mọi câu lệnh JavaScript khác bị loại bỏ và báo lỗi.
  */
 import type { WorldState } from '../engine/state.js';
-import type { Lorebook, LorebookEntry } from './schema.js';
+import type { ConflictPolicy, Lorebook, LorebookEntry } from './schema.js';
+
+export type QuanHeDaThan = ConflictPolicy;
 
 export type NguCanhEjsLore = Readonly<{
   world: Readonly<{ tick: number; year: number; phase: number; phaseLabel: string }>;
@@ -15,6 +17,10 @@ export type NguCanhEjsLore = Readonly<{
     bookName: string;
     activeEntryCount: number;
     realizedNames: string;
+    /**
+     * Trần kết tinh CÒN LẠI cho sách này sau khi chia với các sách khác đang
+     * bật — không phải con số sách tự khai. Xem `daThan`.
+     */
     gravity: number;
   }>;
   entry: Readonly<{ id: string; name: string; keys: string; group: string; phase: number }>;
@@ -37,6 +43,36 @@ export type NguCanhEjsLore = Readonly<{
     chiDan: string;
     tenGoi: string;
     khoaLai: string;
+  }>;
+  /**
+   * Thế giới đang bị kéo bởi mấy thần thoại cùng lúc.
+   *
+   * Bật hai sách không phải là bật hai sách. Mỗi sách mang một entry đạo diễn
+   * nói "thế giới đang trở thành X", nên hai sách nghĩa là hai lời tuyên bố về
+   * cùng một bầu trời — và model sẽ xử lý mâu thuẫn ấy theo cách rẻ nhất: chọn
+   * đại một bên rồi im lặng bỏ bên kia, hoặc tệ hơn, sáp nhập hai thần điện làm
+   * một cho hết mâu thuẫn. Cả hai cách đều xóa mất đúng thứ đáng chơi nhất của
+   * một thế giới đa thần thoại, là chỗ hai hệ CHẠM nhau.
+   *
+   * Khối này để engine trả lời câu ấy một lần cho cả thế giới thay vì để mỗi
+   * sách tự trả lời. Nó nói ba việc: thế giới đang thành cái gì (`khungCanh`),
+   * các hệ quan hệ với nhau ra sao (`quanHe`, lấy từ `conflictPolicy` của chính
+   * các sách), và phần trần kết tinh còn lại của sách này sau khi chia
+   * (`phanCua`).
+   *
+   * `chuTri` giữ cho giao ước xuất hiện ĐÚNG MỘT LẦN. Ba sách cùng in một bản
+   * giao ước dài là ba lần trả tiền token cho cùng một đoạn, và là đúng loại
+   * lặp mà bản thân giao ước đang cấm.
+   */
+  daThan: Readonly<{
+    soSach: number;
+    tenSach: string;
+    quanHe: QuanHeDaThan;
+    tranChung: number;
+    phanCua: number;
+    chuTri: boolean;
+    khungCanh: string;
+    giaoUoc: string;
   }>;
 }>;
 
@@ -124,6 +160,132 @@ const THANG_DIEN: readonly Readonly<{ nhan: string; chiDan: string; tenGoi: stri
     }),
   ]);
 
+/**
+ * Trần kết tinh chung của MỌI thần thoại đang bật cộng lại.
+ *
+ * Vì sao phải có một trần chung, và vì sao nó không phải 100.
+ *
+ * Trần của một sách đơn là `lucHapDan` của nó (66–72 ở ba sách dựng sẵn), và
+ * phần còn thiếu so với 100 là phần của người chơi. Nếu mỗi sách giữ nguyên
+ * trần ấy khi bật chung, ba sách sẽ cộng lại thành hơn hai trăm phần trăm thế
+ * giới — nghĩa là không còn chỗ nào cho ván này tự đi, và cái mất đi trước
+ * tiên luôn là phần của người chơi.
+ *
+ * 76 cao hơn trần của bất kỳ sách đơn nào, vì một thế giới ôm hai thần thoại
+ * thì ĐÚNG là dày thần thoại hơn một thế giới ôm một. Nhưng nó dừng ở 76 để
+ * sàn của người chơi không bao giờ mỏng hơn một phần tư thế giới, dù có bật
+ * bao nhiêu sách.
+ *
+ * Hệ quả cố ý: bật thêm sách KHÔNG cho thêm thế giới, nó cho một thế giới
+ * TRỘN hơn. Bật bốn thần thoại thì mỗi hệ chỉ tới được tầng danh xưng — và một
+ * thế giới của bốn nguồn tin đồn từ bốn phương là câu trả lời trung thực cho
+ * việc bật bốn sách, không phải một lỗi cần che.
+ */
+export const TRAN_DA_THAN = 76;
+
+/** Hệ nào đòi hỏi nhiều nhất thì hệ ấy quyết định quan hệ chung. */
+const THU_TU_QUAN_HE: readonly QuanHeDaThan[] = Object.freeze(['song_song', 'dung_hop', 'tranh_doat']);
+
+/**
+ * Các sách đang bật, kể cả sách đang render nếu nó chưa nằm trong state.
+ *
+ * Người gọi có thể đang render một sách vừa bật mà chưa ghi vào `s.lorebooks`
+ * (đường nhập, xem trước, test). Bỏ sót nó ở đây nghĩa là một sách tự coi mình
+ * không tồn tại và tự cho mình trần đầy — đúng lỗi mà cả khối này sinh ra để
+ * chặn.
+ */
+function sachDangBat(s: WorldState, lorebook: Lorebook): readonly Lorebook[] {
+  const ds = [...s.lorebooks.values()].filter((lb) => lb.bat);
+  const day = ds.some((lb) => lb.id === lorebook.id) ? ds : [...ds, lorebook];
+  return day.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Chia trần theo tỷ lệ lực hút mỗi sách tự khai.
+ *
+ * Chia theo tỷ lệ chứ không chia đều: một sách khai lực hút 30 là sách cố ý
+ * muốn làm nền, và đẩy nó lên ngang một sách khai 72 là làm hỏng ý của người
+ * viết sách. Tổng chưa chạm trần thì không ai bị cắt.
+ */
+function phanTran(ds: readonly Lorebook[], lorebook: Lorebook): number {
+  if (ds.length <= 1) return lorebook.lucHapDan;
+  const tong = ds.reduce((t, lb) => t + lb.lucHapDan, 0);
+  if (tong <= TRAN_DA_THAN || tong <= 0) return lorebook.lucHapDan;
+  return (lorebook.lucHapDan / tong) * TRAN_DA_THAN;
+}
+
+function quanHeCua(ds: readonly Lorebook[]): QuanHeDaThan {
+  let bac = 0;
+  for (const lb of ds) bac = Math.max(bac, THU_TU_QUAN_HE.indexOf(lb.conflictPolicy));
+  return THU_TU_QUAN_HE[Math.max(0, bac)] as QuanHeDaThan;
+}
+
+/**
+ * Câu mở của quan hệ — ba cách hai thần thoại có thể cùng tồn tại.
+ *
+ * Lấy từ `conflictPolicy` mà chính các sách khai, nên người viết sách quyết
+ * định sách của mình chịu đứng cạnh sách khác kiểu gì. Hệ đòi hỏi nhiều nhất
+ * thắng: một sách khai `tranh_doat` mà bị các sách `song_song` ép về song song
+ * thì lời khai của nó thành vô nghĩa.
+ */
+const MO_QUAN_HE: Readonly<Record<QuanHeDaThan, string>> = Object.freeze({
+  song_song:
+    'SONG SONG — mỗi thần thoại đúng ở nơi tín ngưỡng của nó đứng, và hết đúng ở chỗ tín ngưỡng ấy hết. ' +
+    'Chúng gặp nhau ở RÌA: biên giới, bến cảng, chiến tuyến, chợ. Không ở tâm.',
+  dung_hop:
+    'DUNG HỢP — các hệ đang hòa vào nhau: một vị được gọi bằng hai tên, một luật được giải thích bằng hai ' +
+    'cách. Nhưng hòa phải TỐN: mỗi lần ghép hai vị làm một là mất đi một điều mà một trong hai vị vốn có, ' +
+    'và phải chỉ ra được điều bị mất ấy.',
+  tranh_doat:
+    'TRANH ĐOẠT — các hệ đang giành cùng một bầu trời. Hệ này mạnh lên ở đâu thì hệ kia yếu đi ở đó, và ' +
+    'việc ấy phải ĐO ĐƯỢC: đền đổi chủ, lễ bị bỏ, một cái tên không còn ai gọi.',
+});
+
+/**
+ * Giao ước — bản đầy đủ, chỉ sách chủ trì mang.
+ *
+ * Bốn chỗ chạm ở mục 2 là bốn chỗ hai thần thoại KHÔNG thể cùng đúng mà không
+ * ai để ý: chúng nói về cùng một vật. Một bầu trời, một cái chết cho mỗi người,
+ * một hành vi bị hai luật cùng tính sổ, một dòng thời gian. Bỏ qua bốn chỗ ấy
+ * là để hai thần thoại chạy song song mà không bao giờ chạm nhau — tức là chơi
+ * hai ván rời trong cùng một cửa sổ.
+ */
+function giaoUocDaThan(ds: readonly Lorebook[], quanHe: QuanHeDaThan, tenNguoiChoi: string): string {
+  return [
+    `[GIAO ƯỚC ĐA THẦN THOẠI · ${ds.length} hệ đang bật: ${ds.map((lb) => lb.ten).join(' · ')}]`,
+    'Không hệ nào trong số này là đích đến. Cái mọc ra từ ván này là một thế giới LAI mà không sách nào mô tả sẵn, và chỗ các hệ chạm nhau mới là phần đáng chơi nhất của nó.',
+    '',
+    `1. QUAN HỆ GIỮA CÁC HỆ: ${MO_QUAN_HE[quanHe]} Trong mọi trường hợp, KHÔNG sáp nhập thần điện cho hết mâu thuẫn.`,
+    '2. BỐN CHỖ BẮT BUỘC PHẢI XỬ, vì ở đó các hệ nói về cùng một vật:',
+    '   · TRỜI — chỉ có MỘT bầu trời trên đầu. Hoặc các cõi trên xếp thành tầng, hoặc chúng là cùng một chỗ mà mỗi bên gọi một tên, hoặc chúng ở hai phương và có khoảng giữa không thuộc về ai. Chọn một, rồi giữ.',
+    '   · CÕI CHẾT — mỗi người chỉ chết một lần, nên không ai đi được tới hai cõi chết. Phải có LUẬT PHÂN LOẠI: theo dòng dõi, theo lời thề lúc sống, theo nghi thức lúc chôn, hoặc theo nơi chết. Luật ấy phải nói ra được, và phải có kẻ tranh cãi về nó.',
+    '   · LUẬT — hai quy luật cùng nói về một hành vi thì hoặc CHỒNG lên nhau (cả hai cùng tính sổ, kẻ xui trả cả hai), hoặc CHIA lãnh thổ, hoặc một cái ĐÈ cái kia ở nơi tín ngưỡng của nó mạnh hơn. Không được lặng lẽ bỏ qua một trong hai.',
+    '   · THỜI — mỗi hệ đếm thời gian một kiểu: vòng lặp, thời đại có kết thúc, các đời suy thoái dần. Chúng không tự khớp. Chỗ lệch giữa hai cách đếm là chỗ sinh ra dị thường, và người trong thế giới nhận ra dị thường ấy trước khi giải thích được nó.',
+    '3. ĐƯỜNG GẶP NHAU là BUÔN BÁN, DI CƯ, CHIẾN TRANH và DỊCH SAI: một thủy thủ mang về tên một vị thần lạ, một trận dịch bị đổ cho thần của kẻ ngoại bang, một thầy tế thử nghi thức của hệ khác và nó ứng nghiệm một nửa. KHÔNG BAO GIỜ bằng một cuộc họp giữa hai thần điện.',
+    '4. DỊCH SAI LÀ CƠ CHẾ, KHÔNG PHẢI LỖI. Người của hệ này gọi thần của hệ kia bằng cái tên gần nhất trong hệ mình, và gọi sai. Cái tên sai ấy được phép THẮNG nếu đủ người dùng nó — và khi ấy vị bị gọi sai bắt đầu mang tính chất của cái tên mới.',
+    '5. MỘT LƯỢT MỘT HỆ LÀM TRỌNG TÂM. Các hệ khác nhiều nhất là một câu nền hoặc một tin đồn từ xa. Cảnh có hai thần điện cùng ra mặt chỉ được xảy ra khi chính cuộc gặp ấy là biến cố của lượt.',
+    '6. KHÔNG HỆ NÀO THẮNG SỚM. Trần của mỗi hệ đã bị chia nhỏ — xem dòng [NHỊP] của từng sách. Muốn một hệ nuốt hệ khác thì phải nuốt bằng chuyện xảy ra trong ván, qua nhiều lượt, và phải trả giá thấy được.',
+    /*
+     * Tên người chơi được ghép THẲNG vào đây, không để lại thẻ EJS.
+     *
+     * `renderEjsLore()` thay thẻ bằng giá trị và KHÔNG quét lại phần vừa thay —
+     * một `<%= user.name %>` nằm trong chuỗi do engine dựng sẽ lọt ra nguyên văn
+     * trong lời kể. Đây là cùng một lỗi với `<user>` của SillyTavern mà tầng
+     * nhập đang bắt, chỉ khác là nó đến từ phía engine.
+     */
+    `7. ${tenNguoiChoi} LÀ KẺ DUY NHẤT KHÔNG THUỘC HỆ NÀO. Đó vừa là lợi thế lớn nhất — đi lại được giữa các hệ, thử được nghi thức của cả hai — vừa là chỗ nguy hiểm nhất: cả hai bên đều có lý do nghi ${tenNguoiChoi} là người của bên kia.`,
+  ].join('\n');
+}
+
+/** Bản rút gọn: sách không chủ trì vẫn phải biết luật, phòng khi bản đầy đủ bị cắt khỏi ngữ cảnh. */
+function giaoUocGon(ds: readonly Lorebook[], chuTri: Lorebook): string {
+  return (
+    `[ĐA THẦN THOẠI · ${ds.length} hệ] Bản đầy đủ đi cùng “${chuTri.ten}”. Rút gọn: KHÔNG sáp nhập thần điện; ` +
+    'các hệ chạm nhau ở trời, cõi chết, luật và cách đếm thời gian, và chạm qua buôn bán, di cư, chiến tranh ' +
+    'và dịch sai. Mỗi lượt chỉ MỘT hệ làm trọng tâm; không hệ nào được kết tinh tới mức nuốt hệ khác.'
+  );
+}
+
 function docDuongDan(root: NguCanhEjsLore, raw: string): unknown {
   const path = raw.trim();
   if (!/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(path)) return undefined;
@@ -156,18 +318,37 @@ export function taoNguCanhEjsLore(s: WorldState, lorebook: Lorebook, entry: Lore
   const phase = giaiDoanLore(lorebook, s.world.tick);
   const tang = Math.min(THANG_DIEN.length - 1, phase);
   const bac = THANG_DIEN[tang] as (typeof THANG_DIEN)[number];
+
+  const dangBat = sachDangBat(s, lorebook);
+  const phanCua = phanTran(dangBat, lorebook);
+  const quanHe = quanHeCua(dangBat);
+  // Sách id nhỏ nhất chủ trì. Bất kỳ quy tắc ổn định nào cũng được, miễn nó
+  // KHÔNG phụ thuộc vào entry đang render — nếu không, cùng một thế giới sẽ có
+  // lượt in giao ước và lượt không.
+  const chuTri = dangBat[0] as Lorebook;
+  const doi = dangBat.length > 1;
+  const tenNguoiChoi = chuThe?.ten ?? 'Người Chơi';
+
   return {
     world: { tick: s.world.tick, year: s.world.year, phase, phaseLabel: nhanGiaiDoan(phase) },
     user: {
       id: chuTheId ?? 'nguoi_choi',
-      name: chuThe?.ten ?? 'Người Chơi',
+      name: tenNguoiChoi,
       mode: s.world.playerState.mode,
     },
     lore: {
       bookName: lorebook.ten,
       activeEntryCount: lorebook.entries.filter((e) => e.trangThai === 'hoat_dong').length,
       realizedNames: [...tenDaThanh].join(', ') || 'chưa có neo nào thành lịch sử',
-      gravity: lorebook.lucHapDan,
+      /*
+       * Trần đã chia, không phải con số sách tự khai.
+       *
+       * Mọi entry của cả ba sách dựng sẵn đều in `lore.gravity` ở dòng [NHỊP],
+       * và các entry điều phối lập luận trực tiếp trên nó ("phần còn thiếu là
+       * phần của người chơi"). Trả về con số đã khai ở đây nghĩa là ba trăm
+       * entry cùng nói dối về chỗ mà chúng thật sự được phép chiếm.
+       */
+      gravity: Math.round(phanCua),
     },
     entry: {
       id: entry.id,
@@ -185,10 +366,29 @@ export function taoNguCanhEjsLore(s: WorldState, lorebook: Lorebook, entry: Lore
     dien: {
       tang,
       nhan: bac.nhan,
-      tyLe: Math.round(((tang + 1) / THANG_DIEN.length) * lorebook.lucHapDan),
+      tyLe: Math.round(((tang + 1) / THANG_DIEN.length) * phanCua),
       chiDan: bac.chiDan,
       tenGoi: bac.tenGoi,
       khoaLai: bac.khoaLai,
+    },
+    daThan: {
+      soSach: dangBat.length,
+      tenSach: dangBat.map((lb) => lb.ten).join(' · '),
+      quanHe,
+      tranChung: TRAN_DA_THAN,
+      phanCua: Math.round(phanCua),
+      chuTri: doi && chuTri.id === lorebook.id,
+      khungCanh: doi
+        ? `Thế giới này đang bị kéo bởi ${dangBat.length} thần thoại cùng lúc: ${dangBat
+            .map((lb) => lb.ten)
+            .join(' · ')}. Không hệ nào là đích đến; cái mọc ra là một thế giới LAI. ` +
+          `Phần của sách này trong đó là ${Math.round(phanCua)}% (trần chung của mọi hệ: ${TRAN_DA_THAN}%).`
+        : 'Chỉ một thần thoại đang bật — mục đa thần thoại không áp dụng cho lượt này.',
+      giaoUoc: !doi
+        ? ''
+        : chuTri.id === lorebook.id
+          ? giaoUocDaThan(dangBat, quanHe, tenNguoiChoi)
+          : giaoUocGon(dangBat, chuTri),
     },
   };
 }

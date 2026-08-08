@@ -404,7 +404,10 @@ const DIEU_PHOI = [
 Giai đoạn <%= world.phase %> — <%= world.phaseLabel %>. Tầng kết tinh <%= dien.tang %> "<%= dien.nhan %>", mức <%= dien.tyLe %>%. Người chơi: <%= user.name %>.
 Neo đã thành lịch sử: <%= lore.realizedNames %>.
 
-1. Thế giới KHÔNG bắt đầu là Olympus. Nó bắt đầu trống và kết tinh dần thành Olympus qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Hy Lạp, không phải bản sao của nó.
+[ĐA THẦN THOẠI] <%= daThan.khungCanh %>
+<%= daThan.giaoUoc %>
+
+1. Thế giới KHÔNG bắt đầu là Olympus. Nó bắt đầu trống và kết tinh dần thành Olympus qua năm tầng: dấu hiệu → danh xưng → luật → cõi giới → sử thi. Đích đến là một DỊ BẢN của thần thoại Hy Lạp, không phải bản sao của nó. Khi khối ĐA THẦN THOẠI ở trên báo có nhiều hơn một hệ đang bật, câu này đọc thành: Olympus là MỘT trong các lực hút của thế giới, không phải đích đến duy nhất của nó.
 2. Mức kết tinh <%= dien.tyLe %>% là TRẦN, không phải chỉ tiêu. <%= dien.chiDan %>
 3. Không đảo thứ tự năm tầng. Một địa danh của sách xuất hiện trước khi luật ở đó đứng vững là lỗi thấy được ngay; một vị thần bước ra chào ở lượt đầu là tiêu mất hai mươi lượt còn lại.
 4. Mỗi lượt gieo nhiều nhất MỘT yếu tố mới của sách. Ưu tiên phát triển thứ đã gieo hơn là gọi thêm tên mới. Thế giới lớn lên bằng chiều sâu, không bằng danh sách.
