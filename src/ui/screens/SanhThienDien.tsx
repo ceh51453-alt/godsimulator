@@ -38,6 +38,7 @@ import type { DivineIdentity } from '../../core/schema/aspect/thanVi.js';
 import { CACH_DAP_DI_HOA } from '../../core/schema/aspect/thanVi.js';
 import LuaChon from '../components/LuaChon.js';
 import { NoiDungPreset } from '../components/NoiDungPreset.js';
+import { GIA_TRI_FONT_AI, useVanBanAi } from '../../store/vanBanAi.js';
 
 const TEN_TANG: Record<ViewMode, string> = {
   sang_the: 'Sáng Thế Thần',
@@ -206,6 +207,15 @@ export function SanhThienDien(): JSX.Element | null {
   const boGhimThienTuong = useUi((s) => s.boGhimThienTuong);
   const chupTheoTick = useUi((s) => s.chupTheoTick);
   const doiMan = useUi((s) => s.doiMan);
+  const caiDatVanBanAi = useVanBanAi((s) => s.caiDat);
+
+  const kieuVanBanAi: CSSProperties = {
+    fontFamily: GIA_TRI_FONT_AI[caiDatVanBanAi.phongChu],
+    fontSize: caiDatVanBanAi.coChu,
+    lineHeight: caiDatVanBanAi.gianDong,
+    letterSpacing: `${caiDatVanBanAi.gianChu}em`,
+    whiteSpace: 'pre-wrap',
+  };
 
   const [cau, setCau] = useState('');
   const [debug, setDebug] = useState(false);
@@ -619,7 +629,7 @@ export function SanhThienDien(): JSX.Element | null {
                 }}
               >
                 <div className="mes_block">
-                  <div className="mes_text">
+                  <div className="mes_text" style={d.loai === 'ket_qua' ? kieuVanBanAi : undefined}>
                     {d.dinhDang === 'html' ? <NoiDungPreset html={d.noiDung} /> : d.noiDung}
                   </div>
                 </div>
@@ -634,7 +644,7 @@ export function SanhThienDien(): JSX.Element | null {
                 style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.65, color: 'var(--tro)' }}
               >
                 <div className="mes_block">
-                  <div className="mes_text" style={{ whiteSpace: 'pre-wrap' }}>
+                  <div className="mes_text" style={kieuVanBanAi}>
                     {loiKeDangStream}
                     <span
                       aria-hidden="true"

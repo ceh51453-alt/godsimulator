@@ -24,10 +24,12 @@ import { CongAi } from './CongAi.js';
 import { XuongPreset } from './XuongPreset.js';
 import { Lorebook } from './Lorebook.js';
 import { XuongWorkflow } from './XuongWorkflow.js';
+import { CaiDatVanBanAi } from './CaiDatVanBanAi.js';
 import { nhanNho } from '../design/kieu.js';
 
 const TAB = [
   { id: 'proxy', ten: 'Proxy AI', phu: 'Ba kênh kết nối, model, kiểm tra' },
+  { id: 'van_ban_ai', ten: 'Văn bản AI', phu: 'Cỡ chữ, giãn cách, phông chữ' },
   { id: 'preset', ten: 'Preset', phu: 'Nhập, giải xung đột, bật/tắt' },
   { id: 'lorebook', ten: 'Lorebook', phu: 'Sách, đối soát, dị biệt' },
   { id: 'workflow', ten: 'Workflow', phu: 'Đường ống tác vụ và Diễn Hóa' },
@@ -91,6 +93,7 @@ export function CaiDat({ tabDau = 'proxy' }: { tabDau?: TenTab }): JSX.Element {
 
       <div role="tabpanel" style={{ flex: 1, minHeight: 0 }}>
         {tab === 'proxy' && <CongAi />}
+        {tab === 'van_ban_ai' && <CaiDatVanBanAi />}
         {tab === 'preset' && <XuongPreset />}
         {tab === 'lorebook' && <Lorebook />}
         {tab === 'workflow' && <XuongWorkflow />}
