@@ -985,8 +985,11 @@ describe('66.5 — export lại vẫn chứa raw phần chưa hỗ trợ', () =>
       stream_openai: true,
     });
     expect(gen.temperature).toBe(1);
+    expect(gen.streaming).toBe(true);
     expect(gen.unknown['tool_reasoning_mode']).toBe('x');
+    expect(gen.unknown['stream_openai']).toBeUndefined();
     const { params, bang } = chuanHoaThamSo(gen, PROFILE);
+    expect(params.streaming).toBe(true);
     expect(Object.hasOwn(params, 'tool_reasoning_mode')).toBe(false);
     expect(bang.some((b) => b.truong === 'tool_reasoning_mode' && b.trangThai === 'khong_ho_tro')).toBe(true);
   });

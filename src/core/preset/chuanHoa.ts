@@ -631,6 +631,7 @@ const ANH_XA_THAM_SO: readonly (readonly [string, string])[] = [
   ['verbosity', 'verbosity'],
   ['seed', 'seed'],
   ['continue_prefill', 'continuePrefill'],
+  ['stream_openai', 'streaming'],
 ];
 
 /** Đọc tham số sinh từ file nguồn, GIỮ NGUYÊN giá trị — 62.4. */
@@ -794,6 +795,10 @@ export function chuanHoaThamSo(
   if (g.continuePrefill !== undefined) {
     if (profile.hoTro.continuePrefill) giu('continuePrefill', g.continuePrefill, g.continuePrefill, true);
     else khongHoTro('continuePrefill', g.continuePrefill, 'model không nhận assistant prefill');
+  }
+  if (g.streaming !== undefined) {
+    // Streaming là cách vận chuyển phản hồi, không phải một khả năng lấy mẫu của model.
+    giu('streaming', g.streaming, g.streaming, true);
   }
   if (g.stopSequences !== undefined) {
     const toiDa = profile.hoTro.stopSequences;

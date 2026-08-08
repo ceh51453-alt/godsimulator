@@ -8,7 +8,7 @@
  * [BB] 36.1 — không emoji trong nút. Sử dụng số thứ tự thay thế.
  * [BB] luật bất biến #9 — không dấu hiệu nào chỉ bằng màu.
  */
-import { useState, useCallback } from 'react';
+import { useCallback, useId, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 type Props = {
@@ -56,6 +56,18 @@ const TOGGLE_LABEL: CSSProperties = {
   gap: 4,
 };
 
+const NUT_THU_GON: CSSProperties = {
+  background: 'transparent',
+  color: 'var(--tro)',
+  border: '1px solid var(--kinh-vien)',
+  borderRadius: 'var(--r-sm)',
+  padding: '4px 8px',
+  font: 'inherit',
+  fontSize: 11,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+};
+
 function nutChon(tat: boolean): CSSProperties {
   return {
     background: 'transparent',
@@ -89,6 +101,8 @@ const INDEX_BADGE: CSSProperties = {
 
 export default function LuaChon({ luaChon, onChon, dangKe }: Props): JSX.Element | null {
   const [guiTrucTiep, setGuiTrucTiep] = useState(true);
+  const [moRong, setMoRong] = useState(true);
+  const danhSachId = `${useId()}-lua-chon`;
 
   const xuLyChon = useCallback(
     (text: string) => {
@@ -102,19 +116,43 @@ export default function LuaChon({ luaChon, onChon, dangKe }: Props): JSX.Element
 
   return (
     <div style={CONTAINER}>
-      <div style={HEADER}>
-        <span style={HEADER_TITLE}>Lua chon hanh dong</span>
+      <div
+        style={{
+          ...HEADER,
+          ...(moRong ? {} : { paddingBottom: 0, borderBottom: 'none', marginBottom: 0 }),
+        }}
+      >
+        <span style={HEADER_TITLE}>Lựa chọn hành động</span>
         <label style={TOGGLE_LABEL}>
           <input type="checkbox" checked={guiTrucTiep} onChange={(e) => setGuiTrucTiep(e.target.checked)} />
-          Gui truc tiep
+          Gửi trực tiếp
         </label>
-      </div>
-      {luaChon.map((lc, i) => (
-        <button key={i} style={nutChon(dangKe)} disabled={dangKe} onClick={() => xuLyChon(lc)} type="button">
-          <span style={INDEX_BADGE}>{String(i + 1).padStart(2, '0')}</span>
-          <span>{lc}</span>
+        <button
+          type="button"
+          style={NUT_THU_GON}
+          aria-expanded={moRong}
+          aria-controls={danhSachId}
+          onClick={() => setMoRong((dangMo) => !dangMo)}
+        >
+          {moRong ? 'Thu gọn' : 'Mở lựa chọn'}
         </button>
-      ))}
+      </div>
+      {moRong && (
+        <div id={danhSachId} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {luaChon.map((lc, i) => (
+            <button
+              key={i}
+              style={nutChon(dangKe)}
+              disabled={dangKe}
+              onClick={() => xuLyChon(lc)}
+              type="button"
+            >
+              <span style={INDEX_BADGE}>{String(i + 1).padStart(2, '0')}</span>
+              <span>{lc}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

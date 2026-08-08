@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
+import { chonNhatKyScript, usePreset, tinhNangPresetDangBat } from '../../store/preset.js';
 import { useGame } from '../../store/game.js';
 import { useAi, hoSoCuaEndpoint } from '../../store/ai.js';
 import { ThongSoSinh } from './ThongSoSinh.js';
@@ -19,7 +19,9 @@ import type {
   ScriptAdapterDef,
   TransformDef,
 } from '../../core/preset/schema.js';
-import { OMIT_REASON_NHAN } from '../../core/preset/schema.js';
+import { MODULE_LANES, OMIT_REASON_NHAN } from '../../core/preset/schema.js';
+import { kiemPatternHopLe } from '../../core/preset/chuanHoa.js';
+import { bam } from '../../core/engine/hash.js';
 
 /**
  * Gộp lý do bị bỏ thành một câu nói đúng sự thật.
@@ -47,6 +49,17 @@ const nhan: CSSProperties = {
 };
 const so: CSSProperties = { fontSize: 13, color: 'var(--tro)' };
 const phu: CSSProperties = { fontSize: 12, color: 'var(--mo)' };
+const oNhap: CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  background: 'var(--kinh-nen-2)',
+  color: 'var(--sang)',
+  border: '1px solid var(--kinh-vien)',
+  borderRadius: 'var(--r-sm)',
+  padding: '8px 10px',
+  font: 'inherit',
+  fontSize: 12,
+};
 
 function nut(chinh = false, tat = false): CSSProperties {
   return {
@@ -133,6 +146,7 @@ export function XuongPreset(): JSX.Element {
   const bat = usePreset((s) => s.bat);
   const tat = usePreset((s) => s.tat);
   const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
+  const luuChinhSua = usePreset((s) => s.luuChinhSua);
   const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
   const datTinhNang = usePreset((s) => s.datTinhNang);
   const thamSoHieuLuc = usePreset((s) => s.thamSoHieuLuc);
@@ -406,47 +420,20 @@ export function XuongPreset(): JSX.Element {
                       phuDe="Bật/tắt từng phần; thứ tự trong file luôn được giữ nguyên."
                     >
                       <div
-                        style={{ display: 'grid', gap: 6, maxHeight: 360, overflow: 'auto', paddingRight: 4 }}
+                        style={{ display: 'grid', gap: 6, maxHeight: 640, overflow: 'auto', paddingRight: 4 }}
                       >
-                        {row.pack.modules.map((m) => {
-                          const duocChay = !KHONG_CHAY_DUOC.has(m.activation);
-                          const checked = tinhNangPresetDangBat(
-                            bienPack,
-                            'module',
-                            m.sourceIdentifier,
-                            moduleMacDinh(m),
-                          );
-                          return (
-                            <div
-                              key={m.id}
-                              className="kinh--cap2"
-                              style={{
-                                padding: '9px 11px',
-                                display: 'flex',
-                                gap: 10,
-                                alignItems: 'center',
-                                flexWrap: 'wrap',
-                              }}
-                            >
-                              <CongTac
-                                checked={checked && duocChay}
-                                disabled={state === null || !duocChay}
-                                nhanChu={m.name}
-                                onChange={(v) =>
-                                  void datTinhNang(row.packId, 'module', m.sourceIdentifier, v, tick)
-                                }
-                              />
-                              <span style={{ ...phu, marginLeft: 'auto' }}>
-                                {m.role} · {m.lane} · #{m.order}
-                              </span>
-                              {!duocChay && (
-                                <span style={{ ...phu, color: 'var(--hoi)' }}>
-                                  không tương thích: {m.activation}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {row.pack.modules.map((m) => (
+                          <PromptDong
+                            key={m.id}
+                            row={row}
+                            module={m}
+                            bienPack={bienPack}
+                            coVan={state !== null}
+                            tick={tick}
+                            datTinhNang={datTinhNang}
+                            luuChinhSua={luuChinhSua}
+                          />
+                        ))}
                       </div>
                     </Khoi>
 
@@ -465,6 +452,7 @@ export function XuongPreset(): JSX.Element {
                             tick={tick}
                             msCham={msCham[t.id]}
                             datTinhNang={datTinhNang}
+                            luuChinhSua={luuChinhSua}
                           />
                         ))}
                         {row.transformDefs.length === 0 && (
@@ -487,6 +475,7 @@ export function XuongPreset(): JSX.Element {
                             coVan={state !== null}
                             tick={tick}
                             datTinhNang={datTinhNang}
+                            luuChinhSua={luuChinhSua}
                           />
                         ))}
                         {(row.scripts ?? []).length === 0 && (
@@ -596,6 +585,149 @@ export function XuongPreset(): JSX.Element {
   );
 }
 
+function PromptDong({
+  row,
+  module,
+  bienPack,
+  coVan,
+  tick,
+  datTinhNang,
+  luuChinhSua,
+}: {
+  row: PresetPackRow;
+  module: PromptModule;
+  bienPack: Readonly<Record<string, unknown>>;
+  coVan: boolean;
+  tick: number;
+  datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
+  luuChinhSua: ReturnType<typeof usePreset.getState>['luuChinhSua'];
+}): JSX.Element {
+  const [dangSua, setDangSua] = useState(false);
+  const [ten, setTen] = useState(module.name);
+  const [role, setRole] = useState(module.role);
+  const [lane, setLane] = useState(module.lane);
+  const [order, setOrder] = useState(module.order);
+  const [depth, setDepth] = useState(module.depth);
+  const [content, setContent] = useState(module.content);
+  const [dangLuu, setDangLuu] = useState(false);
+  const duocChay = !KHONG_CHAY_DUOC.has(module.activation);
+  const checked = tinhNangPresetDangBat(bienPack, 'module', module.sourceIdentifier, moduleMacDinh(module));
+
+  const luu = async (): Promise<void> => {
+    setDangLuu(true);
+    const moi: PromptModule = { ...module, name: ten, role, lane, order, depth, content };
+    const ok = await luuChinhSua({
+      ...row,
+      pack: { ...row.pack, modules: row.pack.modules.map((m) => (m.id === module.id ? moi : m)) },
+    });
+    setDangLuu(false);
+    if (ok) setDangSua(false);
+  };
+
+  return (
+    <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 9 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <CongTac
+          checked={checked && duocChay}
+          disabled={!coVan || !duocChay}
+          nhanChu={module.name}
+          onChange={(v) => void datTinhNang(row.packId, 'module', module.sourceIdentifier, v, tick)}
+        />
+        <span style={{ ...phu, marginLeft: 'auto' }}>
+          {module.role} · {module.lane} · #{module.order}
+        </span>
+        <button type="button" style={nut()} onClick={() => setDangSua((v) => !v)}>
+          {dangSua ? 'Đóng' : 'Chỉnh prompt'}
+        </button>
+        {!duocChay && (
+          <span style={{ ...phu, color: 'var(--hoi)' }}>không tương thích: {module.activation}</span>
+        )}
+      </div>
+
+      {dangSua && (
+        <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--kinh-vien)', paddingTop: 9 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 2fr) repeat(4, minmax(90px, 1fr))',
+              gap: 7,
+            }}
+          >
+            <label style={phu}>
+              Tên
+              <input
+                style={{ ...oNhap, marginTop: 3 }}
+                value={ten}
+                onChange={(e) => setTen(e.currentTarget.value)}
+              />
+            </label>
+            <label style={phu}>
+              Vai trò
+              <select
+                style={{ ...oNhap, marginTop: 3 }}
+                value={role}
+                onChange={(e) => setRole(e.currentTarget.value as PromptModule['role'])}
+              >
+                <option value="system">system</option>
+                <option value="user">user</option>
+                <option value="assistant">assistant</option>
+              </select>
+            </label>
+            <label style={phu}>
+              Vị trí
+              <select
+                style={{ ...oNhap, marginTop: 3 }}
+                value={lane}
+                onChange={(e) => setLane(e.currentTarget.value as PromptModule['lane'])}
+              >
+                {MODULE_LANES.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={phu}>
+              Thứ tự
+              <input
+                type="number"
+                style={{ ...oNhap, marginTop: 3 }}
+                value={order}
+                onChange={(e) => setOrder(Number(e.currentTarget.value))}
+              />
+            </label>
+            <label style={phu}>
+              Độ sâu
+              <input
+                type="number"
+                min={0}
+                style={{ ...oNhap, marginTop: 3 }}
+                value={depth}
+                onChange={(e) => setDepth(Math.max(0, Number(e.currentTarget.value)))}
+              />
+            </label>
+          </div>
+          <label style={phu}>
+            Nội dung prompt
+            <textarea
+              className="chu-so"
+              rows={12}
+              style={{ ...oNhap, marginTop: 3, resize: 'vertical', lineHeight: 1.5 }}
+              value={content}
+              onChange={(e) => setContent(e.currentTarget.value)}
+            />
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" style={nut(true, dangLuu)} disabled={dangLuu} onClick={() => void luu()}>
+              {dangLuu ? 'Đang lưu…' : 'Lưu prompt'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThongSo({ row }: { row: PresetPackRow }): JSX.Element {
   const gen = row.pack.generation;
   const tatCa: [string, unknown][] =
@@ -611,6 +743,7 @@ function ThongSo({ row }: { row: PresetPackRow }): JSX.Element {
           ['Presence', gen.presencePenalty],
           ['Frequency', gen.frequencyPenalty],
           ['Stop', gen.stopSequences],
+          ['Streaming', gen.streaming],
         ];
   const ds = tatCa.filter(([, v]) => v !== undefined);
   return (
@@ -641,6 +774,7 @@ function RegexDong({
   tick,
   msCham,
   datTinhNang,
+  luuChinhSua,
 }: {
   row: PresetPackRow;
   transform: TransformDef;
@@ -649,6 +783,7 @@ function RegexDong({
   tick: number;
   msCham: number | undefined;
   datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
+  luuChinhSua: ReturnType<typeof usePreset.getState>['luuChinhSua'];
 }): JSX.Element {
   /*
    * Chỉ còn MỘT lý do một regex không bật được: engine `RegExp` không biên được
@@ -657,29 +792,108 @@ function RegexDong({
    */
   const chayDuoc = transform.activation !== 'needs_adapter';
   const checked = tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon);
+  const [dangSua, setDangSua] = useState(false);
+  const [ten, setTen] = useState(transform.ten);
+  const [pattern, setPattern] = useState(transform.pattern);
+  const [thayThe, setThayThe] = useState(transform.thayThe);
+  const [co, setCo] = useState(transform.co);
+  const [dangLuu, setDangLuu] = useState(false);
+
+  const luu = async (): Promise<void> => {
+    setDangLuu(true);
+    const moi: TransformDef = {
+      ...transform,
+      ten,
+      pattern,
+      thayThe,
+      co,
+      activation: kiemPatternHopLe(pattern)
+        ? transform.activation === 'needs_adapter'
+          ? 'native'
+          : transform.activation
+        : 'needs_adapter',
+      lyDo: kiemPatternHopLe(pattern) ? '' : 'Pattern chỉnh cục bộ không biên dịch được.',
+    };
+    const ok = await luuChinhSua({
+      ...row,
+      transformDefs: row.transformDefs.map((t) => (t.id === transform.id ? moi : t)),
+    });
+    setDangLuu(false);
+    if (ok) setDangSua(false);
+  };
   return (
-    <div
-      className="kinh--cap2"
-      style={{ padding: '9px 11px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}
-    >
-      <CongTac
-        checked={checked && chayDuoc}
-        disabled={!coVan || !chayDuoc}
-        nhanChu={transform.ten}
-        onChange={(v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick)}
-      />
-      <span style={{ ...phu, marginLeft: 'auto' }}>
-        {transform.promptOnlyNguon
-          ? 'prompt'
-          : transform.markdownOnlyNguon
-            ? 'hiển thị markdown'
-            : 'prompt/hiển thị'}{' '}
-        · vị trí {transform.placement.join(', ')}
-      </span>
-      {msCham !== undefined && (
-        <span style={{ ...phu, color: 'var(--dong)' }}>chạy {Math.round(msCham)} ms</span>
+    <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 9 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <CongTac
+          checked={checked && chayDuoc}
+          disabled={!coVan || !chayDuoc}
+          nhanChu={transform.ten}
+          onChange={(v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick)}
+        />
+        <span style={{ ...phu, marginLeft: 'auto' }}>
+          {transform.promptOnlyNguon
+            ? 'prompt'
+            : transform.markdownOnlyNguon
+              ? 'hiển thị markdown'
+              : 'prompt/hiển thị'}{' '}
+          · vị trí {transform.placement.join(', ')}
+        </span>
+        {msCham !== undefined && (
+          <span style={{ ...phu, color: 'var(--dong)' }}>chạy {Math.round(msCham)} ms</span>
+        )}
+        <button type="button" style={nut()} onClick={() => setDangSua((v) => !v)}>
+          {dangSua ? 'Đóng' : 'Chỉnh regex'}
+        </button>
+        {!chayDuoc && <span style={{ ...phu, color: 'var(--hoi)' }}>RegExp không biên được pattern</span>}
+      </div>
+      {dangSua && (
+        <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--kinh-vien)', paddingTop: 9 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 7 }}>
+            <label style={phu}>
+              Tên
+              <input
+                style={{ ...oNhap, marginTop: 3 }}
+                value={ten}
+                onChange={(e) => setTen(e.currentTarget.value)}
+              />
+            </label>
+            <label style={phu}>
+              Cờ
+              <input
+                style={{ ...oNhap, marginTop: 3 }}
+                value={co}
+                onChange={(e) => setCo(e.currentTarget.value)}
+                placeholder="gimsuy"
+              />
+            </label>
+          </div>
+          <label style={phu}>
+            Pattern
+            <textarea
+              className="chu-so"
+              rows={4}
+              style={{ ...oNhap, marginTop: 3, resize: 'vertical' }}
+              value={pattern}
+              onChange={(e) => setPattern(e.currentTarget.value)}
+            />
+          </label>
+          <label style={phu}>
+            Thay thế
+            <textarea
+              className="chu-so"
+              rows={4}
+              style={{ ...oNhap, marginTop: 3, resize: 'vertical' }}
+              value={thayThe}
+              onChange={(e) => setThayThe(e.currentTarget.value)}
+            />
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" style={nut(true, dangLuu)} disabled={dangLuu} onClick={() => void luu()}>
+              {dangLuu ? 'Đang lưu…' : 'Lưu regex'}
+            </button>
+          </div>
+        </div>
       )}
-      {!chayDuoc && <span style={{ ...phu, color: 'var(--hoi)' }}>RegExp không biên được pattern</span>}
     </div>
   );
 }
@@ -705,6 +919,7 @@ function ScriptDong({
   coVan,
   tick,
   datTinhNang,
+  luuChinhSua,
 }: {
   row: PresetPackRow;
   script: HelperScript;
@@ -712,12 +927,36 @@ function ScriptDong({
   coVan: boolean;
   tick: number;
   datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
+  luuChinhSua: ReturnType<typeof usePreset.getState>['luuChinhSua'];
 }): JSX.Element {
   const dangChay = usePreset((s) => s.scriptDangChay.find((x) => x.id === script.id));
-  const nhatKy = usePreset((s) => s.nhatKyScript[script.id] ?? []);
+  const nhatKy = usePreset((s) => chonNhatKyScript(s, script.id));
   const bamNut = usePreset((s) => s.bamNutScript);
   const checked = tinhNangPresetDangBat(bienPack, 'script', script.id, script.batONguon);
   const nutHien = script.buttons.filter((b) => b.visible);
+  const [dangSua, setDangSua] = useState(false);
+  const [ten, setTen] = useState(script.ten);
+  const [info, setInfo] = useState(script.info);
+  const [noiDung, setNoiDung] = useState(script.noiDung);
+  const [dangLuu, setDangLuu] = useState(false);
+
+  const luu = async (): Promise<void> => {
+    setDangLuu(true);
+    const moi: HelperScript = {
+      ...script,
+      ten,
+      info,
+      noiDung,
+      soKyTu: noiDung.length,
+      hash: bam(noiDung),
+    };
+    const ok = await luuChinhSua({
+      ...row,
+      scripts: (row.scripts ?? []).map((s) => (s.id === script.id ? moi : s)),
+    });
+    setDangLuu(false);
+    if (ok) setDangSua(false);
+  };
 
   return (
     <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 7 }}>
@@ -745,6 +984,9 @@ function ScriptDong({
         >
           {dangChay === undefined ? 'chưa nạp' : (NHAN_TRANG_THAI[dangChay.trangThai] ?? '')}
         </span>
+        <button type="button" style={nut()} onClick={() => setDangSua((v) => !v)}>
+          {dangSua ? 'Đóng' : 'Chỉnh script'}
+        </button>
       </div>
 
       {script.info !== '' && <p style={{ ...phu, margin: 0 }}>{script.info}</p>}
@@ -782,6 +1024,46 @@ function ScriptDong({
               .join('\n')}
           </pre>
         </details>
+      )}
+
+      {dangSua && (
+        <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--kinh-vien)', paddingTop: 9 }}>
+          <label style={phu}>
+            Tên
+            <input
+              style={{ ...oNhap, marginTop: 3 }}
+              value={ten}
+              onChange={(e) => setTen(e.currentTarget.value)}
+            />
+          </label>
+          <label style={phu}>
+            Ghi chú
+            <textarea
+              rows={3}
+              style={{ ...oNhap, marginTop: 3, resize: 'vertical' }}
+              value={info}
+              onChange={(e) => setInfo(e.currentTarget.value)}
+            />
+          </label>
+          <label style={phu}>
+            Mã nguồn
+            <textarea
+              className="chu-so"
+              rows={16}
+              style={{ ...oNhap, marginTop: 3, resize: 'vertical', lineHeight: 1.45 }}
+              value={noiDung}
+              onChange={(e) => setNoiDung(e.currentTarget.value)}
+            />
+          </label>
+          <p style={{ ...phu, margin: 0, color: 'var(--hoi)' }}>
+            Script có thể tác động giao diện và chạy mã JavaScript. Chỉ bật mã bạn tin cậy.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" style={nut(true, dangLuu)} disabled={dangLuu} onClick={() => void luu()}>
+              {dangLuu ? 'Đang lưu…' : 'Lưu và nạp lại'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

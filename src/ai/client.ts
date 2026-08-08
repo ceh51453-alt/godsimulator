@@ -13,7 +13,14 @@
 import type { AiEndpoint } from '../core/ai/cauHinh.js';
 import type { PromptGoi } from '../core/ai/bienSoan.js';
 import { PROMPT_THU_DUONG, thuDuongDatKhong } from '../core/ai/bienSoan.js';
-import { dacTaGoi, dacTaQuetModel, rutDanhSachModel, rutVanBan, rutSoDung } from './phuongNgu.js';
+import {
+  dacTaGoi,
+  dacTaQuetModel,
+  rutDanhSachModel,
+  rutVanBan,
+  rutSoDung,
+  rutMauStream,
+} from './phuongNgu.js';
 import type { ModelInfo } from '../core/ai/cauHinh.js';
 
 export type KetQuaGoi =
@@ -38,6 +45,8 @@ export type TuyChonGoi = {
   /** Mili giây. Model treo lâu hơn ngần này thì coi như đứt. */
   readonly hanCho?: number;
   readonly signal?: AbortSignal;
+  /** Gọi sau mỗi mẩu stream với (toàn bộ đã nhận, mẩu mới). */
+  readonly onChunk?: (toanBo: string, moi: string) => void;
 };
 
 const HAN_CHO_MAC_DINH = 90_000;
@@ -70,6 +79,93 @@ function docLoi(json: unknown, tho: string): string {
   return cat === '' ? 'Máy chủ không nói gì.' : cat;
 }
 
+type KetQuaStream = {
+  readonly vanBan: string;
+  readonly promptTokens: number | null;
+  readonly finishReason: string | null;
+  readonly tho: string;
+};
+
+/** Đọc SSE theo dòng; nếu proxy lờ `stream` và trả JSON thường thì vẫn đọc được. */
+async function docStream(
+  res: Response,
+  dialect: AiEndpoint['dialect'],
+  t: TuyChonGoi,
+): Promise<KetQuaStream> {
+  let tho = '';
+  let dem = '';
+  let vanBan = '';
+  let promptTokens: number | null = null;
+  let finishReason: string | null = null;
+  let daCoSse = false;
+
+  const nhanJson = (json: unknown): void => {
+    const mau = rutMauStream(dialect, json);
+    if (mau.promptTokens !== null) promptTokens = mau.promptTokens;
+    if (mau.finishReason !== null) finishReason = mau.finishReason;
+    if (mau.vanBanMoi === '') return;
+    vanBan += mau.vanBanMoi;
+    t.onChunk?.(vanBan, mau.vanBanMoi);
+  };
+
+  const nhanDong = (dong: string): void => {
+    const cat = dong.trimEnd();
+    if (!cat.startsWith('data:')) return;
+    daCoSse = true;
+    const data = cat.slice(5).trimStart();
+    if (data === '' || data === '[DONE]') return;
+    try {
+      nhanJson(JSON.parse(data));
+    } catch {
+      // Một dòng SSE hỏng không được làm mất các mẩu hợp lệ trước/sau nó.
+    }
+  };
+
+  const body = res.body;
+  if (body !== null && typeof body?.getReader === 'function') {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chu = decoder.decode(value, { stream: true });
+      tho += chu;
+      dem += chu;
+      const dong = dem.split(/\r?\n/);
+      dem = dong.pop() ?? '';
+      for (const d of dong) nhanDong(d);
+    }
+    const cuoi = decoder.decode();
+    tho += cuoi;
+    dem += cuoi;
+    if (dem !== '') nhanDong(dem);
+  } else {
+    tho = await res.text();
+    for (const d of tho.split(/\r?\n/)) nhanDong(d);
+  }
+
+  if (!daCoSse) {
+    try {
+      const json = JSON.parse(tho) as unknown;
+      if (Array.isArray(json)) for (const mau of json) nhanJson(mau);
+      else {
+        const text = rutVanBan(dialect, json);
+        if (text !== '') {
+          vanBan = text;
+          t.onChunk?.(vanBan, text);
+        }
+        const dung = rutSoDung(dialect, json);
+        promptTokens = dung.promptTokens;
+        finishReason = dung.finishReason;
+      }
+    } catch {
+      // Caller sẽ trả lỗi IM_LANG với nguyên văn phản hồi.
+    }
+  }
+
+  return { vanBan, promptTokens, finishReason, tho };
+}
+
 async function goiThoi(
   ep: AiEndpoint,
   heThong: string,
@@ -96,6 +192,24 @@ async function goiThoi(
       body: JSON.stringify(dt.body),
       signal: dieuKhien.signal,
     });
+
+    if (ep.params.streaming && res.ok) {
+      const stream = await docStream(res, ep.dialect, t);
+      if (stream.vanBan.trim() === '') {
+        return {
+          ok: false,
+          ma: 'IM_LANG',
+          thongDiep: `Model trả lời rỗng. ${docLoi(null, stream.tho)}`.trim(),
+        };
+      }
+      return {
+        ok: true,
+        vanBan: stream.vanBan,
+        soKyTu: stream.vanBan.length,
+        promptTokens: stream.promptTokens,
+        finishReason: stream.finishReason,
+      };
+    }
 
     const tho = await res.text();
     let json: unknown = null;

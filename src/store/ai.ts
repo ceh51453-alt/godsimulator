@@ -129,7 +129,11 @@ export type TrangThaiAi = {
    * Gọi Tường Thuật. Đây là hàm `useGame` dùng; nó tự cập nhật ngắt mạch, nên
    * ba lần hỏng liên tiếp sẽ tự đóng cổng mà không ai phải nhớ gọi thêm gì.
    */
-  ke(prompt: PromptGoi, params?: AiEndpoint['params']): Promise<KetQuaGoi>;
+  ke(
+    prompt: PromptGoi,
+    params?: AiEndpoint['params'],
+    onChunk?: (toanBo: string, moi: string) => void,
+  ): Promise<KetQuaGoi>;
 };
 
 const GIU_NHAT_KY = 20;
@@ -385,10 +389,10 @@ export const useAi = create<TrangThaiAi>((set, get) => {
       set({ mach: dongMach(get().mach), tinNhan: '' });
     },
 
-    async ke(prompt, params) {
+    async ke(prompt, params, onChunk) {
       set({ dangKe: true });
       const narrator = get().cfg.narrator;
-      const r = await goiKe(params === undefined ? narrator : { ...narrator, params }, prompt);
+      const r = await goiKe(params === undefined ? narrator : { ...narrator, params }, prompt, { onChunk });
       set({
         dangKe: false,
         mach: r.ok ? machSauKhiThanhCong(get().mach) : machSauKhiHong(get().mach, r.ma, r.thongDiep),

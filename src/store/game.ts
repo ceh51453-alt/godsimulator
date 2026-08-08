@@ -140,6 +140,7 @@ import {
   baoCaoDienHoa,
   kiemDieuKienDung,
   locPatchTheoLanRanh,
+  tinhNhipNenHieuLuc,
   uocLuongDienHoa,
 } from '../core/world/dienHoa.js';
 import type { BaoCaoDienHoa, CauHinhDienHoa, CauHinhTuDienHoa, NhipDienHoa } from '../core/world/dienHoa.js';
@@ -203,6 +204,8 @@ export type TrangThaiGame = {
   luaChon: readonly string[];
   /** Đang chờ Narrator viết xong. UI khóa ô nhập trong lúc này. */
   dangKe: boolean;
+  /** Bản xem trước đang nhận qua streaming; không ghi vào lịch sử cho tới khi lượt hoàn tất. */
+  loiKeDangStream: string;
   /** Đang gọi AI rà soát trạng thái theo yêu cầu của người chơi. */
   dangCapNhatBien: boolean;
   /**
@@ -1731,9 +1734,12 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       }
     }
 
-    set({ dangKe: true });
+    set({ dangKe: true, loiKeDangStream: '' });
     await usePreset.getState().phatSuKien(TAVERN_EVENTS.GENERATION_STARTED, 'normal', false);
-    const r = await useAi.getState().ke(prompt, paramsHieuLuc);
+    const r = await useAi.getState().ke(prompt, paramsHieuLuc, (toanBo, moi) => {
+      set({ loiKeDangStream: catSuyLuanNoiBo(toanBo) });
+      void usePreset.getState().phatSuKien(TAVERN_EVENTS.STREAM_TOKEN_RECEIVED, moi, toanBo);
+    });
     set({ dangKe: false });
     await usePreset.getState().phatSuKien(TAVERN_EVENTS.GENERATION_ENDED, get().scene.length);
 
@@ -1752,6 +1758,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           'Nối lại đường tới model rồi kể lại nhịp này.',
       );
       set({
+        loiKeDangStream: '',
         // Giữ luôn `nhipNen`: kể lại một lượt `tick` không được biến nó thành
         // một lượt chơi và đẩy thêm một năm vào thế giới.
         luotChuaKe: {
@@ -1833,7 +1840,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       noiDungGoc: loiKeSach,
       dinhDang: laHtml ? 'html' : 'text',
     });
-    set({ patchBiTuChoi: kq.biTuChoi, luaChon: dsLuaChon });
+    set({ patchBiTuChoi: kq.biTuChoi, luaChon: dsLuaChon, loiKeDangStream: '' });
 
     /*
      * Hai sự kiện, hai nghĩa khác nhau — script preset phân biệt chúng.
@@ -2035,7 +2042,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     capNhatLoreTrongState(s, log, 'Kỳ vọng được đối chiếu sau lượt kể.');
 
     // [BB] 47 — thế giới đi tiếp một nhịp của riêng nó sau mỗi lượt kể.
-    const daChayNhipNen = tuyChon.nhipNen !== false && nhipNenSauLuot();
+    const daChayNhipNen = tuyChon.nhipNen !== false && nhipNenSauLuot(ok.machId !== null);
 
     dongBo();
 
@@ -2101,7 +2108,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
    * Trả `true` khi nhịp nền thật sự đã chạy: người gọi dùng nó để quyết có chạy
    * tiếp phần mô phỏng hay không, vì hai phần dùng CHUNG một bộ đếm lượt.
    */
-  const nhipNenSauLuot = (): boolean => {
+  const nhipNenSauLuot = (dangKeTruyen: boolean): boolean => {
     const cfg = get().tuDienHoa;
     if (!cfg.bat || dangTrongNhipNen || get().dangDienHoa) return false;
     const s = get().state;
@@ -2114,23 +2121,24 @@ export const useGame = create<TrangThaiGame>((set, get) => {
      * Tăng bộ đếm TRƯỚC khi so: đặt `moiBaoNhieuLuot = 1` phải chạy ở mọi lượt,
      * và so trước khi tăng sẽ bỏ mất lượt đầu tiên.
      */
+    const hieuLuc = tinhNhipNenHieuLuc(s, cfg, dangKeTruyen);
     demLuotTuNhipNen++;
-    if (demLuotTuNhipNen < cfg.moiBaoNhieuLuot) return false;
+    if (demLuotTuNhipNen < hieuLuc.moiBaoNhieuLuot) return false;
     demLuotTuNhipNen = 0;
 
     dangTrongNhipNen = true;
     try {
       const cauHinh = CauHinhDienHoaSchema.parse({
-        soLuot: cfg.soLuot,
-        nhipMoiLuot: cfg.nhip,
+        soLuot: hieuLuc.soLuot,
+        nhipMoiLuot: hieuLuc.nhip,
         boiDap: { bat: cfg.hanMucBoiDap > 0, hanMucMoiLuot: cfg.hanMucBoiDap },
       });
       const tickDau = s.world.tick;
       const dongBienNien: string[] = [];
       const loiGom: StructuredError[] = [];
 
-      for (let i = 0; i < cfg.soLuot; i++) {
-        const r = tuaMotLuot(s, log, cfg.nhip, `nen${i}`);
+      for (let i = 0; i < hieuLuc.soLuot; i++) {
+        const r = tuaMotLuot(s, log, hieuLuc.nhip, `nen${i}`);
         loiGom.push(...r.loi);
         if (!r.ok) break;
         for (const sk of r.suKienLon.slice(0, 3)) dongBienNien.push(sk.moTa);
@@ -2168,7 +2176,10 @@ export const useGame = create<TrangThaiGame>((set, get) => {
        * thời gian ĐÃ trôi, và đó chính là điều ADR-0028 đòi hỏi.
        */
       const soNam = Math.max(0, Math.round((s.world.tick - tickDau) / 4));
-      const dauDong = soNam > 0 ? `${soNam} năm trôi qua.` : 'Thời gian nhích một nhịp.';
+      const dauDong =
+        soNam > 0
+          ? `${soNam} năm trôi qua — ${hieuLuc.nhan}.`
+          : `Thời gian nhích một nhịp — ${hieuLuc.nhan}.`;
       themDong(
         'he_thong',
         dongBienNien.length === 0
@@ -2522,6 +2533,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       hoSo,
       danhTinh,
       scene: [],
+      loiKeDangStream: '',
       loi: [],
       projects: [],
       choXacNhan: null,
@@ -2580,6 +2592,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     patchBiTuChoi: [],
     vetVeSinh: [],
     dangKe: false,
+    loiKeDangStream: '',
     dangCapNhatBien: false,
     luaChon: [],
     luotChuaKe: null,
@@ -3833,7 +3846,12 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
     conLuotToiNhipNen() {
       const cfg = get().tuDienHoa;
-      return Math.max(0, cfg.moiBaoNhieuLuot - demLuotTuNhipNen);
+      const s = get().state;
+      const dangKeTruyen = get().ongKinh.dangChieu.loai === 'mach';
+      const moiBaoNhieuLuot = s
+        ? tinhNhipNenHieuLuc(s, cfg, dangKeTruyen).moiBaoNhieuLuot
+        : cfg.moiBaoNhieuLuot;
+      return Math.max(0, moiBaoNhieuLuot - demLuotTuNhipNen);
     },
 
     khoTuHienTai() {

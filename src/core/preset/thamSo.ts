@@ -27,6 +27,7 @@ const TRUONG_GHI_DE = [
   'stopSequences',
   'seed',
   'continuePrefill',
+  'streaming',
   'reasoningEffort',
   'verbosity',
   'contextLimit',

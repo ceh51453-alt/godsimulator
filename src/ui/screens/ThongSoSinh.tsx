@@ -516,6 +516,31 @@ export function ThongSoSinh({
             </select>
           </div>
 
+          <label
+            className="kinh--cap2"
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              padding: '10px 12px',
+              cursor: tat ? 'not-allowed' : 'pointer',
+              opacity: tat ? 0.55 : 1,
+            }}
+          >
+            <input
+              type="checkbox"
+              disabled={tat}
+              checked={params.streaming}
+              onChange={(e) => onThayDoi({ streaming: e.currentTarget.checked })}
+            />
+            <span style={{ display: 'grid', gap: 2 }}>
+              <span style={{ fontSize: 12, color: 'var(--tro)', fontWeight: 500 }}>Streaming</span>
+              <span style={{ fontSize: 10, color: 'var(--mo)', lineHeight: 1.35 }}>
+                Hiện lời kể dần theo từng đoạn model gửi, thay vì chờ sinh xong toàn bộ.
+              </span>
+            </span>
+          </label>
+
           {/* Các slider */}
           <div
             style={{

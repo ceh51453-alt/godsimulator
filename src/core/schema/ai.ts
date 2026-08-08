@@ -67,6 +67,8 @@ export const GenParamsSchema = z
     reasoningEffort: z.enum(['low', 'medium', 'high', 'max']).optional(),
     verbosity: z.enum(['low', 'medium', 'high']).optional(),
     continuePrefill: z.boolean().prefault(false),
+    /** Nhận từng đoạn trả lời ngay khi model sinh thay vì chờ toàn bộ JSON. */
+    streaming: z.boolean().prefault(false),
     mediaResolution: z.enum(['low', 'medium', 'high']).prefault('medium'),
     seed: z.number().nullable().prefault(null),
     contextLimit: z.number().min(1024).prefault(128_000),

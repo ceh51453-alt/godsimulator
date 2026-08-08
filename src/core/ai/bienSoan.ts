@@ -267,6 +267,39 @@ function tang4(
 ): string {
   const dong: string[] = [];
 
+  dong.push('NHỊP KỂ LƯỢT NÀY:');
+  if (mach || view.mode !== 'sang_the') {
+    dong.push(
+      '- Đây là một cảnh trong thế giới: giữ thời gian gần nhân vật, để hành động, đối thoại và hậu quả được diễn ra chậm. Không nén mất cả thế hệ chỉ để đẩy lịch sử đi tiếp.',
+    );
+  } else {
+    const mocSangThe = [...view.entities.values()]
+      .filter((e) => e.kind === 'place' || e.kind === 'deity' || e.kind === 'mortal')
+      .reduce<number | null>(
+        (moc, e) => (e.tickSinh === null ? moc : moc === null ? e.tickSinh : Math.min(moc, e.tickSinh)),
+        null,
+      );
+    const tuoiSauSangThe = mocSangThe === null ? null : Math.max(0, view.tick - mocSangThe);
+    if (tuoiSauSangThe === null) {
+      dong.push(
+        '- Đây là tiền Sáng Thế: kể bằng những lát cắt lớn, cho những khoảng thời gian mênh mông cuộn qua giữa các đoạn; không sa vào nhịp ngày-tháng hay khoảnh khắc đời thường.',
+      );
+    } else if (tuoiSauSangThe < 4 * 1_200) {
+      dong.push(
+        '- Đây là hậu Sáng Thế còn non trẻ: thế kỷ và nhiều thế hệ có thể đi qua giữa các đoạn, nhưng mỗi đoạn sau phải chậm hơn đoạn trước khi thế giới dần định hình.',
+      );
+    } else if (tuoiSauSangThe < 4 * 10_000) {
+      dong.push(
+        '- Thế giới đang định hình: chuyển từ những bước nhảy thế hệ sang thập niên rồi năm; để cảm giác thời gian hạ tốc rõ ràng, không dừng đột ngột.',
+      );
+    } else {
+      dong.push(
+        '- Thế giới đã trưởng thành: kể ở nhịp năm hoặc chậm hơn, chỉ tua dài khi người chơi yêu cầu.',
+      );
+    }
+  }
+  dong.push('');
+
   if (mach) {
     dong.push(`MẠCH TRUYỆN ĐANG CHIẾU — "${mach.ten}" (${mach.loai}, giai đoạn ${mach.giaiDoan}):`);
     if (mach.kyUcMach.trim() !== '') dong.push(mach.kyUcMach);

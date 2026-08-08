@@ -31,6 +31,7 @@ import {
   DIEU_KIEN_DUNG_DIEN_HOA,
   BANG_CAM_DIEN_HOA,
   CauHinhDienHoaSchema,
+  tinhNhipNenHieuLuc,
   uocLuongDienHoa,
 } from '../../core/world/dienHoa.js';
 import type { NhipDienHoa, DieuKienDungDienHoa } from '../../core/world/dienHoa.js';
@@ -222,6 +223,7 @@ export function XuongWorkflow(): JSX.Element {
   const baoCao = useGame((s) => s.baoCaoDienHoa);
   const vet = useGame((s) => s.vetDuongOng);
   const tuDienHoa = useGame((s) => s.tuDienHoa);
+  const ongKinh = useGame((s) => s.ongKinh);
   const datTuDienHoa = useGame((s) => s.datTuDienHoa);
   const doDoDang = useGame((s) => s.doDoDangTheGioi);
   const khoTu = useGame((s) => s.khoTuHienTai);
@@ -297,6 +299,8 @@ export function XuongWorkflow(): JSX.Element {
   const doDang = state === null ? null : doDoDang();
   const kho = state === null ? null : khoTu();
   const so = state === null ? null : soHauTruong();
+  const nhipNenHieuLuc =
+    state === null ? null : tinhNhipNenHieuLuc(state, tuDienHoa, ongKinh.dangChieu.loai === 'mach');
 
   const batDieuKien = (dk: DieuKienDungDienHoa, bat: boolean): void => {
     setDieuKien(bat ? [...dieuKien, dk] : dieuKien.filter((x) => x !== dk));
@@ -371,10 +375,35 @@ export function XuongWorkflow(): JSX.Element {
               />
               <span style={{ color: 'var(--sang)' }}>
                 {tuDienHoa.bat
-                  ? tuDienHoa.moiBaoNhieuLuot === 1
+                  ? nhipNenHieuLuc?.moiBaoNhieuLuot === 1
                     ? 'Đang chạy sau mỗi lượt kể'
-                    : `Đang chạy mỗi ${tuDienHoa.moiBaoNhieuLuot} lượt — còn ${conLuot()} lượt nữa`
+                    : `Đang chạy mỗi ${nhipNenHieuLuc?.moiBaoNhieuLuot ?? tuDienHoa.moiBaoNhieuLuot} lượt — còn ${conLuot()} lượt nữa`
                   : 'Đang tắt — thế giới chỉ đi khi bạn bảo'}
+              </span>
+            </label>
+
+            <label
+              style={{
+                display: 'flex',
+                gap: 10,
+                alignItems: 'center',
+                fontSize: 13.5,
+                padding: '10px 12px',
+                background: 'var(--kinh-nen-2)',
+                border: '1px solid var(--kinh-vien)',
+                borderRadius: 'var(--r-sm)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={tuDienHoa.thichUng}
+                disabled={!tuDienHoa.bat}
+                onChange={(e) => datTuDienHoa({ thichUng: e.target.checked })}
+              />
+              <span style={{ color: 'var(--sang)' }}>
+                {tuDienHoa.thichUng
+                  ? `Tự điều tốc: ${nhipNenHieuLuc?.nhan ?? 'đang đọc tuổi thế giới'}`
+                  : 'Dùng nhịp cố định do bạn đặt'}
               </span>
             </label>
 
@@ -384,14 +413,14 @@ export function XuongWorkflow(): JSX.Element {
                 giaTri={tuDienHoa.moiBaoNhieuLuot}
                 min={1}
                 max={50}
-                tat={!tuDienHoa.bat}
+                tat={!tuDienHoa.bat || tuDienHoa.thichUng}
                 doi={(v) => datTuDienHoa({ moiBaoNhieuLuot: v })}
-                phu="1 = mỗi lượt kể"
+                phu={tuDienHoa.thichUng ? 'tự điều tốc đang quyết định' : '1 = mỗi lượt kể'}
               />
               <ChonNhip
                 nhan="NHỊP"
                 giaTri={tuDienHoa.nhip}
-                tat={!tuDienHoa.bat}
+                tat={!tuDienHoa.bat || tuDienHoa.thichUng}
                 doi={(v) => datTuDienHoa({ nhip: v })}
               />
               <O
@@ -399,9 +428,9 @@ export function XuongWorkflow(): JSX.Element {
                 giaTri={tuDienHoa.soLuot}
                 min={1}
                 max={12}
-                tat={!tuDienHoa.bat}
+                tat={!tuDienHoa.bat || tuDienHoa.thichUng}
                 doi={(v) => datTuDienHoa({ soLuot: v })}
-                phu="thế giới đi bao xa mỗi lần"
+                phu={tuDienHoa.thichUng ? 'tự giảm dần theo tuổi thế giới' : 'thế giới đi bao xa mỗi lần'}
               />
               <O
                 nhan="VIỆC BỒI ĐẮP"

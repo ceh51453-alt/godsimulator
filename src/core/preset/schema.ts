@@ -173,6 +173,7 @@ export const GenerationCandidateSchema = z.looseObject({
   verbosity: z.string().optional(),
   seed: z.number().int().optional(),
   continuePrefill: z.boolean().optional(),
+  streaming: z.boolean().optional(),
   stopSequences: z.array(z.string()).optional(),
   unknown: z.record(z.string(), z.unknown()).prefault({}),
 });

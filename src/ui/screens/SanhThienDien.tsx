@@ -105,7 +105,19 @@ function ChamMucRo({ muc }: { muc: string }): JSX.Element {
 }
 
 export function SanhThienDien(): JSX.Element | null {
-  const { state, view, scene, goiY, projects, loi, choXacNhan, stateHash, dangKe, patchBiTuChoi } = useGame();
+  const {
+    state,
+    view,
+    scene,
+    goiY,
+    projects,
+    loi,
+    choXacNhan,
+    stateHash,
+    dangKe,
+    loiKeDangStream,
+    patchBiTuChoi,
+  } = useGame();
   // Phase 8 — ống kính, hạn ngạch vắng mặt và trace truy hồi.
   const viChieu = useGame((s) => s.viChieu);
   const vangMat = useGame((s) => s.vangMat);
@@ -574,7 +586,7 @@ export function SanhThienDien(): JSX.Element | null {
               <div
                 key={d.id}
                 className={`mes ${d.loai === 'nguoi_choi' ? 'mes-nguoi-choi' : ''} ${
-                  i === scene.length - 1 ? 'last_mes' : ''
+                  i === scene.length - 1 && loiKeDangStream === '' ? 'last_mes' : ''
                 }`}
                 {...thuocTinhMes(i, d.loai)}
                 style={{
@@ -599,6 +611,30 @@ export function SanhThienDien(): JSX.Element | null {
                 </div>
               </div>
             ))}
+            {loiKeDangStream !== '' && (
+              <div
+                className="mes last_mes mes-streaming"
+                {...thuocTinhMes(scene.length, 'ket_qua')}
+                aria-live="polite"
+                aria-label="Lời kể đang được sinh"
+                style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.65, color: 'var(--tro)' }}
+              >
+                <div className="mes_block">
+                  <div className="mes_text" style={{ whiteSpace: 'pre-wrap' }}>
+                    {loiKeDangStream}
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        display: 'inline-block',
+                        height: '1em',
+                        borderLeft: '2px solid var(--dong)',
+                        marginLeft: 3,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

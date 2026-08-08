@@ -31,6 +31,7 @@ import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
+import { PresetPackRowSchema } from '../core/preset/schema.js';
 import type { HelperScript, PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
@@ -52,6 +53,7 @@ import { gopThamSoSinhPreset, KHOA_GHI_DE_THAM_SO } from '../core/preset/thamSo.
 import { coIndexedDb, layDb } from '../db/instance.js';
 import {
   ghiPack,
+  ghiChinhSuaPack,
   docThuVien,
   xoaPack,
   ghiKichHoat,
@@ -106,6 +108,8 @@ export type TrangThaiPreset = {
   /** Hoàn tác về activation trước — 65.4, chỉ đổi con trỏ. */
   luiMotBuoc(packId: string): Promise<void>;
   xoaKhoiThuVien(packId: string): Promise<void>;
+  /** Lưu trực tiếp một bản chuẩn hóa đã chỉnh; file nguồn bất biến vẫn được giữ để phục hồi. */
+  luuChinhSua(row: PresetPackRow): Promise<boolean>;
   datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
   /** Bật/tắt module, regex, script hoặc adapter trong cấu hình của đúng pack/nhánh. */
   datTinhNang(
@@ -152,6 +156,24 @@ export type TrangThaiPreset = {
   /** Ghi thay đổi biến do khối `<UpdateVariable>` đề nghị — 66.6. */
   apBienPack(thayDoi: readonly BienPackDoi[], tick: number): Promise<BaoCaoBienPack>;
 };
+
+type DongNhatKyScript = TrangThaiPreset['nhatKyScript'][string][number];
+
+/**
+ * Giá trị rỗng dùng chung cho selector React.
+ *
+ * Zustand 5 đọc selector qua `useSyncExternalStore`. Trả `[]` mới mỗi lần khi
+ * script chưa có log làm snapshot luôn đổi tham chiếu, khiến React render lặp
+ * đến lỗi #185. Giữ fallback ở tầng store để mọi nơi dùng cùng một tham chiếu.
+ */
+const NHAT_KY_SCRIPT_RONG: readonly DongNhatKyScript[] = Object.freeze([]);
+
+export function chonNhatKyScript(
+  state: Pick<TrangThaiPreset, 'nhatKyScript'>,
+  scriptId: string,
+): readonly DongNhatKyScript[] {
+  return state.nhatKyScript[scriptId] ?? NHAT_KY_SCRIPT_RONG;
+}
 
 /**
  * Biến của thẻ bài đã đi đâu.
@@ -449,6 +471,43 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   dongWizard() {
     set({ wizard: wizardMoi() });
+  },
+
+  async luuChinhSua(row) {
+    const hopLe = PresetPackRowSchema.safeParse(row);
+    if (!hopLe.success) return false;
+    const moi = hopLe.data;
+    const cu = get().thuVien.find((r) => r.packId === moi.packId && r.version === moi.version);
+    if (cu === undefined) return false;
+    const scriptMoi = new Map((moi.scripts ?? []).map((s) => [s.id, s]));
+    const scriptCanNapLai = new Set<string>();
+    for (const s of cu.scripts ?? []) {
+      const tiep = scriptMoi.get(s.id);
+      if (tiep === undefined || tiep.hash !== s.hash || tiep.noiDung !== s.noiDung) scriptCanNapLai.add(s.id);
+    }
+    for (const s of moi.scripts ?? []) {
+      const truoc = (cu.scripts ?? []).find((x) => x.id === s.id);
+      if (truoc === undefined) scriptCanNapLai.add(s.id);
+    }
+
+    if (coIndexedDb()) {
+      try {
+        await ghiChinhSuaPack(layDb(), moi);
+      } catch {
+        // Bản trong bộ nhớ vẫn dùng được trong phiên; đường lưu đĩa không được làm mất chỉnh sửa vừa nhập.
+      }
+    }
+    set({
+      thuVien: get().thuVien.map((r) => (r.packId === moi.packId && r.version === moi.version ? moi : r)),
+    });
+
+    // Chỉ script thật sự đổi mới bị khởi động lại; sửa một prompt không được làm
+    // các timer/listener đang sống của cả pack chạy lại từ đầu.
+    for (const id of scriptCanNapLai) {
+      if (hostScript.co(id)) hostScript.dung(id);
+    }
+    if (scriptCanNapLai.size > 0) await get().dongBoScript();
+    return true;
   },
 
   async bat(packId, saveId, tick) {

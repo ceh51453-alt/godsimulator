@@ -23,6 +23,8 @@ export type ProjectedEntity = Readonly<{
   aliases: readonly string[];
   moTa: string;
   tags: readonly string[];
+  /** Mốc sinh chỉ hiện nguyên số ở tầng Sáng Thế; hai tầng dưới không đọc đồng hồ engine. */
+  tickSinh: number | null;
   mucRo: MucRoThayDuoc;
   /** Aspect ĐÃ LỌC theo quyền nhìn. Trường bị che bị XÓA KHỎI ĐỐI TƯỢNG, không ẩn bằng CSS. */
   aspects: Readonly<Record<string, unknown>>;

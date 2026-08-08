@@ -25,6 +25,14 @@ export async function ghiPack(db: ThienDienDb, row: PresetPackRow, raw: RawSourc
   });
 }
 
+/**
+ * Lưu phần đã chuẩn hóa sau khi người dùng chỉnh trong Xưởng Preset.
+ * Blob nguồn vẫn bất biến, nên luôn có thể nhập lại file gốc để phục hồi.
+ */
+export async function ghiChinhSuaPack(db: ThienDienDb, row: PresetPackRow): Promise<void> {
+  await db.presetPacks.put(PresetPackRowSchema.parse(row));
+}
+
 /** Dựng bù các trường tương thích mới cho hàng được lưu bởi bản app cũ. */
 async function nangCapRowCu(db: ThienDienDb, row: PresetPackRow): Promise<PresetPackRow | null> {
   const daMoi =

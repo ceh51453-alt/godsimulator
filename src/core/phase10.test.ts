@@ -13,7 +13,7 @@ import { apDungChuoi, apDungEvent } from './engine/transaction.js';
 import { apPatch } from './engine/patch.js';
 import { motTick } from './engine/tick.js';
 import { chayTienTrinhNen } from './world/process/scheduler.js';
-import { moThuGioi, KhoiTaoWorldSchema } from './world/khoiTao.js';
+import { moTheGioiTrong, moThuGioi, KhoiTaoWorldSchema } from './world/khoiTao.js';
 import { eventGieoNen } from './world/gieoNen.js';
 import { napBatBienTheGioiSong } from './world/batBien.js';
 import { napBatBienPhase10 } from './world/batBienP10.js';
@@ -106,6 +106,7 @@ import {
   TRAN_BUOC_DIEN_HOA,
   TICK_MOI_LUOT,
   buocMoiLuot,
+  tinhNhipNenHieuLuc,
   uocLuongDienHoa,
 } from './world/dienHoa.js';
 import { nhapWorldPack, xuatWorldPack } from './registry/packDsl.js';
@@ -2030,15 +2031,61 @@ describe('47 [BB] — Diễn Hóa: lằn ranh cứng và điểm dừng thông m
     expect(u.loiTuChoi).toMatch(/\d+ lượt/);
   });
 
-  it('Diễn Hóa tự động mặc định BẬT và mặc định NGẮN — ADR-0028', () => {
+  it('Diễn Hóa tự động mặc định BẬT, thích ứng; cấu hình tay dự phòng vẫn ngắn', () => {
     const t = CauHinhTuDienHoaSchema.parse({});
     expect(t.bat).toBe(true);
-    // Một lượt nhịp `nien` = 4 tick = một năm. Đủ ngắn để một dòng kể hết.
+    expect(t.thichUng).toBe(true);
+    // Khi tắt thích ứng, cấu hình tay dự phòng vẫn chỉ đi một năm mỗi lần.
     expect(t.soLuot).toBe(1);
     expect(t.nhip).toBe('nien');
     expect(buocMoiLuot(t.nhip) * t.soLuot).toBeLessThanOrEqual(4);
     // Và Bồi Đắp đi kèm, vì thế giới tự chạy mà không dày lên thì chạy để làm gì.
     expect(t.hanMucBoiDap).toBeGreaterThan(0);
+  });
+
+  it('nhịp thích ứng tua cực nhanh trước Sáng Thế rồi giảm dần, nhưng chậm ngay khi kể truyện', () => {
+    const ct = KhoiTaoWorldSchema.parse({
+      cua: 'hu_vo',
+      seed: 'nhip-thich-ung',
+      worldId: 'w1',
+      branchId: 'br_goc',
+    });
+    const { world } = moTheGioiTrong(ct);
+    const state = taoState(world);
+    const cfg = CauHinhTuDienHoaSchema.parse({});
+
+    expect(tinhNhipNenHieuLuc(state, cfg, false)).toMatchObject({
+      giaiDoan: 'tien_sang_the',
+      nhip: 'vinh_kiep',
+      soLuot: 12,
+      moiBaoNhieuLuot: 1,
+    });
+
+    state.entities.set(
+      'noi_dau',
+      EntitySchema.parse({ id: 'noi_dau', branchId: 'br_goc', kind: 'place', ten: 'Nơi Đầu', tickSinh: 0 }),
+    );
+    expect(tinhNhipNenHieuLuc(state, cfg, false).giaiDoan).toBe('hau_sang_the_rat_som');
+
+    state.world.tick = 4 * 500;
+    expect(tinhNhipNenHieuLuc(state, cfg, false)).toMatchObject({
+      giaiDoan: 'hau_sang_the_som',
+      nhip: 'vinh_kiep',
+      soLuot: 2,
+    });
+
+    state.world.tick = 4 * 2_000;
+    expect(tinhNhipNenHieuLuc(state, cfg, false)).toMatchObject({
+      giaiDoan: 'the_gioi_dang_lon',
+      nhip: 'the_dai',
+      soLuot: 2,
+    });
+    expect(tinhNhipNenHieuLuc(state, cfg, true)).toMatchObject({
+      giaiDoan: 'dang_ke_truyen',
+      nhip: 'nien',
+      soLuot: 1,
+      moiBaoNhieuLuot: 6,
+    });
   });
 
   it('47.6 — báo cáo viết bằng giọng biên niên, có nút xem từng khoảnh khắc', () => {

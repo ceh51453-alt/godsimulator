@@ -489,6 +489,7 @@ function chieuEntity(nc: NgocCanh, e: Entity, muc: MucRoThayDuoc): ProjectedEnti
     aliases: daBopMeo ? [] : [...e.aliases],
     moTa: meo.moTa,
     tags: muc === 'ro' ? [...e.tags] : [],
+    tickSinh: nc.mode === 'sang_the' ? e.tickSinh : null,
     mucRo: muc,
     aspects: locAspect(nc, e, muc),
     daBopMeo,

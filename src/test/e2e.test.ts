@@ -112,7 +112,7 @@ beforeAll(() => {
    * E2E là mua về bảy lần chờ timeout mỗi lượt kể. Lõi của nó (`hauTruong.ts`)
    * được đo bằng bài riêng, không cần mạng.
    */
-  useGame.getState().datTuDienHoa({ moiBaoNhieuLuot: 1, workflow: { bat: false } });
+  useGame.getState().datTuDienHoa({ thichUng: false, moiBaoNhieuLuot: 1, workflow: { bat: false } });
 });
 
 // ─────────────────────────────────────────── vòng chơi

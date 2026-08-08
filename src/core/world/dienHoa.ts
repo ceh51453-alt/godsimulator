@@ -29,6 +29,7 @@ import type { WorldState } from '../engine/state.js';
 import type { StructuredError } from '../contracts/errors.js';
 import { loi } from '../contracts/errors.js';
 import type { Storyline } from '../schema/truyen.js';
+import { TICK_MOI_NAM } from '../schema/aspect/substrate.js';
 import { THO_BOI_DAP } from './boiDap.js';
 import { TICK_MOI_BUOC } from './process/catchUp.js';
 
@@ -136,6 +137,14 @@ export type CauHinhDienHoa = z.infer<typeof CauHinhDienHoaSchema>;
 export const CauHinhTuDienHoaSchema = z
   .object({
     bat: z.boolean().prefault(true),
+    /**
+     * Nhịp thích ứng theo tuổi thế giới và thứ ống kính đang kể.
+     *
+     * Hư Vô không được bò từng năm; ngược lại, một cảnh có nhân vật không được
+     * nhảy mất cả thế hệ. Tắt công tắc này thì ba ô `nhip` / `soLuot` /
+     * `moiBaoNhieuLuot` bên dưới lại là cấu hình có hiệu lực trực tiếp.
+     */
+    thichUng: z.boolean().prefault(true),
     nhip: z.enum(NHIP_DIEN_HOA).prefault('nien'),
     /** Số lượt tua sau MỖI lần nhịp nền chạy. Trần thấp có chủ đích — xem trên. */
     soLuot: z.number().int().min(1).max(12).prefault(1),
@@ -186,6 +195,119 @@ export const CauHinhTuDienHoaSchema = z
   .prefault({});
 
 export type CauHinhTuDienHoa = z.infer<typeof CauHinhTuDienHoaSchema>;
+
+export const GIAI_DOAN_NHIP_NEN = [
+  'tien_sang_the',
+  'hau_sang_the_rat_som',
+  'hau_sang_the_som',
+  'the_gioi_dang_lon',
+  'the_gioi_truong_thanh',
+  'dang_ke_truyen',
+] as const;
+export type GiaiDoanNhipNen = (typeof GIAI_DOAN_NHIP_NEN)[number];
+
+export type NhipNenHieuLuc = Readonly<{
+  nhip: NhipDienHoa;
+  soLuot: number;
+  moiBaoNhieuLuot: number;
+  giaiDoan: GiaiDoanNhipNen;
+  nhan: string;
+}>;
+
+/**
+ * Chọn tốc độ nền từ chính lịch sử có thể kiểm chứng của thế giới.
+ *
+ * `tickSinh` của thực thể hữu hình đầu tiên là mốc Sáng Thế. Khái niệm và luật
+ * có thể đã rung động trong Hư Vô nên không được dùng làm mốc ấy. Sau mốc, tốc
+ * độ hạ từng bậc thay vì rơi thẳng từ một thiên niên kỷ xuống một năm.
+ *
+ * Mạch truyện đang được chiếu luôn thắng mọi bậc tuổi. Đây là ranh giữa tua lịch
+ * sử và kể một cảnh: lịch sử được phép nuốt thế kỷ, cảnh thì không.
+ */
+export function tinhNhipNenHieuLuc(
+  state: WorldState,
+  cauHinh: CauHinhTuDienHoa,
+  dangKeTruyen: boolean,
+): NhipNenHieuLuc {
+  if (!cauHinh.thichUng) {
+    return {
+      nhip: cauHinh.nhip,
+      soLuot: cauHinh.soLuot,
+      moiBaoNhieuLuot: cauHinh.moiBaoNhieuLuot,
+      giaiDoan: 'the_gioi_truong_thanh',
+      nhan: 'nhịp do người chơi đặt',
+    };
+  }
+
+  if (dangKeTruyen || state.world.playerState.mode !== 'sang_the') {
+    return {
+      nhip: 'nien',
+      soLuot: 1,
+      moiBaoNhieuLuot: 6,
+      giaiDoan: 'dang_ke_truyen',
+      nhan: 'đang kể truyện — thời gian đi chậm',
+    };
+  }
+
+  const mocSangThe = [...state.entities.values()]
+    .filter((e) => e.kind === 'place' || e.kind === 'deity' || e.kind === 'mortal')
+    .reduce<number | null>((moc, e) => (moc === null ? e.tickSinh : Math.min(moc, e.tickSinh)), null);
+
+  if (mocSangThe === null) {
+    return {
+      nhip: 'vinh_kiep',
+      soLuot: 12,
+      moiBaoNhieuLuot: 1,
+      giaiDoan: 'tien_sang_the',
+      nhan: 'tiền Sáng Thế — thời gian cuộn cực nhanh',
+    };
+  }
+
+  const tuoiSauSangThe = Math.max(0, state.world.tick - mocSangThe);
+  if (tuoiSauSangThe < TICK_MOI_NAM * 400) {
+    return {
+      nhip: 'vinh_kiep',
+      soLuot: 4,
+      moiBaoNhieuLuot: 1,
+      giaiDoan: 'hau_sang_the_rat_som',
+      nhan: 'hậu Sáng Thế sơ khai — thế kỷ cuộn qua',
+    };
+  }
+  if (tuoiSauSangThe < TICK_MOI_NAM * 1_200) {
+    return {
+      nhip: 'vinh_kiep',
+      soLuot: 2,
+      moiBaoNhieuLuot: 1,
+      giaiDoan: 'hau_sang_the_som',
+      nhan: 'hậu Sáng Thế — thời gian đang giảm tốc',
+    };
+  }
+  if (tuoiSauSangThe < TICK_MOI_NAM * 3_000) {
+    return {
+      nhip: 'the_dai',
+      soLuot: 2,
+      moiBaoNhieuLuot: 1,
+      giaiDoan: 'the_gioi_dang_lon',
+      nhan: 'thế giới đang lớn — mỗi lần vài thế hệ',
+    };
+  }
+  if (tuoiSauSangThe < TICK_MOI_NAM * 10_000) {
+    return {
+      nhip: 'the_dai',
+      soLuot: 1,
+      moiBaoNhieuLuot: 2,
+      giaiDoan: 'the_gioi_dang_lon',
+      nhan: 'thế giới đã định hình — thời gian chậm dần',
+    };
+  }
+  return {
+    nhip: 'nien',
+    soLuot: 1,
+    moiBaoNhieuLuot: 6,
+    giaiDoan: 'the_gioi_truong_thanh',
+    nhan: 'thế giới trưởng thành — thời gian đi chậm',
+  };
+}
 
 // ─────────────────────────────────────────── ngân sách bước engine
 

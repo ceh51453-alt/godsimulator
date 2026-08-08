@@ -190,6 +190,17 @@ describe('[BB] 33.3 — assembler nhận WorldView, không nhận World', () => 
     for (const q of BAY_QUY_TAC_NARRATOR) expect(p.heThong).toContain(q);
   });
 
+  it('Narrator tua rộng ở tầng Sáng Thế nhưng giữ thời gian chậm khi nhập vai trong thế giới', () => {
+    const { state } = theGioi();
+    const sangThe = bienSoanPromptKe(nguLieu(chieu(state, 'sang_the', null)));
+    expect(sangThe.nguoiDung).toMatch(/hậu Sáng Thế|Thế giới đang định hình|Thế giới đã trưởng thành/);
+
+    const nguoi = [...state.entities.values()].find((e) => e.kind === 'mortal');
+    const trongTruyen = bienSoanPromptKe(nguLieu(chieu(state, 'pham_nhan', nguoi?.id ?? null)));
+    expect(trongTruyen.nguoiDung).toContain('giữ thời gian gần nhân vật');
+    expect(trongTruyen.nguoiDung).toContain('Không nén mất cả thế hệ');
+  });
+
   it('tầng phàm nhân: văn bản luật gốc KHÔNG lọt vào prompt', () => {
     const { state } = theGioi();
     // Lấy văn bản luật thật từ World thô để so — đây là thứ không được xuất hiện.
@@ -210,7 +221,9 @@ describe('[BB] 33.3 — assembler nhận WorldView, không nhận World', () => 
   it('tầng phàm nhân: không con số engine nào lọt ra (56.2)', () => {
     const { state } = theGioi();
     const nguoi = [...state.entities.values()].find((e) => e.kind === 'mortal');
-    const p = bienSoanPromptKe(nguLieu(chieu(state, 'pham_nhan', nguoi?.id ?? null)));
+    const view = chieu(state, 'pham_nhan', nguoi?.id ?? null);
+    expect([...view.entities.values()].every((e) => e.tickSinh === null)).toBe(true);
+    const p = bienSoanPromptKe(nguLieu(view));
     const ca = `${p.heThong}\n${p.nguoiDung}`;
     for (const khoa of ['thieuHut', 'tyLeMac', 'cohort', 'suyThoai', 'deDoa']) {
       expect(ca, `rò rỉ khóa engine "${khoa}"`).not.toContain(khoa);
@@ -528,6 +541,26 @@ describe('bốn phương ngữ', () => {
     }
   });
 
+  it('streaming đổi đúng thân OpenAI và đường Gemini', () => {
+    const params = { ...AiConfigSchema.parse({}).narrator.params, streaming: true };
+    const o = dacTaGoi('openai', 'https://x.y/v1', 'k', {
+      heThong: 'S',
+      nguoiDung: 'U',
+      modelId: 'm1',
+      params,
+    });
+    expect((o.body as Record<string, unknown>)['stream']).toBe(true);
+
+    const g = dacTaGoi('gemini', 'https://x.y', 'k', {
+      heThong: 'S',
+      nguoiDung: 'U',
+      modelId: 'm1',
+      params,
+    });
+    expect(g.url).toContain(':streamGenerateContent');
+    expect(g.url).toContain('alt=sse');
+  });
+
   it('rút văn bản từ ba hình dạng phản hồi khác nhau', () => {
     expect(rutVanBan('openai', { choices: [{ message: { content: ' A ' } }] })).toBe('A');
     expect(rutVanBan('anthropic', { content: [{ text: 'B' }] })).toBe('B');
@@ -559,6 +592,30 @@ describe('client — mock pass trước network', () => {
     );
     expect(r.ok).toBe(true);
     expect(r.ok && r.vanBan).toBe('Một cảnh.');
+  });
+
+  it('stream OpenAI ghép từng mẩu và báo tiến độ', async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"Một "},"finish_reason":null}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"cảnh."},"finish_reason":"stop"}],"usage":{"prompt_tokens":7}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    const fetchImpl = (async () =>
+      new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })) as typeof fetch;
+    const daNhan: string[] = [];
+    const r = await goiKe(
+      { ...ep, params: { ...ep.params, streaming: true } },
+      { heThong: 'S', nguoiDung: 'U', tang: [], soKyTu: 2, uocToken: 1, vetCat: [], chunkBiCat: [] },
+      { fetchImpl, onChunk: (toanBo) => daNhan.push(toanBo) },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.vanBan).toBe('Một cảnh.');
+    expect(r.ok && r.promptTokens).toBe(7);
+    expect(r.ok && r.finishReason).toBe('stop');
+    expect(daNhan).toEqual(['Một ', 'Một cảnh.']);
   });
 
   it('model trả rỗng bị tính là HỎNG, không phải "kể xong"', async () => {

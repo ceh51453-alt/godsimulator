@@ -27,6 +27,7 @@ function ent(id: string, ten: string, kind: string, moTa: string): ProjectedEnti
     aliases: Object.freeze([]),
     moTa,
     tags: Object.freeze([]),
+    tickSinh: null,
     mucRo: 'ro',
     aspects: Object.freeze({}),
     daBopMeo: false,

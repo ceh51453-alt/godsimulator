@@ -116,6 +116,7 @@ export function dacTaGoi(dialect: Dialect, proxyUrl: string, matKhau: string, yc
       },
       body: {
         model: yc.modelId,
+        ...(p.streaming ? { stream: true } : {}),
         system: yc.heThong,
         messages:
           moi === ''
@@ -136,9 +137,14 @@ export function dacTaGoi(dialect: Dialect, proxyUrl: string, matKhau: string, yc
   }
 
   if (dialect === 'gemini') {
-    const co = ghepDuong(proxyUrl, `v1beta/models/${yc.modelId}:generateContent`);
+    const tacVu = p.streaming ? 'streamGenerateContent' : 'generateContent';
+    const co = ghepDuong(proxyUrl, `v1beta/models/${yc.modelId}:${tacVu}`);
+    const truyVan = new URLSearchParams();
+    if (matKhau !== '') truyVan.set('key', matKhau);
+    if (p.streaming) truyVan.set('alt', 'sse');
+    const hauTo = truyVan.size > 0 ? `?${truyVan.toString()}` : '';
     return {
-      url: matKhau === '' ? co : `${co}?key=${encodeURIComponent(matKhau)}`,
+      url: `${co}${hauTo}`,
       header: { 'content-type': 'application/json' },
       body: {
         systemInstruction: { parts: [{ text: yc.heThong }] },
@@ -172,6 +178,9 @@ export function dacTaGoi(dialect: Dialect, proxyUrl: string, matKhau: string, yc
     },
     body: {
       model: yc.modelId,
+      ...(p.streaming
+        ? { stream: true, ...(dialect === 'openai' ? { stream_options: { include_usage: true } } : {}) }
+        : {}),
       messages: [
         { role: 'system', content: yc.heThong },
         { role: 'user', content: yc.nguoiDung },
@@ -233,6 +242,71 @@ export function rutVanBan(dialect: Dialect, json: unknown): string {
   if (typeof m === 'string') return m.trim();
   const t = (ds[0] as { text?: unknown })?.text;
   return typeof t === 'string' ? t.trim() : '';
+}
+
+export type MauStream = {
+  readonly vanBanMoi: string;
+  readonly promptTokens: number | null;
+  readonly finishReason: string | null;
+};
+
+/** Rút một mẩu SSE của bốn phương ngữ về cùng một hình dạng. */
+export function rutMauStream(dialect: Dialect, json: unknown): MauStream {
+  const o = json as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object') return { vanBanMoi: '', promptTokens: null, finishReason: null };
+
+  if (dialect === 'anthropic') {
+    const delta = o['delta'] as Record<string, unknown> | undefined;
+    const khoi = o['content_block'] as Record<string, unknown> | undefined;
+    const message = o['message'] as Record<string, unknown> | undefined;
+    const usage = (o['usage'] ?? message?.['usage']) as Record<string, unknown> | undefined;
+    const vanBanMoi =
+      typeof delta?.['text'] === 'string'
+        ? delta['text']
+        : typeof khoi?.['text'] === 'string'
+          ? khoi['text']
+          : '';
+    const stop = delta?.['stop_reason'] ?? o['stop_reason'];
+    return {
+      vanBanMoi,
+      promptTokens: typeof usage?.['input_tokens'] === 'number' ? usage['input_tokens'] : null,
+      finishReason:
+        typeof stop === 'string'
+          ? stop.toLowerCase() === 'max_tokens'
+            ? 'length'
+            : stop.toLowerCase()
+          : null,
+    };
+  }
+
+  if (dialect === 'gemini') {
+    const ds = o['candidates'];
+    const parts = Array.isArray(ds)
+      ? (ds[0] as { content?: { parts?: unknown } } | undefined)?.content?.parts
+      : undefined;
+    const vanBanMoi = Array.isArray(parts)
+      ? parts
+          .map((k) =>
+            typeof k === 'object' && k !== null ? String((k as { text?: unknown }).text ?? '') : '',
+          )
+          .join('')
+      : '';
+    const dung = rutSoDung('gemini', o);
+    return { vanBanMoi, ...dung };
+  }
+
+  const ds = o['choices'];
+  const chon = Array.isArray(ds) ? (ds[0] as Record<string, unknown> | undefined) : undefined;
+  const delta = chon?.['delta'] as Record<string, unknown> | undefined;
+  const message = chon?.['message'] as Record<string, unknown> | undefined;
+  const usage = o['usage'] as Record<string, unknown> | undefined;
+  const noiDung = delta?.['content'] ?? message?.['content'];
+  const stop = chon?.['finish_reason'];
+  return {
+    vanBanMoi: typeof noiDung === 'string' ? noiDung : '',
+    promptTokens: typeof usage?.['prompt_tokens'] === 'number' ? usage['prompt_tokens'] : null,
+    finishReason: typeof stop === 'string' ? stop.toLowerCase() : null,
+  };
 }
 
 /** Đường liệt kê model — dùng cho nút "Quét danh sách". */

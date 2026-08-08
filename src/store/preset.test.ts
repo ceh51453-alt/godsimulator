@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { layDb } from '../db/instance.js';
 import type { PresetPackRow } from '../core/preset/schema.js';
-import { tinhNangPresetDangBat, usePreset } from './preset.js';
+import { chonNhatKyScript, tinhNangPresetDangBat, usePreset } from './preset.js';
 
 describe('quản lý tính năng Preset', () => {
   beforeEach(async () => {
@@ -77,5 +77,20 @@ describe('quản lý tính năng Preset', () => {
 
     await usePreset.getState().datChonChoVanMoi('pack.a', false);
     expect(usePreset.getState().chonChoVanMoi).toEqual([]);
+  });
+});
+
+describe('chonNhatKyScript', () => {
+  it('giữ nguyên tham chiếu rỗng để selector Zustand không làm React render lặp', () => {
+    const state = { nhatKyScript: {} };
+
+    expect(chonNhatKyScript(state, 'script.chua-co-log')).toBe(chonNhatKyScript(state, 'script.chua-co-log'));
+  });
+
+  it('trả đúng nhật ký đã có của script', () => {
+    const nhatKy = [{ muc: 'log', dong: 'đã chạy' }] as const;
+    const state = { nhatKyScript: { 'script.co-log': nhatKy } };
+
+    expect(chonNhatKyScript(state, 'script.co-log')).toBe(nhatKy);
   });
 });

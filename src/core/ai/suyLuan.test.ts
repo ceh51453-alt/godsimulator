@@ -13,4 +13,10 @@ describe('lọc suy luận nội bộ của model', () => {
   it('nhận các tên thẻ suy luận thường gặp và thẻ đóng mồ côi', () => {
     expect(catSuyLuanNoiBo('<analysis>nháp</analysis>Đáp án.</reasoning>')).toBe('Đáp án.');
   });
+
+  it('xóa phần prefill bị API giấu thẻ mở nhưng vẫn trả thẻ đóng', () => {
+    expect(
+      catSuyLuanNoiBo('[CHẶNG 0 — ĐỌC SỔ]\nBằng chứng và lập luận nội bộ.\n</thinking>\nNàng bước qua cửa.'),
+    ).toBe('Nàng bước qua cửa.');
+  });
 });
