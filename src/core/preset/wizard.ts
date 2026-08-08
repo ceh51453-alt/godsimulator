@@ -115,7 +115,8 @@ export type BaoCaoNhap = {
   readonly hoatDong: string;
   readonly canChon: string;
   readonly canAdapter: string;
-  readonly cachLy: string;
+  /** Script Tavern Helper của pack: có bao nhiêu, bao nhiêu bật sẵn ở nguồn. */
+  readonly script: string;
   readonly thamSo: string;
   readonly kichHoat: string;
   /** Mọi dòng, theo đúng thứ tự 66.2 — dùng cho UI và cho test. */
@@ -150,7 +151,9 @@ export function baoCaoNhap(kq: KetQuaNhap, daKichHoat = false): BaoCaoNhap {
   const hoatDong = `${dem('native')} native · ${dem('adapted')} adapted`;
   const canChon = `${kq.nhom.filter((n) => n.canNguoiChon).length} nhóm xung đột`;
   const canAdapter = `${soMacroCanAdapter.size} macro · ${soTransformCanAdapter} transform`;
-  const cachLy = `${row?.quarantined.length ?? 0} script · ${dem('quarantined')} module vượt quyền`;
+  const soScript = row?.scripts.length ?? 0;
+  const soScriptBat = row?.scripts.filter((s) => s.batONguon).length ?? 0;
+  const script = `${soScript} script · ${soScriptBat} bật sẵn ở nguồn`;
   const thamSo =
     `${thamSoTheo('giu_nguyen')} giữ nguyên · ${thamSoTheo('bi_gioi_han')} bị giới hạn bởi model · ` +
     `${thamSoTheo('khong_ho_tro')} không hỗ trợ`;
@@ -161,7 +164,7 @@ export function baoCaoNhap(kq: KetQuaNhap, daKichHoat = false): BaoCaoNhap {
     hoatDong,
     canChon,
     canAdapter,
-    cachLy,
+    script,
     thamSo,
     kichHoat,
     dong: Object.freeze([
@@ -169,7 +172,7 @@ export function baoCaoNhap(kq: KetQuaNhap, daKichHoat = false): BaoCaoNhap {
       ['Hoạt động', hoatDong],
       ['Cần chọn', canChon],
       ['Cần adapter', canAdapter],
-      ['Cách ly', cachLy],
+      ['Script', script],
       ['Tham số', thamSo],
       ['Kích hoạt', kichHoat],
     ] as const),
@@ -197,7 +200,7 @@ export function issueCuaMan(kq: KetQuaNhap, man: ManWizard): ImportIssue[] {
         'KHOA_NGUY_HIEM',
         'CO_HINH_DANG_SECRET',
         'CO_URL_NGOAI',
-        'SCRIPT_CACH_LY',
+        'SCRIPT_TAI_TU_XA',
         'REGEX_CAN_ADAPTER',
         'MODULE_NGOAI_LOT_VAO_PIPELINE_CAM',
       ]);

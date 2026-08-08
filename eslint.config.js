@@ -5,7 +5,9 @@ import tsPlugin from '@typescript-eslint/eslint-plugin';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
-  { ignores: ['dist', '.tsbuild', 'node_modules', 'coverage', '.tmp'] },
+  // `.claude/worktrees` là bản sao tạm của chính repo do công cụ tạo ra. Quét nó
+  // là quét cùng mã nguồn hai lần, dưới một gốc mà mọi glob theo đường dẫn đều trượt.
+  { ignores: ['dist', '.tsbuild', 'node_modules', 'coverage', '.tmp', '.claude'] },
   js.configs.recommended,
   {
     // Công cụ chạy bằng Node, không phải mã ứng dụng.

@@ -231,10 +231,10 @@ describe('biên dịch thử — narrator', () => {
 
 // ─────────────────────────────────────────── regex
 
-describe('regex — chín script đều chạy được trong sandbox', () => {
-  it('cả chín ở trạng thái sandboxed, không cái nào cần adapter', () => {
+describe('regex — chín script đều chạy thật', () => {
+  it('cả chín ở trạng thái native, không cái nào cần adapter', () => {
     expect(ROW?.transformDefs).toHaveLength(9);
-    expect((ROW?.transformDefs ?? []).filter((t) => t.activation !== 'sandboxed')).toEqual([]);
+    expect((ROW?.transformDefs ?? []).filter((t) => t.activation !== 'native')).toEqual([]);
     expect(KQ.issues.filter((i) => i.code === 'REGEX_CAN_ADAPTER')).toEqual([]);
   });
 
@@ -263,7 +263,7 @@ describe('regex — chín script đều chạy được trong sandbox', () => {
     });
     expect(kq.text).not.toContain('nháp nội bộ');
     expect(kq.text).toContain('Văn kể thật.');
-    expect(kq.quaCham).toEqual([]);
+    expect(kq.cham).toEqual([]);
   });
 
   it('khối tư duy CHƯA đóng thẻ cũng không lọt ra — cả hai đường đều bắt', () => {
@@ -330,21 +330,25 @@ describe('regex — chín script đều chạy được trong sandbox', () => {
   });
 });
 
-// ─────────────────────────────────────────── script cách ly
+// ─────────────────────────────────────────── script chạy thật
 
-describe('script — đúng một khai báo, cách ly, có adapter native', () => {
-  it('một script Tavern Helper, ở trạng thái cách ly, không có nút bật', () => {
-    expect(ROW?.quarantined).toHaveLength(1);
+describe('script — đúng một khai báo, giữ mã nguồn, có bản port dự phòng', () => {
+  it('một script Tavern Helper, giữ nguyên mã nguồn để host nạp được', () => {
+    expect(ROW?.scripts).toHaveLength(1);
     expect(KQ.thongKe?.soHelper).toBe(1);
-    const issue = KQ.issues.filter((i) => i.code === 'SCRIPT_CACH_LY');
-    expect(issue).toHaveLength(1);
-    // `quarantine` KHÔNG phải `error`: nó không chặn nhập, và đó là cái giá đã biết.
-    expect(issue[0]?.severity).toBe('quarantine');
+    const s0 = ROW?.scripts[0];
+    expect(s0?.noiDung.length).toBeGreaterThan(0);
+    expect(s0?.soKyTu).toBe(s0?.noiDung.length);
+    // Không còn issue cách ly nào: nhập một script không phải một sự cố nữa.
+    expect(KQ.issues.filter((i) => i.severity === 'quarantine')).toEqual([]);
   });
 
-  it('dựng đúng adapter cot_cleanup và không dựng adapter nào khác', () => {
+  it('adapter cot_cleanup vẫn được dựng — đường lùi khi script tắt hoặc hỏng', () => {
     expect((ROW?.scriptAdapters ?? []).map((a) => a.kind)).toEqual(['cot_cleanup']);
     expect(ROW?.scriptAdapters[0]?.batONguon).toBe(true);
+    // Adapter phải nối được về đúng script sinh ra nó, nếu không runtime không
+    // biết khi nào nên nhường chỗ.
+    expect(`${ROW?.packId}/${ROW?.scriptAdapters[0]?.sourceScriptId}`).toBe(ROW?.scripts[0]?.id);
   });
 });
 

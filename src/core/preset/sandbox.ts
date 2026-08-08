@@ -1,55 +1,36 @@
 /**
- * Regex display sandbox và sanitizer — Phần 64.3, 64.4.
+ * Bộ chạy regex của preset — bám ngữ nghĩa SillyTavern, KHÔNG cách ly.
  *
- * ── Điều phải nói thẳng về "timeout" ──
+ * ── Điều đã đổi, và vì sao ──
  *
- * JavaScript **không** ngắt được một `RegExp.exec` đang chạy. Không có API nào
- * làm việc đó trong luồng chính, và một Worker cũng chỉ giúp nếu ta chấp nhận
- * bất đồng bộ ở giữa đường render. Nên `maxRegexMs` ở đây được cài bằng ba lớp,
- * và tài liệu này ghi rõ từng lớp để không ai tưởng mình có thứ mình không có:
+ * Bản trước dựng ba lớp rào quanh mỗi regex: chặn trước pattern có hình dạng quay
+ * lui, cắt đầu vào ở 200.000 ký tự, và tự tắt vĩnh viễn một transform chạy quá
+ * `maxRegexMs`. Ba lớp ấy có nghĩa khi preset là **dữ liệu của người lạ**. Với một
+ * preset do chính người chơi viết thì cả ba chỉ làm một việc: khiến regex của họ
+ * im lặng không chạy, và bắt họ đi tìm lý do trong một app không nói ra.
  *
- * 1. **Chặn trước** — pattern có dạng lồng lượng từ (`(a+)+`, `(a*)*`, `(a|a)+`)
- *    bị từ chối thẳng ở `needs_adapter`. Đây là hình dạng gây quay lui theo hàm mũ.
- * 2. **Giới hạn đầu vào** — transform chỉ chạy trên chuỗi dưới `MAX_KY_TU`.
- * 3. **Đo sau** — chạy xong mà quá `maxRegexMs` thì transform bị **đánh dấu chậm**,
- *    kết quả bị BỎ, văn bản gốc được giữ, và lần sau nó không chạy nữa.
+ * Giờ regex chạy đúng như ở SillyTavern:
  *
- * Lớp 3 không cứu được lượt đầu tiên. Nó cứu mọi lượt sau, và [BB] 64.3 nói đúng
- * điều cần: "timeout → bỏ transform, giữ text gốc, ghi chẩn đoán; không làm mất lượt".
+ * - Mọi pattern `RegExp` biên được đều chạy. Không có danh sách hình dạng bị cấm.
+ * - Không có trần độ dài văn bản.
+ * - Thời gian chạy vẫn được ĐO, nhưng chỉ để báo cáo. Kết quả không bị vứt, và
+ *   không transform nào bị tắt sau lưng người dùng.
  *
- * ── Lằn ranh ──
- *
- * [BB] Transform chỉ chạm **bản sao output hiển thị**. Không có tham số nào trong
- * file này nhận system prompt, user input, patch hay event — nên "không được sửa"
- * ở đây là chuyện kiểu dữ liệu, không phải chuyện kỷ luật.
+ * Thứ còn giữ lại là phần **ngữ nghĩa**: cách một pattern trần khác `/…/cờ`, cách
+ * `$n` ứng với nhóm, `trimStrings`, `placement`, `minDepth`/`maxDepth`,
+ * `markdownOnly`/`promptOnly` và `substituteRegex`. Đó mới là chỗ một khác biệt
+ * nhỏ cho ra văn bản khác mà không ai thấy.
  */
 import type { ImportIssue } from '../contracts/primitives.js';
 import type { TransformDef } from './schema.js';
 
-export const MAX_KY_TU = 200_000;
-
 /**
- * Hình dạng gây quay lui theo hàm mũ. Chặn trước, không thử chạy.
+ * Trần ký tự CŨ, giữ lại làm hằng số tham chiếu cho chẩn đoán.
  *
- * Ba mẫu này cố ý HẸP. Một bộ dò rộng sẽ ném `(foo|bar)*` — một pattern hoàn toàn
- * lành — vào `needs_adapter`, và fixture B có 21 regex thật đang chờ chạy. Đắt hơn
- * nhiều so với việc bỏ sót một pattern chậm, vì pattern chậm còn có lớp 3 đỡ.
+ * Không còn nhánh nào trong file này dùng nó để từ chối chạy. `adapterMerge` vẫn
+ * đọc nó để cảnh báo khi một message dài bất thường — cảnh báo, không phải chặn.
  */
-const MAU_NGUY_HIEM: readonly RegExp[] = [
-  /\([^)]*[+*]\)\s*[+*]/, // (a+)+ · (a*)*
-  /\{\d{4,},?\d*\}/, // {5000,} — lặp khổng lồ
-];
-
-/** Nhóm luân phiên có hai nhánh TRÙNG NHAU rồi bị lặp: `(x|x)*`. */
-const NHOM_LAP = /\(([^()]*\|[^()]*)\)\s*[+*]/g;
-
-function coNhanhTrungBiLap(s: string): boolean {
-  for (const g of s.matchAll(NHOM_LAP)) {
-    const nhanh = (g[1] ?? '').split('|').map((x) => x.trim());
-    if (new Set(nhanh).size !== nhanh.length) return true;
-  }
-  return false;
-}
+export const MAX_KY_TU = 200_000;
 
 export type RegexDaBien = {
   readonly re: RegExp;
@@ -57,28 +38,21 @@ export type RegexDaBien = {
 };
 
 /**
- * Biên một pattern nguồn thành `RegExp`.
+ * Biên một pattern nguồn thành `RegExp`, theo `regexFromString` của SillyTavern.
  *
- * Trả `null` khi không dùng được — người gọi chuyển transform sang `needs_adapter`.
- * Không throw: dữ liệu preset là dữ liệu không tin cậy, và một throw ở đây sẽ nổ
- * giữa đường render.
+ * Trả `null` chỉ khi chuỗi rỗng hoặc engine `RegExp` thật sự từ chối cú pháp.
+ * Không throw: một throw ở đây sẽ nổ giữa đường render.
  *
  * ── Vì sao chuỗi trần KHÔNG được thêm cờ `g` ──
  *
- * `regexFromString` của SillyTavern biên `"pattern"` thành `new RegExp(pattern)`
- * **không cờ**; chỉ dạng `/pattern/flags` mới mang cờ. Preset thật dùng mẫu neo
- * kiểu `^([\s\S]*)$` viết trần, và một cờ `g` ngầm đổi cả ngữ nghĩa: thay mọi lần
- * khớp thay vì lần đầu. Đó là loại sai không ai thấy — output vẫn ra, chỉ khác
- * bản chạy ở SillyTavern. `kiemPatternHopLe` trong `chuanHoa.ts` vốn đã kiểm bằng
- * `new RegExp(pattern)` không cờ, nên hai chỗ giờ nói cùng một thứ.
+ * `regexFromString` biên `"pattern"` thành `new RegExp(pattern)` **không cờ**; chỉ
+ * dạng `/pattern/flags` mới mang cờ. Preset thật dùng mẫu neo kiểu `^([\s\S]*)$`
+ * viết trần, và một cờ `g` ngầm đổi cả ngữ nghĩa: thay mọi lần khớp thay vì lần
+ * đầu. Đó là loại sai không ai thấy — output vẫn ra, chỉ khác bản chạy ở ST.
  */
 export function bienRegex(pattern: string): RegexDaBien | null {
   const s = pattern.trim();
   if (s === '') return null;
-  for (const nguy of MAU_NGUY_HIEM) {
-    if (nguy.test(s)) return null;
-  }
-  if (coNhanhTrungBiLap(s)) return null;
   const than = /^\/(.*)\/([gimsuy]*)$/s.exec(s);
   if (than) {
     try {
@@ -95,17 +69,18 @@ export function bienRegex(pattern: string): RegexDaBien | null {
   }
 }
 
-// ─────────────────────────────────────────── sanitizer
+/** Escape mọi ký tự có nghĩa trong regex — dùng cho `substituteRegex = 2`. */
+export function thoatRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ─────────────────────────────────────────── sanitizer (tùy chọn)
 
 const THE_CAM = /<\s*\/?\s*(script|iframe|object|embed|form|link|meta|base|style)\b[^>]*>/gi;
 const HANDLER = /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const URL_CAM =
   /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"|')?\s*(?:javascript|data|vbscript):[^"'\s>]*/gi;
 const STYLE_REMOTE = /\bstyle\s*=\s*(?:"[^"]*url\s*\([^)]*\)[^"]*"|'[^']*url\s*\([^)]*\)[^']*')/gi;
-const BLOCK_CAM = /<\s*(script|iframe|object|embed|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
-const THE_NGOAI = /<\s*\/?\s*(link|meta|base)\b[^>]*>/gi;
-const URL_MANG = /\b(?:href|src|action|formaction|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const CSS_MANG = /@import\b[^;]*;?|url\s*\([^)]*\)/gi;
 
 export type KetQuaLamSach = {
   readonly html: string;
@@ -113,11 +88,10 @@ export type KetQuaLamSach = {
 };
 
 /**
- * Làm sạch HTML thay thế trước khi render — 64.3.
+ * Làm sạch HTML — giữ lại cho nơi nào CHỦ ĐỘNG cần bản đã khử.
  *
- * Danh sách xóa lấy thẳng từ đặc tả: `<script>`, event handler, iframe, form,
- * remote stylesheet, URL không cho phép. Không dùng `innerHTML` ở đâu trong repo
- * này; chuỗi trả về vẫn phải đi qua renderer cô lập của Phase 11.
+ * Đường hiển thị mặc định không còn gọi hàm này: HTML do preset sinh ra được
+ * render thẳng, vì script của chính preset cần bám vào DOM ấy để trang trí.
  */
 export function lamSachHtml(html: string): KetQuaLamSach {
   const daBo: string[] = [];
@@ -137,60 +111,38 @@ export function lamSachHtml(html: string): KetQuaLamSach {
   return { html: ra, daBo };
 }
 
-/**
- * Dựng tài liệu HTML cho iframe không có quyền script/same-origin.
- *
- * Khác `lamSachHtml`, hàm này giữ CSS nội tuyến và thẻ `<style>` vì các preset
- * Tawa/Ako dùng chúng để dựng bảng, nhưng loại mọi URL mạng, import và handler.
- */
-export function taiLieuHtmlCachLy(html: string): KetQuaLamSach {
-  const daBo: string[] = [];
-  let ra = html;
-  const bo = (re: RegExp, nhan: string): void => {
-    const truoc = ra;
-    ra = ra.replace(re, '');
-    if (ra !== truoc) daBo.push(nhan);
-  };
-  bo(BLOCK_CAM, 'khối có khả năng thực thi/gửi dữ liệu');
-  bo(THE_NGOAI, 'thẻ tải tài nguyên hoặc đổi base URL');
-  bo(/<\s*\/?\s*(script|iframe|object|embed|form)\b[^>]*>/gi, 'thẻ nguy hiểm');
-  bo(HANDLER, 'thuộc tính bắt sự kiện (on*)');
-  bo(URL_CAM, 'URL có scheme thực thi');
-  bo(URL_MANG, 'thuộc tính URL');
-  bo(CSS_MANG, 'CSS tải tài nguyên ngoài');
-
-  const csp =
-    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; form-action 'none'; base-uri 'none'";
-  const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;background:transparent;color:#d8d3c5;font:14px/1.6 system-ui,sans-serif}*{box-sizing:border-box}details{margin:.4rem 0}button,input,textarea,select{pointer-events:none}</style></head><body>${ra}</body></html>`;
-  return { html: doc, daBo };
-}
 // ─────────────────────────────────────────── chạy transform
 
 export type KetQuaTransform = {
-  /** Văn bản sau khi áp. Bằng đầu vào khi transform bị bỏ. */
+  /** Văn bản sau khi áp. Bằng đầu vào khi không transform nào khớp. */
   readonly text: string;
   readonly daApDung: readonly string[];
   readonly daBoQua: readonly { readonly id: string; readonly lyDo: string }[];
   readonly issues: readonly ImportIssue[];
-  /** Id transform vượt `maxRegexMs` — người gọi nên tắt chúng cho lượt sau. */
-  readonly quaCham: readonly string[];
+  /**
+   * Transform chạy lâu hơn `maxRegexMs` — **chỉ để báo**.
+   *
+   * Kết quả của chúng vẫn được giữ và chúng vẫn chạy ở lượt sau. Trường này tồn
+   * tại để Xưởng Preset chỉ đúng regex nào đang làm chậm lượt kể, không phải để
+   * một tầng nào đó tự tắt nó đi.
+   */
+  readonly cham: readonly { readonly id: string; readonly ms: number }[];
 };
 
 /**
- * Áp một chuỗi transform lên **bản sao output hiển thị**.
+ * Áp một chuỗi transform lên một khối văn bản.
  *
  * `dongHo` được tiêm vào thay vì gọi `performance.now()` trực tiếp: `core/` không
- * được đọc đồng hồ máy (luật bất biến #7), và test cần đo được đường "quá chậm"
+ * được đọc đồng hồ máy (luật bất biến #7), và test cần đo được đường "chạy lâu"
  * mà không phải chờ thật.
  */
 export function apTransform(input: {
   readonly text: string;
   readonly transforms: readonly TransformDef[];
   readonly maxRegexMs: number;
-  readonly daTat?: ReadonlySet<string>;
   readonly dongHo?: () => number;
-  /** 1 = user input, 2 = AI output. */
-  readonly placement?: 1 | 2;
+  /** 1 = user input, 2 = AI output, 5 = world info… — theo `placement` của ST. */
+  readonly placement?: number;
   readonly destination?: 'display' | 'prompt';
   /** 0 là tin mới nhất; số lớn hơn là tin cũ hơn trong lịch sử. */
   readonly depth?: number;
@@ -198,20 +150,14 @@ export function apTransform(input: {
    * Tập id transform mà NGƯỜI DÙNG đang bật, nếu tầng trên đã quyết.
    *
    * Có trường này thì nó là nguồn chân lý duy nhất về bật/tắt và `batONguon` bị
-   * bỏ qua. Đó là chỗ một lỗi thật từng nằm: store tính quyết định theo cấu hình
-   * nhánh rồi đưa transform xuống đây, còn hàm này lại tự hỏi `batONguon` một
-   * lần nữa — nên mọi regex mà người dùng bật lại từ trạng thái tắt-trong-file
-   * đều im lặng không chạy, và công tắc trong giao diện không làm gì cả.
-   *
-   * Vắng trường này thì `batONguon` vẫn là mặc định — đường mà pipeline nhập và
-   * bản xem trước dùng, nơi chưa có cấu hình nhánh nào để hỏi.
+   * bỏ qua. Vắng nó thì `batONguon` là mặc định — đường mà pipeline nhập và bản
+   * xem trước dùng, nơi chưa có cấu hình nhánh nào để hỏi.
    */
   readonly daBat?: ReadonlySet<string>;
-  /** Macro SillyTavern trong replacement, do tầng store cấp ngữ cảnh an toàn. */
+  /** Macro SillyTavern trong replacement, do tầng store cấp ngữ cảnh. */
   readonly thayMacro?: (text: string, transform: TransformDef) => string;
 }): KetQuaTransform {
   const { text, transforms, maxRegexMs } = input;
-  const daTat = input.daTat ?? new Set<string>();
   const daBat = input.daBat;
   const dongHo = input.dongHo ?? (() => 0);
   const placement = input.placement ?? 2;
@@ -221,26 +167,8 @@ export function apTransform(input: {
   const daApDung: string[] = [];
   const daBoQua: { id: string; lyDo: string }[] = [];
   const issues: ImportIssue[] = [];
-  const quaCham: string[] = [];
+  const cham: { id: string; ms: number }[] = [];
   let ra = text;
-
-  if (text.length > MAX_KY_TU) {
-    return {
-      text,
-      daApDung: [],
-      daBoQua: transforms.map((t) => ({ id: t.id, lyDo: 'văn bản dài quá trần sandbox' })),
-      issues: [
-        {
-          code: 'TRANSFORM_BO_QUA_DAI',
-          severity: 'warning',
-          path: '',
-          message: `Output dài ${text.length} ký tự, vượt trần ${MAX_KY_TU} của sandbox. Giữ nguyên văn bản gốc.`,
-          details: { soKyTu: text.length },
-        },
-      ],
-      quaCham: [],
-    };
-  }
 
   for (const t of transforms) {
     const bat = daBat === undefined ? t.batONguon : daBat.has(t.id);
@@ -249,20 +177,6 @@ export function apTransform(input: {
         id: t.id,
         lyDo: daBat === undefined ? 'đã tắt trong preset nguồn' : 'đang tắt trong cấu hình pack',
       });
-      continue;
-    }
-    if (daTat.has(t.id)) {
-      daBoQua.push({ id: t.id, lyDo: 'đã bị tắt sau một lần chạy quá chậm' });
-      continue;
-    }
-    /*
-     * `disabled` chỉ có nghĩa "file nguồn khai `disabled: true`" — nó KHÔNG phải
-     * lời tuyên bố rằng pattern chạy không được. Cái ấy là `needs_adapter`, và
-     * chỉ mình nó bị chặn ở đây. Nhờ vậy bật lại một regex tắt sẵn trong file là
-     * một hành động có hiệu lực thật, không phải một công tắc trang trí.
-     */
-    if (t.activation !== 'sandboxed' && t.activation !== 'disabled') {
-      daBoQua.push({ id: t.id, lyDo: `trạng thái ${t.activation}` });
       continue;
     }
     if (!t.placement.includes(placement)) {
@@ -291,15 +205,31 @@ export function apTransform(input: {
       daBoQua.push({ id: t.id, lyDo: 'chỉ áp khi hiển thị' });
       continue;
     }
-    const bien = bienRegex(t.pattern);
+
+    /*
+     * `substituteRegex` của ST: 0 = giữ nguyên, 1 = thay macro vào `findRegex`,
+     * 2 = thay macro rồi escape kết quả để nó thành chuỗi khớp nguyên văn.
+     *
+     * Bản trước chỉ ghi một cảnh báo rồi dùng pattern thô, nên một regex khai
+     * `substituteRegex: 1` với thân `{{user}}` sẽ đi tìm sáu ký tự "{{user}}"
+     * trong output và không bao giờ khớp.
+     */
+    const patternHieuLuc =
+      t.substituteRegex === 0 || input.thayMacro === undefined
+        ? t.pattern
+        : t.substituteRegex === 2
+          ? thoatRegex(input.thayMacro(t.pattern, t))
+          : input.thayMacro(t.pattern, t);
+
+    const bien = bienRegex(patternHieuLuc);
     if (bien === null) {
-      daBoQua.push({ id: t.id, lyDo: 'pattern không biên được hoặc có hình dạng quay lui nguy hiểm' });
+      daBoQua.push({ id: t.id, lyDo: 'pattern không biên được bằng RegExp' });
       issues.push({
         code: 'REGEX_TU_CHOI',
         severity: 'warning',
         path: t.id,
-        message: `Regex "${t.ten}" bị từ chối: cú pháp không hỗ trợ hoặc có lượng từ lồng nhau. Giữ nguyên văn bản.`,
-        details: { pattern: t.pattern.slice(0, 120) },
+        message: `Regex "${t.ten}" không biên được: engine RegExp từ chối cú pháp này. Giữ nguyên văn bản.`,
+        details: { pattern: patternHieuLuc.slice(0, 120) },
       });
       continue;
     }
@@ -338,57 +268,65 @@ export function apTransform(input: {
         );
         return input.thayMacro?.(daChenNhom, t) ?? daChenNhom;
       });
-    } catch {
+    } catch (e) {
       daBoQua.push({ id: t.id, lyDo: 'lỗi khi thay thế' });
+      issues.push({
+        code: 'REGEX_LOI_THAY_THE',
+        severity: 'warning',
+        path: t.id,
+        message: `Regex "${t.ten}" lỗi khi thay thế: ${e instanceof Error ? e.message : String(e)}`,
+        details: {},
+      });
       continue;
     }
     const troi = dongHo() - batDau;
 
+    /*
+     * Chạy lâu thì NÓI, không tự tắt.
+     *
+     * Bản trước vứt kết quả và tắt transform cho các lượt sau. Với preset tự
+     * viết thì đó là hành vi tệ nhất có thể: một regex nặng nhưng đúng sẽ biến
+     * mất sau lần chạy đầu, và người dùng chỉ thấy "lần đầu đúng, từ lần hai thì
+     * không". Giữ kết quả, ghi một dòng chẩn đoán, để người dùng tự quyết.
+     */
     if (troi > maxRegexMs) {
-      // [BB] 64.3 — bỏ transform, GIỮ text gốc, ghi chẩn đoán, không làm mất lượt.
-      quaCham.push(t.id);
-      daBoQua.push({ id: t.id, lyDo: `chạy ${troi} ms, vượt trần ${maxRegexMs} ms` });
+      cham.push({ id: t.id, ms: troi });
       issues.push({
-        code: 'REGEX_QUA_CHAM',
-        severity: 'warning',
+        code: 'REGEX_CHAY_LAU',
+        severity: 'info',
         path: t.id,
         message:
-          `Regex "${t.ten}" chạy ${troi} ms, vượt tuning.preset.maxRegexMs = ${maxRegexMs} ms. ` +
-          'Kết quả bị bỏ, văn bản gốc được giữ, và transform này tắt cho các lượt sau.',
-        details: { ms: troi, tran: maxRegexMs },
+          `Regex "${t.ten}" chạy ${troi} ms (ngưỡng chẩn đoán ${maxRegexMs} ms). ` +
+          'Kết quả vẫn được dùng; đây chỉ là cảnh báo hiệu năng.',
+        details: { ms: troi, nguong: maxRegexMs },
       });
-      continue;
     }
 
     ra = sau;
     daApDung.push(t.id);
   }
 
-  return { text: ra, daApDung, daBoQua, issues, quaCham };
+  return { text: ra, daApDung, daBoQua, issues, cham };
 }
 
 /**
- * Áp regex `promptOnly` lên **chuỗi prompt** trước khi gửi AI.
+ * Áp transform lên **chuỗi prompt** trước khi gửi AI.
  *
- * Cùng bộ bảo vệ sandbox (timeout, chặn pattern, max ký tự) nhưng target là
- * prompt thay vì output hiển thị. Chỉ chạy transform có `promptOnlyNguon: true`.
- *
- * [BB] Ranh giới vẫn giữ: transform chỉ chạy trên chuỗi văn bản đã phẳng hóa,
- * KHÔNG chạy trên WorldView, PatchOp hay cấu trúc dữ liệu engine.
+ * Cùng bộ luật, chỉ khác `destination`, nên regex khai `promptOnly` chạy ở đây và
+ * regex khai `markdownOnly` thì không.
  */
 export function apPromptTransform(input: {
   readonly text: string;
   readonly transforms: readonly TransformDef[];
   readonly maxRegexMs: number;
-  readonly daTat?: ReadonlySet<string>;
   readonly dongHo?: () => number;
-  readonly placement?: 1 | 2;
+  readonly placement?: number;
   readonly depth?: number;
   readonly daBat?: ReadonlySet<string>;
+  readonly thayMacro?: (text: string, transform: TransformDef) => string;
 }): KetQuaTransform {
-  const dungChoPrompt = input.transforms;
-  if (dungChoPrompt.length === 0) {
-    return { text: input.text, daApDung: [], daBoQua: [], issues: [], quaCham: [] };
+  if (input.transforms.length === 0) {
+    return { text: input.text, daApDung: [], daBoQua: [], issues: [], cham: [] };
   }
-  return apTransform({ ...input, transforms: dungChoPrompt, destination: 'prompt' });
+  return apTransform({ ...input, destination: 'prompt' });
 }

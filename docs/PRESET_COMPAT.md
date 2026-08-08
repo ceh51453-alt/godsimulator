@@ -2,7 +2,11 @@
 
 Format, macro và extension được hỗ trợ — Phần 62–66, Phase 9 và 11.
 
-> **Nhập không phải kích hoạt. Lưu được toàn bộ không có nghĩa là được phép chạy toàn bộ.**
+> **Nhập không phải kích hoạt.** Nhập một file chỉ ghi nó vào thư viện; bật nó
+> lên là một hành động riêng, và cho tới lúc ấy không dòng nào của nó chạy.
+
+> **Bật rồi thì chạy THẬT.** Regex chạy đúng ngữ nghĩa SillyTavern, và script
+> Tavern Helper chạy bằng chính JavaScript nguồn của nó. Không còn cách ly.
 
 ---
 
@@ -174,7 +178,7 @@ export lại được, và không lượt kể nào nhận được nó. Giờ n
 
 ---
 
-## An toàn — hàng rào đã dựng ở Phase 0
+## An toàn — hàng rào còn lại sau khi bỏ cách ly
 
 | Rủi ro                  | Hàng rào                                                                                                                              | Nơi cài                           | Test                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------ |
@@ -185,36 +189,143 @@ export lại được, và không lượt kể nào nhận được nó. Giờ n
 | Prototype pollution     | bỏ qua khóa `__proto__` / `constructor` / `prototype` khi gộp và khi quét                                                             | `manifest.ts`, `tuning/schema.ts` | `registry.test.ts`, `tuning.test.ts` |
 | `eval` lọt vào core     | quét **mã nguồn** thật, không chỉ quét dữ liệu                                                                                        | —                                 | `source-guards.test.ts`              |
 
+Hàng rào trên bảo vệ **engine** khỏi dữ liệu pack sai hình dạng, và chúng giữ nguyên:
+một `PatchTemplate` lạ vẫn bị từ chối, một `handlerId` không có trong catalog vẫn không
+kích hoạt. Cái đã bỏ là hàng rào bảo vệ **người dùng khỏi chính preset của họ**.
+
 Giới hạn kích thước lấy từ `tuning.preset` (Phần 61.4):
 
 ```text
-maxJsonBytes    10.000.000
+maxJsonBytes    10.000.000   trần file nhập
 maxPromptBlocks      1.000
 maxBlockChars      200.000
 maxMacroDepth            3
-maxRegexMs              20
+maxRegexMs              20   nay là NGƯỠNG CHẨN ĐOÁN, không phải trần chặn
 ```
 
 ---
 
-## Script — cách ly, không chạy [BB]
+## Script — chạy thật, có vòng đời
 
-| Loại                                      | Xử lý                                                                                                                                     |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions.tavern_helper.scripts[]`      | **quarantine**. Không chạy. Hiện trong Xưởng Preset kèm cảnh báo. Chỉ chạy được qua adapter API do người dùng bật tay từng cái (Phase 9). |
-| `extensions.regex_scripts[]`              | Chỉ port sang **transform giới hạn**, chạy trên **bản sao hiển thị**, có timeout `maxRegexMs`. **Không** sửa message/event/state gốc.     |
-| Remote import, DOM hook, tool-like module | **quarantine** tuyệt đối                                                                                                                  |
+Script `extensions.tavern_helper.scripts[]` được nạp bằng chính mã nguồn của nó,
+qua host ở `src/runtime/tavern/`. Đây là thay đổi lớn nhất so với các phase trước,
+nơi mọi script vào ở trạng thái cách ly và **không bao giờ** chạy.
 
-Fixture A có 5 helper script (3 bật ở nguồn) và 8 regex (4 bật). Fixture B có 4 helper
-(3 bật) và 21 regex (20 bật). **Không cái nào được chạy khi nhập.**
+### Cách host chạy một script
 
----
+Mỗi script được bọc trong một `AsyncFunction` mà danh sách tham số chính là bảng
+toàn cục của Tavern Helper. Ba lý do chọn cách này thay vì iframe:
 
-## Regex — bám sát SillyTavern ở đúng chỗ dễ lệch
+1. Script thật khai `const Config = …` ở mức ngoài cùng. Chạy chung một scope thì
+   script thứ hai nổ ngay dòng đầu vì trùng tên; bọc hàm là đủ để tách.
+2. Script DOM cần **document thật** của trò chơi. Trong iframe chúng sẽ query một
+   tài liệu rỗng rồi lặng lẽ không làm gì — hỏng theo kiểu không ai truy ra.
+3. `await` ở mức ngoài cùng và `import()` động vẫn chạy được trong hàm async.
 
-Sandbox (timeout, chặn quay lui, trần ký tự) là phần Thiên Diễn thêm vào. Còn **ngữ nghĩa**
-của pattern và chuỗi thay thế thì phải giống SillyTavern, vì người dùng đã thử preset ở đó
-rồi mới mang sang. Lệch ở đây không làm hỏng lượt — nó chỉ cho ra một văn bản khác, im lặng.
+### API script thấy được
+
+| Nhóm      | Hàm                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| Thư viện  | `_` (lodash), `z` (zod), `$` / `jQuery`, `toastr`, `SillyTavern.getContext()`, `TavernHelper`    |
+| Danh tính | `getScriptId`, `getIframeName`, `getButtonEvent`, `getScriptButtons`                             |
+| Biến      | `getVariables`, `replaceVariables`, `insertVariables`, `updateVariablesWith`, `deleteVariable`   |
+| Sự kiện   | `eventOn/Once/RemoveListener/Emit/MakeFirst/MakeLast`, `tavern_events`, `iframe_events`          |
+| Khung kể  | `getChatMessages`, `setChatMessages`, `getLastMessageId`, `getCurrentMessageId`                  |
+| Preset    | `getPreset`, `getPresetNames`, `getLoadedPresetName`, `updatePresetWith`, `replacePreset`        |
+| Văn bản   | `substitudeMacros`, `formatAsTavernRegexedString`, `getTavernRegexes`, `updateTavernRegexesWith` |
+| Hành động | `generate`, `triggerSlash`, `errorCatched`, `console` (ghi vào nhật ký của chính script)         |
+
+Cầu nối đầy đủ nằm ở `src/runtime/tavern/cauNoi.ts` — mỗi phương thức ở đó là một
+quyền script thật sự có, và danh sách ngắn để câu hỏi "script làm được gì trong
+ván này" trả lời được bằng cách **đọc**, không phải bằng cách chạy thử.
+
+### Cái script vẫn KHÔNG làm được, và vì sao
+
+| Không có         | Lý do                                                                             |
+| ---------------- | --------------------------------------------------------------------------------- |
+| Ghi `WorldState` | Replay xác định là bất biến của engine; mất nó là mất khả năng tái hiện một ván   |
+| Tạo `Event`      | Cùng lẽ — sổ của thế giới chỉ engine ghi                                          |
+| Gọi model riêng  | `generate()` đi đúng đường mà người chơi đi, nên ngân sách và vết cắt vẫn đo được |
+
+Đây không phải hàng rào chống người dùng — preset là mã của chính họ. Đây là ba
+chỗ mà một script ghi vào sẽ làm hỏng thứ không sửa lại được.
+
+### Sự kiện phát ra trong một lượt
+
+```text
+người chơi gửi câu   → MESSAGE_SENT · USER_MESSAGE_RENDERED
+trước khi gọi model  → GENERATE_AFTER_COMBINE_PROMPTS  (script SỬA ĐƯỢC prompt)
+gọi model            → GENERATION_STARTED … GENERATION_ENDED
+lời kể vào khung     → MESSAGE_RECEIVED
+DOM đã vẽ xong       → CHARACTER_MESSAGE_RENDERED
+```
+
+`GENERATE_AFTER_COMBINE_PROMPTS` nhận một object sửa được `{ prompt, system }` và
+kết quả được **đọc lại** — không có bước đọc lại thì handler chạy xong mà chẳng
+đổi gì, đúng kiểu tính năng trông như có mà không có.
+
+Hai sự kiện cuối cố ý tách nhau: `MESSAGE_RECEIVED` là "đã có dữ liệu",
+`CHARACTER_MESSAGE_RENDERED` là "DOM đã có". Phát nhầm thứ tự thì script giao
+diện query một node chưa tồn tại.
+
+### Tắt script là tắt thật
+
+`TheoDoi` giữ mọi thứ script cắm vào trang: `setTimeout`, `setInterval`,
+`requestAnimationFrame`, `MutationObserver`, `addEventListener` trên
+`document`/`window`, và handler trên bus sự kiện. Tắt script chạy ngược danh sách
+đó. Node do script tạo mà tự khai `data-td-script="<id>"` cũng bị dọn.
+
+Không có lớp này thì "tắt" chỉ là ngừng gọi, và bật lại lần nữa sẽ có hai bản
+cùng chạy — triệu chứng là mỗi lượt kể mọc thêm một thẻ giao diện.
+
+### DOM tương thích SillyTavern
+
+Khung kể dựng đúng cấu trúc script mong đợi:
+
+```html
+<div id="chat">
+  <div class="mes last_mes" mesid="7" is_user="false">
+    <div class="mes_block"><div class="mes_text">…</div></div>
+  </div>
+</div>
+```
+
+HTML do preset sinh ra được render **thẳng vào DOM** (`NoiDungPreset`), không còn
+nằm trong `<iframe sandbox="">`. Iframe an toàn, và nó cũng làm hỏng đúng thứ
+preset dựng ra khối HTML để làm: script của chính preset không với tới được nội
+dung bên trong. `<script>` trong `innerHTML` vẫn không chạy — đó là luật của trình
+duyệt, không phải hàng rào ta dựng.
+
+### Adapter native: đường lùi, không phải hàng rào
+
+Các bản port viết tay (`cot_cleanup`, `prompt_merge`, `scene_switch`, `choice_ui`)
+vẫn còn, nhưng **tự nhường chỗ** khi script nguồn của chúng đang chạy — nếu không
+thì hai bản cùng làm một việc, và người dùng thấy tính năng "chạy một nửa". Script
+tắt hoặc hỏng thì adapter quay lại và tính năng vẫn còn.
+
+### CSP
+
+Chạy mã nguồn script đòi hỏi `'unsafe-eval'`, nên `index.html` cho phép nó, cùng
+`blob:` và `https:` cho script kiểu launcher nạp bundle từ CDN. `object-src 'none'`,
+`base-uri 'none'` và `form-action 'none'` giữ nguyên — không tính năng nào cần tới
+chúng, nên mất chúng là mất một hàng rào mà không đổi lấy gì.
+
+## Regex — bám sát SillyTavern, không còn sandbox
+
+Ba lớp rào cũ đã **bỏ hẳn**: không chặn trước pattern có hình dạng quay lui, không trần
+200.000 ký tự, không tự tắt một transform chạy quá `maxRegexMs`. Ba lớp ấy có nghĩa khi
+preset là dữ liệu của người lạ; với preset do chính người chơi viết thì chúng chỉ làm một
+việc — khiến regex im lặng không chạy.
+
+| Cái đã bỏ                             | Cái thay thế                                                     |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| Chặn `(a+)+`, `(x\|x)*`, `{9999,}`    | Chạy. Lý do từ chối duy nhất còn lại: `RegExp` không biên được   |
+| Trần 200.000 ký tự đầu vào            | Không trần                                                       |
+| Quá `maxRegexMs` → bỏ + tắt vĩnh viễn | Giữ kết quả, ghi `REGEX_CHAY_LAU` mức `info`, hiện số ms ở Xưởng |
+
+Còn **ngữ nghĩa** của pattern và chuỗi thay thế thì phải giống SillyTavern, vì người dùng đã
+thử preset ở đó rồi mới mang sang. Lệch ở đây không làm hỏng lượt — nó chỉ cho ra một văn
+bản khác, im lặng.
 
 | Chi tiết                                | Quy tắc                                                          |
 | --------------------------------------- | ---------------------------------------------------------------- |
@@ -227,6 +338,7 @@ rồi mới mang sang. Lệch ở đây không làm hỏng lượt — nó chỉ
 | `markdownOnly` + `promptOnly` cùng bật  | chạy cả khi hiển thị lẫn khi ghép prompt                         |
 | `minDepth < -1` · `maxDepth < 0`        | coi như **không đặt guard**, không phải "chặn tất"               |
 | `disabled: true` trong file             | vẫn bật lại được từ cấu hình pack — công tắc UI có hiệu lực thật |
+| `substituteRegex` 1 / 2                 | 1 = thay macro vào `findRegex`; 2 = thay macro rồi escape        |
 
 Hai dòng giữa bảng là hai lỗi đã sửa, không phải lựa chọn phong cách: trả chuỗi rỗng cho
 nhóm không tham gia là **nuốt nội dung**, và đếm `args` từ đầu mảng khiến `$4` của một regex
@@ -249,13 +361,11 @@ prompt. Ba luật:
 
 **Cố ý khác ST**, và đây là lý do:
 
-| Chỗ khác                     | ST làm gì                              | Thiên Diễn làm gì và tại sao                                       |
-| ---------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `$n` không có nhóm tương ứng | trả `''` (hoặc chèn nhầm offset)       | giữ `$n` — `replaceString` thật hay chứa `$5` là **giá số tiền**   |
-| pattern quay lui hàm mũ      | vẫn chạy                               | từ chối trước, `needs_adapter`                                     |
-| regex chạy lâu               | không đo                               | quá `maxRegexMs` → bỏ kết quả, giữ văn bản gốc, tắt cho lượt sau   |
-| `placement` 3 / 5 / 6        | slash-command · world info · reasoning | chưa hỗ trợ — chỉ 1 (user input) và 2 (AI output)                  |
-| `substituteRegex` 1/2        | thay macro vào `findRegex`             | ghi cảnh báo, dùng pattern thô (fixture A: cả 8 script đều là `0`) |
+| Chỗ khác                     | ST làm gì                              | Thiên Diễn làm gì và tại sao                                     |
+| ---------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| `$n` không có nhóm tương ứng | trả `''` (hoặc chèn nhầm offset)       | giữ `$n` — `replaceString` thật hay chứa `$5` là **giá số tiền** |
+| regex chạy lâu               | không đo                               | vẫn dùng kết quả, chỉ ghi số ms để người viết preset tự quyết    |
+| `placement` 3 / 5 / 6        | slash-command · world info · reasoning | đọc và giữ nguyên; đường chạy hiện dùng 1 và 2                   |
 
 ---
 
@@ -318,7 +428,7 @@ node tools/make-preset-fixture.mjs "<đường dẫn A>" "<đường dẫn B>"
 
 - [x] Hai fixture đúng hash / count / mismatch
 - [x] Import **không** network, **không** side effect
-- [x] **Không** script nào chạy
+- [x] Nhập một file **không** chạy script của nó — chạy là chuyện của bước bật
 - [x] **Không** module ngoài vào Updater mặc định
 - [x] Preset không đọc hay ghi đè hồ sơ riêng / danh tính canon nếu chưa có diff và xác nhận
 - [x] Tắt pack trả về prompt native
@@ -336,10 +446,14 @@ node tools/make-preset-fixture.mjs "<đường dẫn A>" "<đường dẫn B>"
 4. **Bật cho nhánh này.** Lựa chọn xung đột lưu theo `packId` nên nó sống qua lần
    đóng tab (ADR-0052).
 
-Mặc định bật những module mà **nguồn** khai là đang bật (`order[].enabled`, 63.3)
-và có `activation` ngoài ba trạng thái bị cấm: `quarantined`, `needs_adapter`,
-`disabled`. [BB] 64.1 — `adapted` là trạng thái **hoạt động**, không phải một dạng
-bị tắt: fixture A có 8 native và 174 adapted, bỏ nhóm sau là bỏ gần cả pack.
+Mặc định bật những module mà **nguồn** khai là đang bật (`order[].enabled`, 63.3).
+[BB] 64.1 — `adapted` là trạng thái **hoạt động**, không phải một dạng bị tắt:
+fixture A có 8 native và 174 adapted, bỏ nhóm sau là bỏ gần cả pack.
+
+Bật pack cũng nạp luôn **script** mà file nguồn khai `enabled: true`, và tắt pack
+dừng chúng. Từng script có công tắc riêng theo nhánh (`__script_enabled`), tách
+khỏi công tắc của bản port native (`__adapter_enabled`) — tắt cái này không tắt
+cái kia.
 
 Khối **"Lượt kể gần nhất đã dùng gì"** của Xưởng Preset trả lời câu quan trọng
 nhất: pack nào góp mặt, module nào không vào được prompt, macro nào chưa có ánh
@@ -355,4 +469,4 @@ xạ. Không có nó, "đang bật" chỉ là một lời hứa không kiểm đ
 - [x] Tắt pack trả về prompt native, bảy quy tắc Narrator còn nguyên
 - [x] Cú pháp MVU không mở thêm cửa nào vào `WorldState`
 - [x] Biến pack không đọc chéo nhánh (khóa kép `[packId+branchId]`)
-- [x] Script bị cách ly hiện ra kèm đích native tương ứng, và **không có nút bật**
+- [x] Script chạy thật, có trạng thái, có nhật ký lỗi, và tắt được — tắt là dọn sạch

@@ -33,25 +33,35 @@ describe('quản lý tính năng Preset', () => {
     expect(tinhNangPresetDangBat({ __transform_enabled: { 'rx.1': true } }, 'regex', 'rx.1', false)).toBe(
       true,
     );
+    // Script nguồn và bản port native là HAI công tắc: tắt cái này không tắt cái kia.
     expect(
-      tinhNangPresetDangBat({ __adapter_enabled: { 'script.1': false } }, 'script', 'script.1', true),
+      tinhNangPresetDangBat({ __adapter_enabled: { 'adapter.1': false } }, 'adapter', 'adapter.1', true),
+    ).toBe(false);
+    expect(
+      tinhNangPresetDangBat({ __adapter_enabled: { 'adapter.1': false } }, 'script', 'adapter.1', true),
+    ).toBe(true);
+    expect(
+      tinhNangPresetDangBat({ __script_enabled: { 'pack/th0': false } }, 'script', 'pack/th0', true),
     ).toBe(false);
   });
 
   it('công tắc được lưu riêng theo pack và nhánh', async () => {
     await usePreset.getState().datTinhNang('pack.a', 'regex', 'rx.1', false, 12);
-    await usePreset.getState().datTinhNang('pack.a', 'script', 'adapter.1', true, 13);
+    await usePreset.getState().datTinhNang('pack.a', 'adapter', 'adapter.1', true, 13);
+    await usePreset.getState().datTinhNang('pack.a', 'script', 'pack.a/th0', false, 14);
 
     expect(usePreset.getState().bien['pack.a']).toMatchObject({
       __transform_enabled: { 'rx.1': false },
       __adapter_enabled: { 'adapter.1': true },
+      __script_enabled: { 'pack.a/th0': false },
     });
     const daLuu = await layDb().presetVars.get(['pack.a', 'br_preset_manager']);
     expect(daLuu?.bien).toMatchObject({
       __transform_enabled: { 'rx.1': false },
       __adapter_enabled: { 'adapter.1': true },
+      __script_enabled: { 'pack.a/th0': false },
     });
-    expect(daLuu?.tickGhi).toBe(13);
+    expect(daLuu?.tickGhi).toBe(14);
   });
 
   it('lưu lựa chọn preset cho ván mới ngay cả khi chưa có ván', async () => {

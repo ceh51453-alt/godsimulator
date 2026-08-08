@@ -106,7 +106,7 @@ export function apInPromptRegex(
       try {
         const daBien = bienRegex(`/${b.pattern}/${b.flags}`);
         if (daBien === null) {
-          errors.push(`Regex order=${b.order} bị từ chối vì cú pháp hoặc hình dạng quay lui nguy hiểm.`);
+          errors.push(`Regex order=${b.order} bị từ chối: engine RegExp không biên được cú pháp này.`);
           continue;
         }
         const truoc = result;
@@ -195,7 +195,7 @@ export function apInPromptRegexMessages(
       if (b.order !== ord) continue;
       const daBien = bienRegex(`/${b.pattern}/${b.flags}`);
       if (daBien === null) {
-        errors.push(`Regex order=${b.order} bị từ chối vì cú pháp hoặc hình dạng quay lui nguy hiểm.`);
+        errors.push(`Regex order=${b.order} bị từ chối: engine RegExp không biên được cú pháp này.`);
         continue;
       }
       const truoc = ra;

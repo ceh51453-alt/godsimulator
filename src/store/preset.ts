@@ -14,8 +14,9 @@
  *    riêng, và nó chạy lint trước khi ghi bất cứ thứ gì.
  * 2. [BB] 66.6 — biến pack sống trong namespace của pack, theo NHÁNH, và không
  *    có hàm nào ở đây ghi chúng vào `WorldState`.
- * 3. Script và regex được quản lý cùng pack. JavaScript nguồn vẫn được giữ để
- *    round-trip; runtime dùng adapter native tương ứng thay vì chạy mã tùy ý.
+ * 3. Regex và script của pack **chạy thật**. Store là nơi duy nhất biết pack nào
+ *    đang bật, nên nó cũng là nơi duy nhất được phép bật/tắt script — và là nơi
+ *    cài `CauNoiTavern`, tức bản kê đầy đủ những gì script làm được trong ván.
  */
 import { create } from 'zustand';
 import { TUNING_MAC_DINH } from '../core/tuning/schema.js';
@@ -30,10 +31,12 @@ import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
-import type { PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
+import type { HelperScript, PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
 import { apTransform, apPromptTransform, bienRegex } from '../core/preset/sandbox.js';
+import { hostScript } from '../runtime/tavern/host.js';
+import type { BanGhiScript } from '../runtime/tavern/host.js';
 import {
   apInPromptRegex,
   apInPromptRegexMessages,
@@ -74,8 +77,14 @@ export type TrangThaiPreset = {
   loiBat: readonly ImportIssue[];
   /** Dữ liệu đã capture từ output AI bởi adapter kemini_noass. */
   capturedData: CapturedData;
-  /** Regex nguồn đã vượt trần trong phiên; không chạy lại cho tới khi nạp lại. */
-  regexDaTat: readonly string[];
+  /** Regex chạy lâu hơn ngưỡng chẩn đoán — CHỈ để hiện, không tự tắt gì. */
+  regexCham: readonly { readonly id: string; readonly ms: number }[];
+  /** Script Tavern Helper đang chạy thật, kèm trạng thái và lỗi của từng cái. */
+  scriptDangChay: readonly BanGhiScript[];
+  /** Nhật ký `console.*` và lỗi theo từng script — Xưởng Preset đọc. */
+  nhatKyScript: Readonly<Record<string, readonly { muc: string; dong: string }[]>>;
+  /** Toast do script gọi `toastr.*`. Mới nhất ở cuối. */
+  thongBao: readonly { readonly id: string; readonly muc: string; readonly text: string }[];
   /** Preset sẽ tự bật trước lời kể đầu tiên của một ván mới. */
   chonChoVanMoi: readonly string[];
   branchId: string;
@@ -98,14 +107,24 @@ export type TrangThaiPreset = {
   luiMotBuoc(packId: string): Promise<void>;
   xoaKhoiThuVien(packId: string): Promise<void>;
   datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
-  /** Bật/tắt module, regex hoặc adapter script trong cấu hình của đúng pack/nhánh. */
+  /** Bật/tắt module, regex, script hoặc adapter trong cấu hình của đúng pack/nhánh. */
   datTinhNang(
     packId: string,
-    loai: 'module' | 'regex' | 'script',
+    loai: 'module' | 'regex' | 'script' | 'adapter',
     id: string,
     bat: boolean,
     tick: number,
   ): Promise<void>;
+
+  /** Script của các pack đang bật, sau khi hợp nhất cờ nguồn với cấu hình nhánh. */
+  scriptDangBat(): readonly HelperScript[];
+  /** Nạp/dừng script cho khớp với danh sách trên. Gọi lại nhiều lần là an toàn. */
+  dongBoScript(): Promise<void>;
+  /** Bấm một nút do script tự khai. */
+  bamNutScript(scriptId: string, ten: string): Promise<void>;
+  /** Phát một sự kiện Tavern cho mọi script đang chạy. */
+  phatSuKien(ten: string, ...tham: unknown[]): Promise<void>;
+  goThongBao(id: string): void;
 
   /** Thông số thực sự dùng cho lượt kể sau khi chồng các preset đang bật. */
   thamSoHieuLuc(nen?: NormalizedGenParams): NormalizedGenParams;
@@ -213,10 +232,18 @@ function rowsDangBat(
     });
 }
 
+/**
+ * Bốn lớp công tắc, bốn khóa riêng.
+ *
+ * `script` và `adapter` từng dùng chung một khóa vì chỉ có adapter tồn tại. Giờ
+ * script nguồn chạy thật nên chúng là hai thứ khác nhau: tắt script không có
+ * nghĩa là tắt bản port native của nó, và ngược lại.
+ */
 const KHOA_TINH_NANG = Object.freeze({
   module: '__module_enabled',
   regex: '__transform_enabled',
-  script: '__adapter_enabled',
+  script: '__script_enabled',
+  adapter: '__adapter_enabled',
 } as const);
 
 const KHOA_PRESET_VAN_MOI = 'preset.new-game.v1';
@@ -250,10 +277,49 @@ export function tinhNangPresetDangBat(
   return typeof v === 'boolean' ? v : macDinh;
 }
 
+/**
+ * Adapter native còn hiệu lực — **trừ những cái mà script nguồn đang tự làm**.
+ *
+ * Adapter là bản port viết tay của một script. Khi chính script ấy đang chạy thì
+ * hai bản cùng làm một việc: bộ dọn suy luận cắt thẻ trước khi script kịp dựng
+ * khung hiển thị cho nó, và người dùng thấy tính năng "chạy một nửa". Nên script
+ * đang chạy thì adapter cùng nguồn nhường chỗ; script tắt hoặc hỏng thì adapter
+ * quay lại và tính năng vẫn còn.
+ */
 function adapterDangBat(row: PresetPackRow, bienPack: Readonly<Record<string, unknown>> | undefined) {
-  return (row.scriptAdapters ?? []).filter((a) =>
-    tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon),
+  const scriptSong = new Set(
+    hostScript
+      .dangChay()
+      .filter((s) => s.packId === row.packId && s.trangThai === 'dang_chay')
+      .map((s) => s.id),
   );
+  return (row.scriptAdapters ?? []).filter(
+    (a) =>
+      !scriptSong.has(`${row.packId}/${a.sourceScriptId}`) &&
+      tinhNangPresetDangBat(bienPack, 'adapter', a.id, a.batONguon),
+  );
+}
+
+/**
+ * Ghi chẩn đoán regex — **chỉ ghi**.
+ *
+ * Bản trước dùng chính chỗ này để tắt regex chạy chậm cho các lượt sau. Giờ nó
+ * chỉ đẩy số liệu ra giao diện: người viết preset là người quyết định một regex
+ * 40 ms có đáng hay không, không phải một ngưỡng cứng trong app.
+ */
+function ghiChanDoanRegex(
+  set: (v: Partial<TrangThaiPreset>) => void,
+  get: () => TrangThaiPreset,
+  cham: readonly { readonly id: string; readonly ms: number }[],
+  issues: readonly ImportIssue[],
+): void {
+  if (cham.length === 0 && issues.length === 0) return;
+  const theoId = new Map(get().regexCham.map((c) => [c.id, c]));
+  for (const c of cham) theoId.set(c.id, c);
+  set({
+    regexCham: [...theoId.values()].slice(-40),
+    loiBat: [...get().loiBat, ...issues.filter((i) => i.severity !== 'info')].slice(-80),
+  });
 }
 
 export const usePreset = create<TrangThaiPreset>((set, get) => ({
@@ -265,12 +331,19 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   baoCao: null,
   loiBat: [],
   capturedData: {},
-  regexDaTat: [],
+  regexCham: [],
+  scriptDangChay: [],
+  nhatKyScript: {},
+  thongBao: [],
   chonChoVanMoi: [],
   branchId: '',
   daNap: false,
 
   async napTuDia(branchId) {
+    // Đổi nhánh là đổi ván: script của nhánh cũ phải chết trước khi đọc nhánh mới,
+    // nếu không chúng sẽ ghi biến của ván này vào kho của ván kia.
+    hostScript.dungTatCa();
+    set({ scriptDangChay: [], regexCham: [] });
     if (!coIndexedDb()) {
       set({ daNap: true, branchId });
       return;
@@ -300,11 +373,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         chonChoVanMoi: chonChoVanMoi.filter((id) => packCoSan.has(id)),
         branchId,
         daNap: true,
-        regexDaTat: [],
       });
+      await get().dongBoScript();
     } catch {
       // Đĩa hỏng không được giết app: chơi bằng prompt native vẫn là đường hợp lệ.
-      set({ thuVien: [], dangBat: {}, thuTuBat: [], bien: {}, branchId, daNap: true, regexDaTat: [] });
+      set({ thuVien: [], dangBat: {}, thuTuBat: [], bien: {}, branchId, daNap: true });
     }
   },
 
@@ -462,6 +535,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     const dangBatMoi = { ...get().dangBat, [packId]: activation };
     // Mọi lớp (module, transform, adapter, generation) dùng cùng một thứ tự.
     set({ dangBat: dangBatMoi, thuTuBat });
+    // Bật pack là nạp luôn script của nó — đó là thứ người dùng vừa yêu cầu.
+    await get().dongBoScript();
     return true;
   },
 
@@ -479,6 +554,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     // [BB] 65.4 — tắt pack trả về prompt native. Biến KHÔNG bị xóa: bật lại thì
     // trạng thái cũ còn đó, và mất nó là mất tiến trình chơi của người dùng.
     set({ dangBat: con, thuTuBat, loiBat: [] });
+    await get().dongBoScript();
   },
 
   async luiMotBuoc(packId) {
@@ -520,6 +596,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
     const chonChoVanMoi = get().chonChoVanMoi.filter((id) => id !== packId);
     set({ thuVien, dangBat: con, thuTuBat, bien: b, chonChoVanMoi });
+    await get().dongBoScript();
     try {
       await ghiChonChoVanMoi(chonChoVanMoi);
     } catch {
@@ -552,6 +629,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     bienPack[khoa] = bang;
     const bien = { ...get().bien, [packId]: bienPack };
     set({ bien });
+    // Công tắc script phải có hiệu lực NGAY, không đợi lượt kể sau.
+    if (loai === 'script') await get().dongBoScript();
 
     if (!coIndexedDb() || get().branchId === '') return;
     try {
@@ -626,9 +705,12 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
       for (const t of row.transformDefs) {
         const bat = tinhNangPresetDangBat(get().bien[row.packId], 'regex', t.id, t.batONguon);
-        // Regex tắt ở file nguồn vẫn bật lại được nếu cú pháp hợp lệ. Regex cần
-        // engine khác tiếp tục được giữ nguyên nhưng không chạy đoán mò.
-        if (bat && (t.activation === 'sandboxed' || t.activation === 'disabled')) ra.push(t);
+        /*
+         * Chỉ một điều kiện loại: pattern không biên được bằng `RegExp`. Regex
+         * tắt trong file vẫn bật lại được, và không có hình dạng pattern nào bị
+         * cấm — đó là toàn bộ nghĩa của "không cách ly regex nữa".
+         */
+        if (bat && t.activation !== 'needs_adapter') ra.push(t);
       }
     }
     return ra;
@@ -637,16 +719,13 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   hienThi(vanBan, ctx = {}) {
     const ds = get().transformDangBat();
     if (ds.length === 0) return vanBan;
-    // [BB] 64.3 — chạy trên BẢN SAO hiển thị. Trả về chuỗi mới; không nơi nào
-    // trong hàm này chạm tới message, event hay state gốc.
     const kq = apTransform({
       text: vanBan,
       transforms: ds,
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
-      daTat: new Set(get().regexDaTat),
       // `transformDangBat()` đã hợp nhất cờ nguồn với cấu hình nhánh; nói thẳng
-      // kết quả ấy để sandbox không hỏi lại `batONguon` và phủ quyết người dùng.
+      // kết quả ấy để bộ chạy không hỏi lại `batONguon` và phủ quyết người dùng.
       daBat: new Set(ds.map((t) => t.id)),
       placement: 2,
       destination: 'display',
@@ -665,12 +744,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
           bien: {},
         }).text,
     });
-    if (kq.quaCham.length > 0 || kq.issues.length > 0) {
-      set({
-        regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
-        loiBat: [...get().loiBat, ...kq.issues].slice(-80),
-      });
-    }
+    ghiChanDoanRegex(set, get, kq.cham, kq.issues);
     return kq.text;
   },
 
@@ -682,18 +756,47 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       transforms: ds,
       maxRegexMs: TUNING_MAC_DINH.preset.maxRegexMs,
       dongHo: () => performance.now(),
-      daTat: new Set(get().regexDaTat),
       daBat: new Set(ds.map((t) => t.id)),
       placement,
       depth,
     });
-    if (kq.quaCham.length > 0 || kq.issues.length > 0) {
-      set({
-        regexDaTat: [...new Set([...get().regexDaTat, ...kq.quaCham])],
-        loiBat: [...get().loiBat, ...kq.issues].slice(-80),
-      });
-    }
+    ghiChanDoanRegex(set, get, kq.cham, kq.issues);
     return kq.text;
+  },
+
+  scriptDangBat() {
+    const ra: HelperScript[] = [];
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+      for (const s of row.scripts ?? []) {
+        if (tinhNangPresetDangBat(get().bien[row.packId], 'script', s.id, s.batONguon)) ra.push(s);
+      }
+    }
+    return ra;
+  },
+
+  async dongBoScript() {
+    const can = get().scriptDangBat();
+    const canId = new Set(can.map((s) => s.id));
+    for (const dang of hostScript.dangChay()) {
+      if (!canId.has(dang.id)) hostScript.dung(dang.id);
+    }
+    for (const s of can) {
+      if (!hostScript.co(s.id)) await hostScript.chay(s);
+    }
+    set({ scriptDangChay: hostScript.dangChay() });
+  },
+
+  async bamNutScript(scriptId, ten) {
+    await hostScript.bamNut(scriptId, ten);
+  },
+
+  async phatSuKien(ten, ...tham) {
+    if (hostScript.dangChay().length === 0) return;
+    await hostScript.phat(ten, ...tham);
+  },
+
+  goThongBao(id) {
+    set({ thongBao: get().thongBao.filter((t) => t.id !== id) });
   },
 
   lichSuChoPrompt(canh) {

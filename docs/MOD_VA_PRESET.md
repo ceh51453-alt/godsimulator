@@ -33,16 +33,34 @@ Kéo thả một file preset (định dạng SillyTavern và tương thích). Pi
 chạy tám bước và báo cáo sáu dòng:
 
 ```text
-tổng module · native · adapted · cần adapter · bị cách ly · nhóm xung đột
+tổng module · native · adapted · cần adapter · script · nhóm xung đột
 ```
 
 - **native** — chạy thẳng, có chỗ tương đương trong Thiên Diễn.
 - **adapted** — đã ánh xạ sang khái niệm của Thiên Diễn. Đây là **trạng thái hoạt
   động**, và nó được bật mặc định.
 - **cần adapter** — hiểu được nhưng chưa có đường ánh xạ. Tắt.
-- **bị cách ly** — quét an toàn gắn nhãn vượt quyền (đòi ghi state, đòi gọi tool,
-  đòi đổi tầm nhìn). Không bật được, và **không bị xóa**: bạn xem được nguyên văn
-  lý do.
+- **script** — số script Tavern Helper kèm theo, và bao nhiêu cái file nguồn khai
+  là bật sẵn.
+
+### Regex và script — chạy thật
+
+Regex của preset chạy đúng ngữ nghĩa SillyTavern: `placement`, `minDepth`/`maxDepth`,
+`markdownOnly`/`promptOnly`, `substituteRegex`. Không còn hình dạng pattern nào bị
+cấm; lý do duy nhất một regex không bật được là engine `RegExp` của trình duyệt
+không biên được nó. Regex chạy lâu vẫn dùng kết quả — Xưởng Preset chỉ hiện số
+mili-giây để bạn tự quyết.
+
+Script Tavern Helper chạy bằng chính JavaScript nguồn của nó, với `_`, `z`, `$`,
+`toastr`, `SillyTavern.getContext()` và bộ hàm `getVariables` / `eventOn` /
+`getChatMessages` / `updatePresetWith` như trong SillyTavern. Mỗi script có một
+công tắc riêng, một trạng thái (đang chạy · có lỗi), nhật ký `console.*` của
+chính nó, và các nút mà nó tự khai. **Tắt là tắt thật**: timer, observer, listener
+và handler sự kiện đều bị gỡ.
+
+Ba việc script vẫn không làm được — ghi thẳng `WorldState`, tạo `Event`, gọi model
+ngoài đường thường: cả ba sẽ phá khả năng phát lại một ván, chứ không phải vì
+script bị nghi ngờ.
 
 ### Giải xung đột
 

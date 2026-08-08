@@ -20,12 +20,12 @@ import { suyConflictKeys, suyPhuThuoc } from './xungDot.js';
 import type {
   ActivationState,
   GenerationCandidate,
+  HelperScript,
   ImportEnvelope,
   ModuleKind,
   ModuleLane,
   NormalizedPresetPack,
   PromptModule,
-  QuarantinedScript,
   ScriptAdapterDef,
   ThamSoDaChuan,
   TransformDef,
@@ -89,13 +89,24 @@ type OrderTho = { character_id?: unknown; order?: unknown };
 const chuoi = (v: unknown, macDinh = ''): string => (typeof v === 'string' ? v : macDinh);
 const soNguyen = (v: unknown, macDinh = 0): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : macDinh;
+const laObjTho = (v: unknown): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Bỏ ba khóa gây ô nhiễm prototype khi sao chép `data` của script. */
+function locKhoaBan(o: Record<string, unknown>): Record<string, unknown> {
+  const ra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    ra[k] = v;
+  }
+  return ra;
+}
 
 // ─────────────────────────────────────────── kết quả
 
 export type KetQuaChuanHoa = {
   readonly pack: NormalizedPresetPack;
   readonly transformDefs: readonly TransformDef[];
-  readonly quarantined: readonly QuarantinedScript[];
+  readonly scripts: readonly HelperScript[];
   readonly scriptAdapters: readonly ScriptAdapterDef[];
   readonly thongKe: ThongKeChuanHoa;
 };
@@ -449,6 +460,12 @@ export function chuanHoaSillyTavern(input: {
 
   const transformDefs: TransformDef[] = regexTho.map((r, i) => {
     const pattern = chuoi(r['findRegex']);
+    /*
+     * `hopLe` chỉ còn hỏi một câu: engine `RegExp` có biên được pattern này không.
+     * Không còn danh sách hình dạng bị cấm, không còn "quay lui nguy hiểm" — một
+     * regex do chính người chơi viết mà bị app từ chối vì hình dạng là một regex
+     * biến mất không lý do.
+     */
     const hopLe = kiemPatternHopLe(pattern);
     return {
       id: `${packId}/rx${i}`,
@@ -479,17 +496,24 @@ export function chuanHoaSillyTavern(input: {
       promptOnlyNguon: r['promptOnly'] === true,
       batONguon: r['disabled'] !== true,
       thuTuNguon: i,
-      // [BB] 64.3 — pattern engine không đỡ được thì `needs_adapter`, không thử chạy.
-      activation: r['disabled'] === true ? 'disabled' : hopLe ? 'sandboxed' : 'needs_adapter',
+      /*
+       * `activation` giờ chỉ nói được/không-được, không nói bật/tắt. Bật/tắt là
+       * `batONguon` cộng với cấu hình nhánh, và một regex khai `disabled: true`
+       * vẫn bật lại được từ giao diện — công tắc ấy có hiệu lực thật.
+       */
+      activation: hopLe ? 'native' : 'needs_adapter',
       lyDo: hopLe
-        ? 'Chạy trên bản sao output hiển thị, có timeout; không chạm system prompt, user input, patch hay event.'
-        : 'Cú pháp regex không chạy được bằng engine của trình duyệt.',
+        ? 'Chạy đúng ngữ nghĩa SillyTavern trên placement mà nó khai.'
+        : 'Cú pháp regex không biên được bằng engine RegExp của trình duyệt.',
     };
   });
   const soRegexBatONguon = regexTho.filter((r) => r['disabled'] !== true).length;
 
-  const quarantined: QuarantinedScript[] = helperTho.map((s, i) => {
+  const scripts: HelperScript[] = helperTho.map((s, i) => {
     const noiDung = chuoi(s['content'] ?? s['code'] ?? s['script']);
+    const data = laObjTho(s['data']) ? (s['data'] as Record<string, unknown>) : {};
+    const btn = laObjTho(s['button']) ? (s['button'] as Record<string, unknown>) : {};
+    const dsNut = Array.isArray(btn['buttons']) ? btn['buttons'] : [];
     return {
       id: `${packId}/th${i}`,
       packId,
@@ -497,21 +521,29 @@ export function chuanHoaSillyTavern(input: {
       hash: bam(noiDung),
       soKyTu: noiDung.length,
       batONguon: s['enabled'] !== false,
-      // [BB] 64.2 — luôn cách ly, kể cả `enabled = true` trong file nguồn.
-      lyDo: 'Script Tavern Helper luôn vào ở trạng thái cách ly. Chỉ chạy được qua adapter viết tay (64.2).',
+      // Mã nguồn được giữ để CHẠY, không chỉ để round-trip.
+      noiDung,
+      data: locKhoaBan(data),
+      buttons: dsNut
+        .filter((b): b is Record<string, unknown> => laObjTho(b))
+        .map((b) => ({ name: chuoi(b['name']), visible: b['visible'] !== false }))
+        .filter((b) => b.name !== ''),
+      info: chuoi(s['info']),
+      coTaiTuXa: /\bimport\s*\(|\bfetch\s*\(|<script[^>]+src=/i.test(noiDung),
     };
   });
   const scriptAdapters = dungScriptAdapters({ goc, packId, helperScripts: helperTho });
 
-  if (quarantined.length > 0) {
+  const soTaiTuXa = scripts.filter((s) => s.coTaiTuXa).length;
+  if (soTaiTuXa > 0) {
     issues.push({
-      code: 'SCRIPT_CACH_LY',
-      severity: 'quarantine',
+      code: 'SCRIPT_TAI_TU_XA',
+      severity: 'info',
       path: 'extensions.tavern_helper.scripts',
       message:
-        `${quarantined.length} script trợ giúp đã được lưu nguyên vẹn nhưng không chạy trực tiếp. ` +
-        `${scriptAdapters.filter((a) => a.batONguon).length} chức năng đang bật đã có adapter native an toàn.`,
-      details: { so: quarantined.length, soAdapter: scriptAdapters.length },
+        `${soTaiTuXa} script nạp mã từ URL ngoài khi chạy. Chúng vẫn chạy được, ` +
+        'nhưng cần mạng và nội dung ở đầu kia có thể đổi mà preset không đổi.',
+      details: { so: soTaiTuXa },
     });
   }
   for (const t of transformDefs.filter((t) => t.activation === 'needs_adapter')) {
@@ -519,7 +551,7 @@ export function chuanHoaSillyTavern(input: {
       code: 'REGEX_CAN_ADAPTER',
       severity: 'warning',
       path: t.id,
-      message: `Regex "${t.ten}" dùng cú pháp engine không hỗ trợ. Giữ nguyên, chưa chạy được.`,
+      message: `Regex "${t.ten}" không biên được bằng engine RegExp của trình duyệt nên không chạy.`,
       details: { pattern: t.pattern.slice(0, 120) },
     });
   }
@@ -543,14 +575,14 @@ export function chuanHoaSillyTavern(input: {
     generation,
     variables: scriptVariables,
     transforms: transformDefs.map((t) => t.id),
-    extensionRefs: quarantined.map((q) => q.id),
+    extensionRefs: scripts.map((q) => q.id),
     issues,
   };
 
   return {
     pack,
     transformDefs,
-    quarantined,
+    scripts,
     scriptAdapters,
     thongKe: {
       soPrompt: promptsTho.length,
@@ -563,7 +595,7 @@ export function chuanHoaSillyTavern(input: {
       soRegex: regexTho.length,
       soRegexBatONguon,
       soHelper: helperTho.length,
-      soHelperBatONguon: quarantined.filter((q) => q.batONguon).length,
+      soHelperBatONguon: scripts.filter((q) => q.batONguon).length,
       theoTrangThai: demTheoTrangThai,
     },
   };

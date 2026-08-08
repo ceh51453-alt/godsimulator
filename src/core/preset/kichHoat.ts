@@ -270,11 +270,11 @@ export function diffPack(cu: PresetPackRow, moi: PresetPackRow): DiffPack {
   }
   for (const [k, v] of ta) if (!tb.has(k)) thamSoDoi.push({ truong: k, truoc: v, sau: undefined });
 
-  const ea = new Set(cu.quarantined.map((q) => q.hash));
-  const eb = new Set(moi.quarantined.map((q) => q.hash));
+  const ea = new Set(cu.scripts.map((q) => q.hash));
+  const eb = new Set(moi.scripts.map((q) => q.hash));
   const extensionDoi = [
-    ...moi.quarantined.filter((q) => !ea.has(q.hash)).map((q) => `+ ${q.ten}`),
-    ...cu.quarantined.filter((q) => !eb.has(q.hash)).map((q) => `- ${q.ten}`),
+    ...moi.scripts.filter((q) => !ea.has(q.hash)).map((q) => `+ ${q.ten}`),
+    ...cu.scripts.filter((q) => !eb.has(q.hash)).map((q) => `- ${q.ten}`),
   ].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
 
   moduleDiff.sort((x, y) =>

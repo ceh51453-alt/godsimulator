@@ -1664,3 +1664,57 @@ một chữ so sánh — _nặng hơn, ngang, nhẹ hơn_ — chứ không nhậ
 **Hệ quả.** Hai dòng Dị Hóa mất chỗ hiển thị. Cơ chế không mất: tình huống Dị Hóa
 (69.1) vẫn nổi lên thành thẻ chọn cách đáp ở cột giữa, tức là người chơi vẫn gặp
 Dị Hóa ở đúng lúc nó có nghĩa — lúc phải chọn — thay vì đọc nó như một chỉ số.
+
+---
+
+## ADR-0063 — Bỏ cách ly regex và script preset; chúng chạy thật
+
+**Ngày:** sau Phase 12 · **Trạng thái:** đã áp dụng · **Thay thế:** phần cách ly của 64.2, 64.3
+
+**Bối cảnh.** Suốt Phase 9–12, mọi regex của preset chạy trong một sandbox ba lớp
+(chặn trước pattern có hình dạng quay lui, trần 200.000 ký tự, tự tắt vĩnh viễn
+khi quá `maxRegexMs`), và **mọi** script Tavern Helper vào ở trạng thái
+`quarantined` — mã nguồn được lưu nhưng không bao giờ chạy. Thay vào đó, importer
+nhận diện bốn ý đồ quen thuộc rồi dựng adapter native.
+
+Ba lớp rào ấy đúng khi preset là **dữ liệu của người lạ**. Nhưng chủ dự án viết
+preset của chính mình. Với người ấy, cả ba chỉ làm một việc: khiến regex và script
+của họ im lặng không chạy, rồi bắt họ đi tìm lý do trong một app không nói ra.
+Và bốn adapter viết tay không bao giờ đuổi kịp một script 28.000 ký tự.
+
+**Quyết định.** Bỏ cách ly.
+
+- Regex: chạy mọi pattern `RegExp` biên được. Không danh sách hình dạng bị cấm,
+  không trần độ dài, không tự tắt. `maxRegexMs` thành **ngưỡng chẩn đoán** — vượt
+  ngưỡng thì vẫn dùng kết quả và hiện số mili-giây ở Xưởng Preset.
+- Script: `HelperScript` giữ nguyên `noiDung`, `data` và `buttons`; host ở
+  `src/runtime/tavern/` nạp và chạy nó bằng `AsyncFunction` với bảng toàn cục
+  tương thích Tavern Helper (`_`, `z`, `$`, `toastr`, `SillyTavern`, `eventOn`,
+  `getVariables`, `getChatMessages`, `updatePresetWith`…).
+- CSP nhận `'unsafe-eval'`, `blob:` và `https:` cho `script-src`.
+- HTML preset render thẳng vào DOM, trong cấu trúc `#chat > .mes > .mes_block >
+  .mes_text` của SillyTavern.
+
+**Vì sao KHÔNG dùng iframe.** Iframe cho mỗi script nghe an toàn hơn và giữ được
+scope. Nhưng script DOM — phần lớn script thật — cần `document` của trang chơi:
+trong iframe chúng query một tài liệu rỗng rồi lặng lẽ không làm gì. Bọc mỗi
+script trong một `AsyncFunction` giải quyết chuyện scope (`const Config` trùng
+tên) mà vẫn cho chúng DOM thật.
+
+**Ba thứ script vẫn không có, và đây không phải chuyện an ninh.** Ghi thẳng
+`WorldState`, tạo `Event`, gọi model ngoài đường mà người chơi cũng đi qua. Cả ba
+đều phá **replay xác định** — bất biến mà mất đi thì không còn cách nào tái hiện
+một ván. Đó là lý do kỹ thuật, không phải một hàng rào chống người dùng.
+
+**Tắt phải là tắt thật.** Script không có hàm `unload`; nó để lại `setInterval`,
+`MutationObserver`, listener DOM và handler sự kiện. `TheoDoi` ghi hết và gỡ hết
+khi tắt. Không có lớp này thì "tắt" chỉ là ngừng gọi, và bật lại lần nữa sẽ có
+hai bản cùng chạy — triệu chứng là mỗi lượt kể mọc thêm một thẻ giao diện.
+
+**Adapter native thành đường lùi.** Bốn bản port vẫn còn nhưng **nhường chỗ** khi
+script nguồn của chúng đang chạy; hai bản cùng làm một việc cho ra tính năng chạy
+một nửa. Script tắt hoặc hỏng thì adapter quay lại.
+
+**Hệ quả phải nói thẳng.** Nhập preset của người khác giờ tương đương chạy mã của
+người khác trên máy mình. `docs/THREAT_MODEL.md` mục 3 ghi điều này vào phần
+"ngoài phạm vi", và đó là cái giá đã biết của quyết định này.

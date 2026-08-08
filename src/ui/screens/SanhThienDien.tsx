@@ -61,6 +61,22 @@ const NHAN_MUC_RO: Record<string, string> = { ro: 'rõ', mo: 'mờ', tin_don: 't
 
 const nhanNho: CSSProperties = { color: 'var(--mo)', fontSize: 11, letterSpacing: '0.08em' };
 
+/**
+ * Thuộc tính mà script preset đọc trên từng dòng khung kể.
+ *
+ * `mesid` và `is_user` là tên của SillyTavern, viết thường và không phải thuộc
+ * tính chuẩn của HTML — nên chúng đi qua một object thay vì viết thẳng vào JSX,
+ * để TypeScript không phải nới lỏng kiểu của mọi `<div>` trong file.
+ */
+function thuocTinhMes(chiSo: number, loai: string): Record<string, string> {
+  return {
+    mesid: String(chiSo),
+    is_user: loai === 'nguoi_choi' ? 'true' : 'false',
+    is_system: loai === 'he_thong' ? 'true' : 'false',
+    'data-loai': loai,
+  };
+}
+
 function nut(chinh = false): CSSProperties {
   return {
     background: 'transparent',
@@ -543,28 +559,48 @@ export function SanhThienDien(): JSX.Element | null {
           </div>
         )}
 
-        {khoi === 'canh' &&
-          scene.map((d) => (
-            <div
-              key={d.id}
-              style={{
-                margin: '0 0 12px',
-                fontSize: d.loai === 'nguoi_choi' ? 15 : 14,
-                lineHeight: 1.65,
-                color:
-                  d.loai === 'nguoi_choi'
-                    ? 'var(--sang)'
-                    : d.loai === 'he_thong'
-                      ? 'var(--mo)'
-                      : 'var(--tro)',
-                fontStyle: d.loai === 'he_thong' ? 'italic' : 'normal',
-                borderLeft: d.loai === 'nguoi_choi' ? '2px solid var(--kinh-vien)' : 'none',
-                paddingLeft: d.loai === 'nguoi_choi' ? 12 : 0,
-              }}
-            >
-              {d.dinhDang === 'html' ? <NoiDungPreset html={d.noiDung} /> : d.noiDung}
-            </div>
-          ))}
+        {/*
+         * ── Cấu trúc DOM tương thích SillyTavern ──
+         *
+         * `#chat`, `.mes[mesid]`, `.mes_block`, `.mes_text` không phải trang trí:
+         * script preset bám vào đúng những selector này. Một script dựng thẻ lựa
+         * chọn tìm `.mes_text choice`, một script dọn suy luận tìm `.mes_block`
+         * của tin nhắn cuối. Đổi tên chúng đi thì script chạy, không báo lỗi, và
+         * không làm gì cả — dạng hỏng khó truy nhất trong cả đường ống này.
+         */}
+        {khoi === 'canh' && (
+          <div id="chat" className="chat-thien-dien">
+            {scene.map((d, i) => (
+              <div
+                key={d.id}
+                className={`mes ${d.loai === 'nguoi_choi' ? 'mes-nguoi-choi' : ''} ${
+                  i === scene.length - 1 ? 'last_mes' : ''
+                }`}
+                {...thuocTinhMes(i, d.loai)}
+                style={{
+                  margin: '0 0 12px',
+                  fontSize: d.loai === 'nguoi_choi' ? 15 : 14,
+                  lineHeight: 1.65,
+                  color:
+                    d.loai === 'nguoi_choi'
+                      ? 'var(--sang)'
+                      : d.loai === 'he_thong'
+                        ? 'var(--mo)'
+                        : 'var(--tro)',
+                  fontStyle: d.loai === 'he_thong' ? 'italic' : 'normal',
+                  borderLeft: d.loai === 'nguoi_choi' ? '2px solid var(--kinh-vien)' : 'none',
+                  paddingLeft: d.loai === 'nguoi_choi' ? 12 : 0,
+                }}
+              >
+                <div className="mes_block">
+                  <div className="mes_text">
+                    {d.dinhDang === 'html' ? <NoiDungPreset html={d.noiDung} /> : d.noiDung}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {khoi === 'than_dien' &&
           (thanDien ? (

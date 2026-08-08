@@ -71,7 +71,15 @@ export function dungScriptAdapters(input: {
   const ra: ScriptAdapterDef[] = [];
 
   helperScripts.forEach((s, i) => {
-    const scriptId = chuoi(s['id']) || `th${i}`;
+    /*
+     * Id theo VỊ TRÍ, không theo trường `id` của file.
+     *
+     * `chuanHoa()` đánh số script là `th0`, `th1`… nên adapter phải dùng đúng
+     * cách đánh số ấy; lấy `s.id` (một uuid của SillyTavern) thì không có cách
+     * nào nối adapter với script sinh ra nó, và runtime không biết khi nào nên
+     * nhường chỗ cho script thật.
+     */
+    const scriptId = `th${i}`;
     const ten = chuoi(s['name']) || `script ${i + 1}`;
     const code = chuoi(s['content'] ?? s['code'] ?? s['script']);
     const data = laObj(s['data']) ? s['data'] : {};

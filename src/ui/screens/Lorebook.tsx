@@ -52,6 +52,11 @@ const DUNG_SAN = Object.freeze([
     ten: 'Thần thoại Hy Lạp',
     moTa: 'Thế giới trống kết tinh dần thành Olympus qua năm tầng: dấu hiệu, danh xưng, luật, cõi giới, sử thi.',
   }),
+  Object.freeze({
+    tep: 'than-thoai-nhat-ban.json',
+    ten: 'Thần thoại Nhật Bản',
+    moTa: 'Thế giới trống kết tinh dần thành Ashihara no Nakatsukuni; thời thần và thời người là hai lớp tách bạch, đất thiêng chỉ dựng lên sau biến cố sinh ra nó.',
+  }),
 ]);
 
 const NHAN_KY_VONG: Readonly<Record<TrangThaiKyVong, string>> = Object.freeze({

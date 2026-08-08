@@ -286,8 +286,11 @@ export type CompiledPrompt = z.infer<typeof CompiledPromptSchema>;
 // ─────────────────────────────────────────── transform và script
 
 /**
- * Regex nguồn sau khi chuẩn hóa. [BB] 64.3 — nó KHÔNG chạy lúc nhập, và khi chạy
- * thì chỉ chạy trên **bản sao output hiển thị**.
+ * Regex nguồn sau khi chuẩn hóa.
+ *
+ * Nó không chạy lúc NHẬP — nhập vẫn chỉ là đọc. Nhưng khi pack được bật thì nó
+ * chạy thật, với đúng ngữ nghĩa `placement` / `markdownOnly` / `promptOnly` của
+ * SillyTavern, không còn bị giữ trong một bản sao chỉ-để-hiển-thị.
  */
 export const TransformDefSchema = z
   .object({
@@ -316,30 +319,54 @@ export const TransformDefSchema = z
 
 export type TransformDef = z.infer<typeof TransformDefSchema>;
 
-/** 64.2 — script Tavern Helper luôn vào ở `quarantined`. */
-export const QuarantinedScriptSchema = z
+/** Nút mà một script Tavern Helper tự khai — hiện trong Xưởng Preset. */
+export const ScriptButtonSchema = z
+  .object({ name: z.string(), visible: z.boolean().prefault(true) })
+  .strict();
+
+export type ScriptButton = z.infer<typeof ScriptButtonSchema>;
+
+/**
+ * Script Tavern Helper — **giữ nguyên mã nguồn để CHẠY**.
+ *
+ * Bản trước chỉ lưu hash và số ký tự, vì script không bao giờ được chạy nên mã
+ * nguồn là thứ thừa. Giờ nó là thứ chính: `noiDung` được nạp vào host script
+ * (`src/runtime/tavern/`) đúng như Tavern Helper nạp nó trong SillyTavern.
+ *
+ * `data` là kho biến khởi tạo của script (`getVariables({type:'script'})` đọc nó),
+ * `buttons` là các nút script tự khai để người dùng bấm.
+ */
+export const HelperScriptSchema = z
   .object({
     id: z.string(),
     packId: z.string(),
     ten: z.string(),
     hash: z.string(),
     soKyTu: z.number().int().min(0),
-    /** Cờ `enabled` trong FILE NGUỒN — ghi lại, và cố ý không dùng tới. */
+    /** Cờ `enabled` trong FILE NGUỒN — mặc định bật/tắt của script. */
     batONguon: z.boolean().prefault(false),
-    lyDo: z.string(),
+    /** Mã nguồn JavaScript nguyên vẹn. */
+    noiDung: z.string().prefault(''),
+    data: z.record(z.string(), z.unknown()).prefault({}),
+    buttons: z.array(ScriptButtonSchema).prefault([]),
+    /** Ghi chú tác giả viết trong `info`. */
+    info: z.string().prefault(''),
+    /** Script này có nạp module từ URL ngoài không — hiện cho người dùng biết. */
+    coTaiTuXa: z.boolean().prefault(false),
   })
   .strict();
 
-export type QuarantinedScript = z.infer<typeof QuarantinedScriptSchema>;
+export type HelperScript = z.infer<typeof HelperScriptSchema>;
 
 export const SCRIPT_ADAPTER_KINDS = ['cot_cleanup', 'prompt_merge', 'scene_switch', 'choice_ui'] as const;
 export type ScriptAdapterKind = (typeof SCRIPT_ADAPTER_KINDS)[number];
 
 /**
- * Bản port khai báo của Tavern Helper script.
+ * Bản port khai báo của Tavern Helper script — **đường lùi**, không phải hàng rào.
  *
- * Không chứa và không chạy JavaScript nguồn. Importer chỉ nhận diện một tập tính
- * năng hữu hạn rồi đưa cấu hình dữ liệu qua runtime native có schema.
+ * Khi script nguồn đang chạy thật thì adapter cùng nguồn bị tắt để không làm hai
+ * lần một việc. Adapter còn giá trị ở đúng hai chỗ: script bị người dùng tắt, và
+ * script hỏng giữa chừng — lúc ấy tính năng vẫn còn một bản native hoạt động.
  */
 export const ScriptAdapterDefSchema = z
   .object({
@@ -364,7 +391,7 @@ export const ADAPTER_CAPABILITIES = [
 ] as const;
 export type AdapterCapability = (typeof ADAPTER_CAPABILITIES)[number];
 
-/** 64.2 — muốn hỗ trợ một script thì phải viết adapter, không phải bật nó lên. */
+/** Khai báo của một adapter viết tay — vẫn dùng cho các port native còn lại. */
 export const ExtensionAdapterManifestSchema = z
   .object({
     sourceScriptHash: z.string(),
@@ -410,7 +437,8 @@ export const PresetPackRowSchema = z
     version: z.number().int().min(1),
     pack: NormalizedPresetPackSchema,
     transformDefs: z.array(TransformDefSchema).prefault([]),
-    quarantined: z.array(QuarantinedScriptSchema).prefault([]),
+    /** Script Tavern Helper kèm mã nguồn — chạy được, không còn bị cách ly. */
+    scripts: z.array(HelperScriptSchema).prefault([]),
     scriptAdapters: z.array(ScriptAdapterDefSchema).prefault([]),
     thamSo: z.array(ThamSoDaChuanSchema).prefault([]),
   })

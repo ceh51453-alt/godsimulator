@@ -3,9 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Script của preset chạy thật, nên CSP phải cho phép đúng thứ chúng cần:
+
+        'unsafe-eval'  bộ nạp Tavern Helper biên mã nguồn script bằng AsyncFunction
+        blob:          vài script tự dựng module rồi import lại chính nó
+        https:         script kiểu "launcher" nạp bundle từ CDN mà tác giả khai
+
+      Đây là một đánh đổi đã chọn có ý thức: preset là mã của chính người chơi.
+      Phần còn lại của CSP giữ nguyên — `object-src 'none'`, `base-uri 'none'`,
+      `form-action 'none'` vẫn chặn những thứ không tính năng nào cần tới.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: data: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; img-src 'self' data: blob: https:; connect-src 'self' blob: data: http: https:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

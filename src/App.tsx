@@ -28,10 +28,20 @@ import { ManChinh } from './ui/screens/ManChinh.js';
 import { SanhThienDien } from './ui/screens/SanhThienDien.js';
 import { CongAi } from './ui/screens/CongAi.js';
 import { ManPhu } from './ui/screens/ManPhu.js';
+import { ThongBaoScript } from './ui/components/ThongBaoScript.js';
 import { napDungSan } from './core/registry/index.js';
 import { khoiDongDb } from './db/instance.js';
+import { caiCauNoiTavern } from './store/tavernCau.js';
 
 napDungSan();
+/*
+ * Cầu nối script preset phải sống trước khi bất cứ pack nào được bật.
+ *
+ * Cài ở đây chứ không trong `store/preset.ts` vì cầu nối cần cả `useGame` lẫn
+ * `usePreset`; đặt nó trong một trong hai store sẽ tạo vòng import và biến thứ
+ * tự khởi tạo module thành thứ quyết định app có chạy hay không.
+ */
+caiCauNoiTavern();
 
 /*
  * Code-split theo màn — món nợ ghi ở cuối Phase 11 và Phase 12.
@@ -239,14 +249,23 @@ export function App() {
    */
   if (man !== 'sanh') {
     return (
-      <ManPhu>
-        <Suspense fallback={<DangTaiMan />}>
-          <ManCaiDatTheoId man={man} onVeSanh={() => doiMan('sanh')} />
-        </Suspense>
-      </ManPhu>
+      <>
+        <ManPhu>
+          <Suspense fallback={<DangTaiMan />}>
+            <ManCaiDatTheoId man={man} onVeSanh={() => doiMan('sanh')} />
+          </Suspense>
+        </ManPhu>
+        <ThongBaoScript />
+      </>
     );
   }
-  return <SanhThienDien />;
+  return (
+    <>
+      <SanhThienDien />
+      {/* Toast của script phải theo người chơi qua mọi màn — script vẫn chạy ở đó. */}
+      <ThongBaoScript />
+    </>
+  );
 }
 
 /**

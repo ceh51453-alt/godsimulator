@@ -17,7 +17,7 @@ import { chuanHoaSillyTavern, chuanHoaThamSo, docThamSoNguon } from './chuanHoa.
 import { dungDoThi, nhomXungDot, giaiTuDong, suyPhuThuoc } from './xungDot.js';
 import { bienDichPromptPreset, locModuleChoPipeline, TANG_0 } from './bienDich.js';
 import { bocTheLegacy } from './theLegacy.js';
-import { apTransform, apPromptTransform, lamSachHtml, bienRegex, taiLieuHtmlCachLy } from './sandbox.js';
+import { apTransform, apPromptTransform, lamSachHtml, bienRegex } from './sandbox.js';
 import { docChiThiScene, dungScriptAdapters } from './scriptAdapter.js';
 import { apInPromptRegex, apInPromptRegexMessages } from './adapterMerge.js';
 import { viewGia, sceneGia, TEN_BI_CHE } from './giaLap.js';
@@ -72,8 +72,15 @@ describe('regex nội tuyến — chỉ được sửa nội dung preset, không
     expect(ketQua.messages[1]?.content).toBe(core);
   });
 
-  it('từ chối biểu thức quay lui nguy hiểm và báo chẩn đoán thay vì làm treo game', () => {
+  it('khối <regex> lồng lượng từ giờ CHẠY — không còn danh sách hình dạng bị cấm', () => {
     const ketQua = apInPromptRegex('<regex>"/(a+)+$/g" : "x"</regex>\naaaa');
+    expect(ketQua.applied).toBe(1);
+    expect(ketQua.text.trim()).toBe('x');
+    expect(ketQua.errors).toEqual([]);
+  });
+
+  it('khối <regex> sai cú pháp vẫn bị báo, không biến mất im lặng', () => {
+    const ketQua = apInPromptRegex('<regex>"/[abc/g" : "x"</regex>\naaaa');
     expect(ketQua.applied).toBe(0);
     expect(ketQua.text.trim()).toBe('aaaa');
     expect(ketQua.errors.join(' ')).toContain('từ chối');
@@ -373,16 +380,18 @@ describe('cổng 2 — import không network, không side effect', () => {
   });
 });
 
-// ─────────────────────────────────────────── cổng 3: không script chạy
+// ─────────────────────────────────────────── cổng 3: script chạy thật
 
-describe('cổng 3 — không script nào chạy', () => {
-  it('[BB] 64.2 — mọi helper script vào ở trạng thái cách ly, kể cả khi nguồn bật', () => {
+describe('cổng 3 — script và regex chạy thật, không còn cách ly', () => {
+  it('helper script được giữ NGUYÊN MÃ NGUỒN để chạy, kèm data và nút của nó', () => {
     for (const nhan of ['A', 'B'] as const) {
       const kq = chayNhap(docFixture(nhan).text, `${nhan}.json`);
-      const q = (kq.row as PresetPackRow).quarantined;
+      const q = (kq.row as PresetPackRow).scripts;
       expect(q.length).toBeGreaterThan(0);
       expect(q.some((s) => s.batONguon)).toBe(true);
-      for (const s of q) expect(s.lyDo).toContain('cách ly');
+      // Mã nguồn là thứ chính: không có nó thì host không có gì để nạp.
+      expect(q.some((s) => s.noiDung.length > 0)).toBe(true);
+      for (const s of q) expect(s.soKyTu).toBe(s.noiDung.length);
     }
   });
 
@@ -390,17 +399,20 @@ describe('cổng 3 — không script nào chạy', () => {
     const kq = chayNhap(docFixture('B').text, 'B.json');
     const t = (kq.row as PresetPackRow).transformDefs;
     expect(t.length).toBe(21);
-    for (const x of t) expect(['sandboxed', 'needs_adapter', 'disabled']).toContain(x.activation);
+    for (const x of t) expect(['native', 'needs_adapter']).toContain(x.activation);
   });
 
-  it('regex có hình dạng quay lui hàm mũ bị từ chối TRƯỚC khi chạy', () => {
-    expect(bienRegex('/(a+)+$/')).toBeNull();
-    expect(bienRegex('/(x|x)*y/')).toBeNull();
-    expect(bienRegex('/a{9999,}/')).toBeNull();
+  it('không còn hình dạng pattern nào bị cấm — chỉ cú pháp hỏng mới bị từ chối', () => {
+    // Ba mẫu này từng bị chặn trước khi chạy vì "quay lui hàm mũ". Preset do
+    // chính người chơi viết thì chúng chỉ là ba regex bình thường.
+    expect(bienRegex('/(a+)+$/')).not.toBeNull();
+    expect(bienRegex('/(x|x)*y/')).not.toBeNull();
+    expect(bienRegex('/a{9999,}/')).not.toBeNull();
+    expect(bienRegex('/[abc/')).toBeNull();
     expect(bienRegex('/[abc]+/g')).not.toBeNull();
   });
 
-  it('transform quá chậm bị bỏ, văn bản gốc được giữ, lượt không mất', () => {
+  it('transform chạy lâu vẫn giữ KẾT QUẢ, chỉ ghi một dòng chẩn đoán', () => {
     const t: TransformDef[] = [
       {
         id: 'p/rx0',
@@ -419,7 +431,7 @@ describe('cổng 3 — không script nào chạy', () => {
         promptOnlyNguon: false,
         batONguon: true,
         thuTuNguon: 0,
-        activation: 'sandboxed',
+        activation: 'native',
         lyDo: '',
       },
     ];
@@ -430,9 +442,16 @@ describe('cổng 3 — không script nào chạy', () => {
       maxRegexMs: 20,
       dongHo: () => (dem++ === 0 ? 0 : 999),
     });
-    expect(kq.text).toBe('aaa');
-    expect(kq.quaCham).toEqual(['p/rx0']);
-    expect(kq.issues[0]?.code).toBe('REGEX_QUA_CHAM');
+    /*
+     * Đây là chỗ hành vi đổi hẳn. Bản trước vứt kết quả và tắt transform cho mọi
+     * lượt sau — một regex nặng nhưng đúng sẽ biến mất sau lần chạy đầu, và
+     * triệu chứng duy nhất là "lần đầu đúng, từ lần hai thì không".
+     */
+    expect(kq.text).toBe('bbb');
+    expect(kq.daApDung).toEqual(['p/rx0']);
+    expect(kq.cham).toEqual([{ id: 'p/rx0', ms: 999 }]);
+    expect(kq.issues[0]?.code).toBe('REGEX_CHAY_LAU');
+    expect(kq.issues[0]?.severity).toBe('info');
   });
 
   it('sanitizer xóa script, iframe, form, handler và URL javascript:', () => {
@@ -457,14 +476,14 @@ describe('cổng 3 — không script nào chạy', () => {
         ten: id,
         pattern,
         thayThe,
-        activation: 'sandboxed',
+        activation: 'native',
         ...extra,
       });
     const ds = [
       rx('thuong', '/A/g', 'a'),
       rx('markdown', '/B/g', 'b', { markdownOnlyNguon: true }),
       rx('prompt', '/C/g', 'c', { promptOnlyNguon: true }),
-      rx('tat', '/D/g', 'd', { batONguon: false, activation: 'disabled' }),
+      rx('tat', '/D/g', 'd', { batONguon: false }),
       rx('sau', '/E/g', 'e', { minDepth: 2 }),
     ];
     const display = apTransform({
@@ -494,20 +513,23 @@ describe('cổng 3 — không script nào chạy', () => {
       pattern: '/(<)(cot)(>)/g',
       thayThe: '<b>$0|$1$2$3</b>',
       trimStrings: ['<', '>'],
-      activation: 'sandboxed',
+      activation: 'native',
     });
     const kq = apTransform({ text: '<cot>', transforms: [t], maxRegexMs: 20 });
     expect(kq.text).toBe('<b>cot|cot</b>');
   });
 
-  it('HTML preset giữ CSS trong iframe nhưng không giữ script, handler hay URL mạng', () => {
-    const kq = taiLieuHtmlCachLy(
-      '<style>.x{color:red;background:url(https://x)}</style><div class="x" onclick="x()">ok</div><script>x()</script>',
+  it('`lamSachHtml` vẫn dùng được cho nơi CHỦ ĐỘNG cần bản đã khử', () => {
+    /*
+     * Đường hiển thị mặc định không còn gọi hàm này — HTML của preset được render
+     * thẳng để script của chính preset bám vào được. Hàm vẫn tồn tại và vẫn đúng
+     * cho nơi nào cần một bản khử độc (ví dụ khối văn bản đến từ file người khác gửi).
+     */
+    const kq = lamSachHtml(
+      '<style>.x{color:red}</style><div class="x" onclick="x()">ok</div><script>x()</script>',
     );
-    expect(kq.html).toContain('<style>');
-    expect(kq.html).toContain('color:red');
-    expect(kq.html).not.toMatch(/https:\/\/x|onclick=|<script>x/i);
-    expect(kq.html).toContain('Content-Security-Policy');
+    expect(kq.html).not.toMatch(/onclick=|<script>/i);
+    expect(kq.daBo.length).toBeGreaterThanOrEqual(2);
   });
 
   it('script helper được nhận diện thành adapter native và chỉ thị scene được đọc', () => {
@@ -559,7 +581,7 @@ describe('64.3 — cờ và chuỗi thay thế của regex bám sát SillyTavern
       ten: 'rx',
       pattern,
       thayThe,
-      activation: 'sandboxed',
+      activation: 'native',
       ...extra,
     });
 
@@ -947,11 +969,11 @@ describe('66.5 — export lại vẫn chứa raw phần chưa hỗ trợ', () =>
     expect(sha256(kq.rawSource?.noiDung as string)).toBe(kq.envelope?.sourceHash);
   });
 
-  it('script cách ly vẫn giữ hash và độ dài để export lại được', () => {
+  it('script giữ hash, độ dài VÀ mã nguồn để vừa chạy được vừa export lại được', () => {
     const kq = chayNhap(docFixture('A').text, 'A.json');
-    for (const s of (kq.row as PresetPackRow).quarantined) {
+    for (const s of (kq.row as PresetPackRow).scripts) {
       expect(s.hash).toMatch(/^[0-9a-f]{16}$/);
-      expect(s.soKyTu).toBeGreaterThanOrEqual(0);
+      expect(s.soKyTu).toBe(s.noiDung.length);
     }
   });
 
@@ -1400,7 +1422,7 @@ describe('wizard bảy màn (66.1)', () => {
     const bc = baoCaoNhap(kq);
     expect(bc.dong.length).toBe(7);
     expect(bc.daDoc).toMatch(/^182 prompt · 8 regex · 5 helper script$/);
-    expect(bc.cachLy).toContain('5 script');
+    expect(bc.script).toContain('5 script');
     expect(bc.kichHoat).toBe('Chưa');
     expect(baoCaoNhap(kq, true).kichHoat).toBe('Rồi');
   });
@@ -1637,7 +1659,7 @@ describe('preset thật — nhập xong là dùng được, không bị cắt v�
 // ─────────────────────────────────────────── công tắc regex phải có hiệu lực
 
 describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định cuối cùng', () => {
-  const dinh = (id: string, batONguon: boolean, activation: 'sandboxed' | 'disabled' | 'needs_adapter') =>
+  const dinh = (id: string, batONguon: boolean, activation: 'native' | 'needs_adapter') =>
     TransformDefSchema.parse({
       id,
       packId: 'p',
@@ -1650,7 +1672,7 @@ describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định 
     });
 
   it('regex tắt sẵn trong file CHẠY khi người dùng bật lại', () => {
-    const t = dinh('rx.tat', false, 'disabled');
+    const t = dinh('rx.tat', false, 'native');
     const tat = apTransform({ text: 'xin', transforms: [t], maxRegexMs: 50, dongHo: () => 0 });
     expect(tat.daApDung).toEqual([]);
     expect(tat.text).toBe('xin');
@@ -1667,7 +1689,7 @@ describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định 
   });
 
   it('regex bật sẵn trong file DỪNG khi người dùng tắt nó', () => {
-    const t = dinh('rx.bat', true, 'sandboxed');
+    const t = dinh('rx.bat', true, 'native');
     const kq = apTransform({
       text: 'xin',
       transforms: [t],
@@ -1680,17 +1702,27 @@ describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định 
     expect(kq.daBoQua[0]?.lyDo).toContain('cấu hình pack');
   });
 
-  it('needs_adapter vẫn không chạy dù người dùng bật — pattern ấy chạy không được', () => {
-    const t = dinh('rx.can', true, 'needs_adapter');
+  it('pattern không biên được thì bỏ qua kèm lý do — đó là lý do CHẶN duy nhất còn lại', () => {
+    const t = TransformDefSchema.parse({
+      id: 'rx.hong',
+      packId: 'p',
+      ten: 'rx.hong',
+      pattern: '/[abc/',
+      thayThe: 'x',
+      placement: [2],
+      batONguon: true,
+      activation: 'needs_adapter',
+    });
     const kq = apTransform({
       text: 'xin',
       transforms: [t],
       maxRegexMs: 50,
       dongHo: () => 0,
-      daBat: new Set(['rx.can']),
+      daBat: new Set(['rx.hong']),
     });
     expect(kq.daApDung).toEqual([]);
-    expect(kq.daBoQua[0]?.lyDo).toContain('needs_adapter');
+    expect(kq.daBoQua[0]?.lyDo).toContain('không biên được');
+    expect(kq.issues[0]?.code).toBe('REGEX_TU_CHOI');
   });
 
   /*
@@ -1711,7 +1743,7 @@ describe('64.3 — bật/tắt regex trong cấu hình pack là quyết định 
       viewGia: viewGia(),
       sceneGia: sceneGia(),
     });
-    const tatTrongFile = (kq.row as PresetPackRow).transformDefs.filter((t) => t.activation === 'disabled');
+    const tatTrongFile = (kq.row as PresetPackRow).transformDefs.filter((t) => !t.batONguon);
     expect(tatTrongFile.length).toBeGreaterThan(0);
 
     const mau = '<thinking>ý nghĩ</thinking>\n<choices>\n1|a|b\n</choices>';

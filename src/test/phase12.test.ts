@@ -555,13 +555,27 @@ const TAT_CA_NGUON = liet(GOC, laNguon);
 
 describe('[BB] Phase 12 — cổng quét mã nguồn', () => {
   /**
-   * Khớp dạng DÙNG (`prop={...}` hoặc `prop: ...`), không khớp chữ trần: nhắc
-   * tên nó trong một chú thích giải thích vì sao không dùng nó là điều tốt, và
-   * một cổng bắt cả chú thích sẽ dạy người ta bỏ chú thích thay vì bỏ thói quen.
+   * ── Cổng này đã đổi nghĩa, và đổi có chủ đích ──
+   *
+   * Trước đây: **không chỗ nào** được ghi HTML thô vào DOM. Cổng ấy đúng khi
+   * preset là dữ liệu của người lạ.
+   *
+   * Giờ preset là mã của chính người chơi, và khối HTML nó sinh ra phải nằm
+   * trong DOM thật thì script của chính nó mới bám vào được — nhốt trong iframe
+   * là làm hỏng đúng thứ preset dựng ra khối ấy để làm.
+   *
+   * Nên cổng không biến mất; nó thu hẹp lại thành: **đúng MỘT file** được phép,
+   * và file ấy có tên. Một chỗ thứ hai xuất hiện thì cổng này sập, và người thêm
+   * nó phải giải thích tại sao — đó vẫn là toàn bộ giá trị của một cổng nguồn.
    */
-  it('không chỗ nào DÙNG dangerouslySetInnerHTML', () => {
-    const pham = TAT_CA_NGUON.filter((p) => /dangerouslySetInnerHTML\s*[=:]/.test(readFileSync(p, 'utf8')));
-    expect(pham.map(ten)).toEqual([]);
+  const NOI_DUOC_GHI_HTML = ['src/ui/components/NoiDungPreset.tsx'];
+
+  it('chỉ NoiDungPreset được ghi HTML thô vào DOM', () => {
+    const pham = TAT_CA_NGUON.filter((p) => {
+      const src = readFileSync(p, 'utf8');
+      return /dangerouslySetInnerHTML\s*[=:]|\.innerHTML\s*=/.test(src);
+    });
+    expect(pham.map(ten)).toEqual(NOI_DUOC_GHI_HTML);
   });
 
   it('không TODO / FIXME / HACK nào trong đường chơi chính', () => {
@@ -606,12 +620,23 @@ describe('[BB] Phase 12 — cổng quét mã nguồn', () => {
     expect(ranh).toContain('luuVan');
   });
 
-  it('CSP có mặt trong index.html và cấm script ngoài', () => {
+  /**
+   * CSP vẫn còn, nhưng nó không còn cấm `unsafe-eval`.
+   *
+   * Chạy script Tavern Helper của preset đòi hỏi biên mã nguồn lúc chạy, và
+   * không có cách nào làm điều đó dưới `script-src 'self'`. Đánh đổi này được
+   * chọn có ý thức: preset là mã của chính người chơi.
+   *
+   * Ba chỉ thị dưới đây thì KHÔNG có tính năng nào cần tới, nên chúng vẫn là
+   * cổng thật — mất chúng là mất một hàng rào mà không đổi lấy gì.
+   */
+  it('CSP vẫn cấm plugin, đổi base URL và gửi form', () => {
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
     expect(html).toContain('Content-Security-Policy');
     expect(html).toContain("default-src 'self'");
     expect(html).toContain("object-src 'none'");
-    expect(html).not.toContain('unsafe-eval');
+    expect(html).toContain("base-uri 'none'");
+    expect(html).toContain("form-action 'none'");
   });
 
   it('không file nào ghi log mật khẩu bằng console', () => {

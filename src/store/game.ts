@@ -26,6 +26,7 @@ import { bienSoanLuot } from '../core/preset/hopNhat.js';
 import type { OmitReason } from '../core/preset/schema.js';
 import { parseChoice } from '../core/ai/choice.js';
 import { packDangBat, usePreset } from './preset.js';
+import { TAVERN_EVENTS } from '../runtime/tavern/suKien.js';
 import { taoState, taoEventLog, hashState, saoChepNong } from '../core/engine/state.js';
 import { apDungChuoi, apDungEvent } from '../core/engine/transaction.js';
 import { chieu } from '../core/project/chieu.js';
@@ -454,6 +455,8 @@ export type TrangThaiGame = {
   xacNhan(dongY: boolean): Promise<void>;
   tick(soLan?: number): Promise<void>;
   lamMoi(): void;
+  /** Đổi văn bản hiển thị của một dòng khung kể — script preset dùng cửa này. */
+  datNoiDungDong(chiSo: number, noiDung: string): void;
 
   /** Chĩa ống kính. [BB] 29.1 — KHÔNG tốn lượt, KHÔNG tốn thời gian trong game. */
   chiaOngKinh(mucTieu: MucTieuOngKinh): void;
@@ -1701,9 +1704,38 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       },
     });
 
+    /*
+     * ── Script preset được nói vào prompt ở đây ──
+     *
+     * `GENERATE_AFTER_COMBINE_PROMPTS` là chỗ SillyTavern để extension sửa prompt
+     * cuối cùng, và preset thật dùng đúng chỗ ấy (kemini gộp vai, script nén lịch
+     * sử ghi lại phần đầu). Ta phát cùng tên sự kiện với một object có thể sửa,
+     * rồi đọc lại — không có bước đọc lại thì handler chạy xong mà chẳng đổi gì.
+     *
+     * `td:*` không nằm trong hai chuỗi này: chúng đã được ghép thành `heThong` /
+     * `nguoiDung`, nên script sửa được lớp văn bản chứ không sửa được cấu trúc
+     * message của engine.
+     */
+    const hopPrompt = { prompt: prompt.nguoiDung, dryRun: false, system: prompt.heThong };
+    await usePreset.getState().phatSuKien(TAVERN_EVENTS.GENERATE_AFTER_COMBINE_PROMPTS, hopPrompt);
+    if (typeof hopPrompt.prompt === 'string' && typeof hopPrompt.system === 'string') {
+      const doi = hopPrompt.prompt !== prompt.nguoiDung || hopPrompt.system !== prompt.heThong;
+      if (doi) {
+        prompt = Object.freeze({
+          ...prompt,
+          heThong: hopPrompt.system,
+          nguoiDung: hopPrompt.prompt,
+          soKyTu: hopPrompt.system.length + hopPrompt.prompt.length,
+          uocToken: uocLuong(`${hopPrompt.system}${hopPrompt.prompt}`, TY_LE_TOKEN),
+        });
+      }
+    }
+
     set({ dangKe: true });
+    await usePreset.getState().phatSuKien(TAVERN_EVENTS.GENERATION_STARTED, 'normal', false);
     const r = await useAi.getState().ke(prompt, paramsHieuLuc);
     set({ dangKe: false });
+    await usePreset.getState().phatSuKien(TAVERN_EVENTS.GENERATION_ENDED, get().scene.length);
 
     if (!r.ok) {
       /*
@@ -1802,6 +1834,23 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       dinhDang: laHtml ? 'html' : 'text',
     });
     set({ patchBiTuChoi: kq.biTuChoi, luaChon: dsLuaChon });
+
+    /*
+     * Hai sự kiện, hai nghĩa khác nhau — script preset phân biệt chúng.
+     *
+     * `MESSAGE_RECEIVED` là "đã có tin nhắn mới trong dữ liệu"; script đọc và sửa
+     * nội dung ở đây. `CHARACTER_MESSAGE_RENDERED` là "DOM đã có"; script giao
+     * diện bám vào đây. Phát nhầm thứ tự thì script DOM query một node chưa tồn
+     * tại và im lặng không làm gì.
+     */
+    const idTin = get().scene.length - 1;
+    await usePreset.getState().phatSuKien(TAVERN_EVENTS.MESSAGE_RECEIVED, idTin);
+    // Chờ một khung hình để React kịp vẽ dòng vừa thêm trước khi script bám DOM.
+    await new Promise<void>((xong) => {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => xong());
+      else setTimeout(xong, 0);
+    });
+    await usePreset.getState().phatSuKien(TAVERN_EVENTS.CHARACTER_MESSAGE_RENDERED, idTin);
 
     /*
      * Biến pack — 66.6, tương thích thẻ bài MVU.
@@ -2838,6 +2887,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       // Xóa lựa chọn cũ — lượt mới, choices cũ không còn ý nghĩa.
       set({ luaChon: [] });
       themDong('nguoi_choi', cau);
+      void usePreset.getState().phatSuKien(TAVERN_EVENTS.MESSAGE_SENT, get().scene.length - 1);
+      void usePreset.getState().phatSuKien(TAVERN_EVENTS.USER_MESSAGE_RENDERED, get().scene.length - 1);
       demIntent++;
       const intent = parseIntent(cau, {
         id: `it_${demIntent}`,
@@ -2969,6 +3020,29 @@ export const useGame = create<TrangThaiGame>((set, get) => {
 
     lamMoi() {
       dongBo();
+    },
+
+    /**
+     * Sửa văn bản HIỂN THỊ của một dòng trong khung kể.
+     *
+     * Đây là cửa duy nhất mà script preset (`setChatMessages` của Tavern Helper)
+     * chạm được tới khung kể. Nó đổi thứ người chơi ĐỌC, không đổi `noiDungGoc` —
+     * bản gốc mới là thứ đi vào lịch sử prompt của lượt sau, nên một script định
+     * dạng lại lời kể không âm thầm viết lại trí nhớ của thế giới.
+     */
+    datNoiDungDong(chiSo, noiDung) {
+      const scene = get().scene;
+      if (chiSo < 0 || chiSo >= scene.length) return;
+      const cu = scene[chiSo] as DongScene;
+      if (cu.noiDung === noiDung) return;
+      const moi = [...scene];
+      moi[chiSo] = {
+        ...cu,
+        noiDung,
+        noiDungGoc: cu.noiDungGoc ?? cu.noiDung,
+        dinhDang: /<[a-z][\s\S]*>/i.test(noiDung) ? 'html' : cu.dinhDang,
+      };
+      set({ scene: moi });
     },
 
     /**

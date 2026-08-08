@@ -66,13 +66,13 @@ có thể bị dẫn dụ bởi chính file preset ở mục 2.1.
 
 ### 2.4 Chính trình duyệt
 
-| Đe dọa                        | Hàng rào                                                                                                                          |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Script từ bên thứ ba          | CSP `default-src 'self'`, `script-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`. Không `unsafe-eval`. |
-| XSS qua nội dung game         | React escape mọi thứ; **không nơi nào** dùng `dangerouslySetInnerHTML` — có cổng quét mã nguồn.                                   |
-| Rò dữ liệu qua URL            | Không tham số truy vấn nào mang dữ liệu người chơi.                                                                               |
-| Rò dữ liệu qua console        | Cổng quét mã nguồn cấm log mật khẩu / khóa.                                                                                       |
-| Kết nối ra ngoài ngoài ý muốn | `connect-src` cho phép http/https vì proxy do người dùng khai — đây là **đánh đổi có ý thức**, xem mục 4.                         |
+| Đe dọa                        | Hàng rào                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Script từ bên thứ ba          | CSP giữ `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`. `script-src` **có** `unsafe-eval` — xem mục 4. |
+| XSS qua nội dung game         | React escape mọi thứ; đúng **một** file được ghi HTML thô (`NoiDungPreset`) — có cổng quét mã nguồn giữ con số một.  |
+| Rò dữ liệu qua URL            | Không tham số truy vấn nào mang dữ liệu người chơi.                                                                  |
+| Rò dữ liệu qua console        | Cổng quét mã nguồn cấm log mật khẩu / khóa.                                                                          |
+| Kết nối ra ngoài ngoài ý muốn | `connect-src` cho phép http/https vì proxy do người dùng khai — đây là **đánh đổi có ý thức**, xem mục 4.            |
 
 ---
 
@@ -87,6 +87,10 @@ Nói rõ để không ai nhầm là đã được bảo vệ:
 - **Extension trình duyệt.** Extension có quyền cao hơn CSP của trang.
 - **Người dùng tự dán mật khẩu vào ô lời kể.** Không có cách nào phân biệt điều
   đó với một câu chuyện có nhắc tới mật khẩu.
+- **Preset và script của chính người dùng.** Kể từ bản bỏ cách ly, script Tavern
+  Helper trong preset chạy bằng JavaScript nguồn của nó, với quyền của trang.
+  Nhập một preset của người lạ giờ tương đương chạy mã của người lạ — đây là
+  đánh đổi đã chọn, xem mục 4.
 
 ---
 
@@ -95,8 +99,20 @@ Nói rõ để không ai nhầm là đã được bảo vệ:
 **`connect-src http: https:`** rộng hơn mức lý tưởng. Lý do: proxy AI do người
 dùng khai lúc chạy, nên không có danh sách cho phép nào viết trước được. Thu hẹp
 nó đòi hoặc một máy chủ trung gian (dự án không có) hoặc bắt người dùng sửa CSP
-tay (tệ hơn nhiều). Hàng rào thay thế: `script-src 'self'` giữ nguyên, nên một
-endpoint độc **nhận** được dữ liệu nhưng không **chạy** được gì.
+tay (tệ hơn nhiều).
+
+**`script-src 'unsafe-eval' blob: https:` và script preset chạy thật.** Chủ dự án
+viết preset của chính mình và cần chúng chạy như ở SillyTavern. Không có cách nào
+biên mã nguồn script lúc chạy dưới `script-src 'self'`, nên hàng rào ấy đã được
+gỡ **có chủ đích**. Hệ quả phải nói thẳng: nhập preset của người khác giờ ngang
+với chạy mã của người khác trên máy mình.
+
+Ba thứ vẫn giữ, vì không tính năng nào cần tới chúng — mất chúng là mất một hàng
+rào mà không đổi lấy gì: `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`.
+
+Bên trong ứng dụng, script vẫn không có ba quyền: ghi `WorldState`, tạo `Event`,
+gọi model ngoài đường mà người chơi cũng đi qua. Đó không phải hàng rào an ninh —
+đó là ba chỗ mà một script ghi vào sẽ phá replay xác định của engine.
 
 ---
 

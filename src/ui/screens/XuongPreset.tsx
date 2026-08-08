@@ -12,6 +12,7 @@ import { useGame } from '../../store/game.js';
 import { useAi, hoSoCuaEndpoint } from '../../store/ai.js';
 import { ThongSoSinh } from './ThongSoSinh.js';
 import type {
+  HelperScript,
   OmitReason,
   PresetPackRow,
   PromptModule,
@@ -143,6 +144,12 @@ export function XuongPreset(): JSX.Element {
   const narratorProfileId = useAi((s) => s.cfg.narrator.profileId);
   const hoSoNarrator = useMemo(() => hoSoCuaEndpoint('narrator'), [narratorModelId, narratorProfileId]);
 
+  const regexCham = usePreset((s) => s.regexCham);
+  const msCham = useMemo(
+    () => Object.fromEntries(regexCham.map((c) => [c.id, c.ms])) as Record<string, number>,
+    [regexCham],
+  );
+
   const state = useGame((s) => s.state);
   const presetTrace = useGame((s) => s.presetTrace);
   const branchId = state?.world.branchId ?? '';
@@ -182,7 +189,7 @@ export function XuongPreset(): JSX.Element {
       await nhapVaoThuVien();
       setTin(
         `Đã nhập “${file.name}”: ${kq.row.pack.modules.length} module, ` +
-          `${kq.row.transformDefs.length} regex, ${kq.row.scriptAdapters.length} chức năng script đã tích hợp.`,
+          `${kq.row.transformDefs.length} regex, ${(kq.row.scripts ?? []).length} script Tavern Helper.`,
       );
     } finally {
       setDangDoc(false);
@@ -309,7 +316,7 @@ export function XuongPreset(): JSX.Element {
                     <div style={{ ...phu, marginTop: 3 }}>
                       bản {row.version}
                       {soBan > 1 ? ` · ${soBan} phiên bản` : ''} · {row.pack.modules.length} module ·{' '}
-                      {row.transformDefs.length} regex · {row.quarantined.length} script nguồn
+                      {row.transformDefs.length} regex · {(row.scripts ?? []).length} script
                     </div>
                   </div>
                   <span
@@ -444,8 +451,8 @@ export function XuongPreset(): JSX.Element {
                     </Khoi>
 
                     <Khoi
-                      ten="Regex và script"
-                      phuDe="Được quản lý cùng preset và chạy qua bộ tương thích của ứng dụng."
+                      ten="Regex"
+                      phuDe="Chạy đúng ngữ nghĩa SillyTavern: placement, độ sâu, markdownOnly/promptOnly."
                     >
                       <div style={{ display: 'grid', gap: 8 }}>
                         {row.transformDefs.map((t) => (
@@ -456,45 +463,69 @@ export function XuongPreset(): JSX.Element {
                             bienPack={bienPack}
                             coVan={state !== null}
                             tick={tick}
+                            msCham={msCham[t.id]}
                             datTinhNang={datTinhNang}
                           />
                         ))}
-                        {row.scriptAdapters.map((a) => {
-                          const checked = tinhNangPresetDangBat(bienPack, 'script', a.id, a.batONguon);
-                          return (
-                            <div
-                              key={a.id}
-                              className="kinh--cap2"
-                              style={{
-                                padding: '9px 11px',
-                                display: 'flex',
-                                gap: 10,
-                                alignItems: 'center',
-                                flexWrap: 'wrap',
-                              }}
-                            >
-                              <CongTac
-                                checked={checked}
-                                disabled={state === null}
-                                nhanChu={a.ten}
-                                onChange={(v) => void datTinhNang(row.packId, 'script', a.id, v, tick)}
-                              />
-                              <span style={{ ...phu, marginLeft: 'auto', color: 'var(--ngoc)' }}>
-                                {nhanAdapter(a.kind)} · đã tích hợp
-                              </span>
-                            </div>
-                          );
-                        })}
-                        {row.transformDefs.length === 0 && row.scriptAdapters.length === 0 && (
-                          <p style={{ ...phu, margin: 0 }}>
-                            Preset này không khai regex hoặc chức năng script tương thích.
-                          </p>
+                        {row.transformDefs.length === 0 && (
+                          <p style={{ ...phu, margin: 0 }}>Preset này không khai regex nào.</p>
                         )}
-                        {row.quarantined.length > row.scriptAdapters.length && (
-                          <p style={{ ...phu, margin: 0 }}>
-                            Đã giữ nguyên {row.quarantined.length} script nguồn; {row.scriptAdapters.length}{' '}
-                            chức năng đã nhận diện và nối vào ứng dụng.
-                          </p>
+                      </div>
+                    </Khoi>
+
+                    <Khoi
+                      ten="Script"
+                      phuDe="Mã nguồn Tavern Helper chạy thật trong ứng dụng: biến, sự kiện, khung kể và giao diện."
+                    >
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {(row.scripts ?? []).map((s) => (
+                          <ScriptDong
+                            key={s.id}
+                            row={row}
+                            script={s}
+                            bienPack={bienPack}
+                            coVan={state !== null}
+                            tick={tick}
+                            datTinhNang={datTinhNang}
+                          />
+                        ))}
+                        {(row.scripts ?? []).length === 0 && (
+                          <p style={{ ...phu, margin: 0 }}>Preset này không kèm script Tavern Helper.</p>
+                        )}
+                        {row.scriptAdapters.length > 0 && (
+                          <details>
+                            <summary style={{ ...phu, cursor: 'pointer' }}>
+                              {row.scriptAdapters.length} bản port native (dùng khi script nguồn tắt)
+                            </summary>
+                            <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                              {row.scriptAdapters.map((a) => {
+                                const checked = tinhNangPresetDangBat(bienPack, 'adapter', a.id, a.batONguon);
+                                return (
+                                  <div
+                                    key={a.id}
+                                    className="kinh--cap2"
+                                    style={{
+                                      padding: '9px 11px',
+                                      display: 'flex',
+                                      gap: 10,
+                                      alignItems: 'center',
+                                      flexWrap: 'wrap',
+                                    }}
+                                  >
+                                    <CongTac
+                                      checked={checked}
+                                      disabled={state === null}
+                                      nhanChu={a.ten}
+                                      onChange={(v) => void datTinhNang(row.packId, 'adapter', a.id, v, tick)}
+                                    />
+                                    <span style={{ ...phu, marginLeft: 'auto', color: 'var(--ngoc)' }}>
+                                      {nhanAdapter(a.kind)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
                         )}
                       </div>
                     </Khoi>
@@ -608,6 +639,7 @@ function RegexDong({
   bienPack,
   coVan,
   tick,
+  msCham,
   datTinhNang,
 }: {
   row: PresetPackRow;
@@ -615,9 +647,15 @@ function RegexDong({
   bienPack: Readonly<Record<string, unknown>>;
   coVan: boolean;
   tick: number;
+  msCham: number | undefined;
   datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
 }): JSX.Element {
-  const tuongThich = transform.activation === 'sandboxed' || transform.activation === 'disabled';
+  /*
+   * Chỉ còn MỘT lý do một regex không bật được: engine `RegExp` không biên được
+   * pattern. Mọi lý do cũ — hình dạng quay lui, chạy chậm, `disabled` trong file
+   * — đều không còn khoá công tắc này.
+   */
+  const chayDuoc = transform.activation !== 'needs_adapter';
   const checked = tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon);
   return (
     <div
@@ -625,8 +663,8 @@ function RegexDong({
       style={{ padding: '9px 11px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}
     >
       <CongTac
-        checked={checked && tuongThich}
-        disabled={!coVan || !tuongThich}
+        checked={checked && chayDuoc}
+        disabled={!coVan || !chayDuoc}
         nhanChu={transform.ten}
         onChange={(v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick)}
       />
@@ -638,7 +676,113 @@ function RegexDong({
             : 'prompt/hiển thị'}{' '}
         · vị trí {transform.placement.join(', ')}
       </span>
-      {!tuongThich && <span style={{ ...phu, color: 'var(--hoi)' }}>cú pháp regex chưa tương thích</span>}
+      {msCham !== undefined && (
+        <span style={{ ...phu, color: 'var(--dong)' }}>chạy {Math.round(msCham)} ms</span>
+      )}
+      {!chayDuoc && <span style={{ ...phu, color: 'var(--hoi)' }}>RegExp không biên được pattern</span>}
+    </div>
+  );
+}
+
+const NHAN_TRANG_THAI: Readonly<Record<string, string>> = Object.freeze({
+  dang_chay: 'đang chạy',
+  loi: 'có lỗi',
+  da_dung: 'đã dừng',
+});
+
+/**
+ * Một script Tavern Helper: công tắc, trạng thái thật, nút của script, và lỗi.
+ *
+ * Bốn thứ ấy đi cùng nhau có lý do. Một công tắc không kèm trạng thái nói dối:
+ * bật xong mà script ném lỗi ở dòng đầu thì công tắc vẫn "bật" trong khi chẳng
+ * có gì chạy. Trạng thái không kèm lỗi thì người dùng biết nó hỏng mà không biết
+ * hỏng ở đâu — và với preset tự viết, thông báo lỗi CHÍNH LÀ thứ họ cần.
+ */
+function ScriptDong({
+  row,
+  script,
+  bienPack,
+  coVan,
+  tick,
+  datTinhNang,
+}: {
+  row: PresetPackRow;
+  script: HelperScript;
+  bienPack: Readonly<Record<string, unknown>>;
+  coVan: boolean;
+  tick: number;
+  datTinhNang: ReturnType<typeof usePreset.getState>['datTinhNang'];
+}): JSX.Element {
+  const dangChay = usePreset((s) => s.scriptDangChay.find((x) => x.id === script.id));
+  const nhatKy = usePreset((s) => s.nhatKyScript[script.id] ?? []);
+  const bamNut = usePreset((s) => s.bamNutScript);
+  const checked = tinhNangPresetDangBat(bienPack, 'script', script.id, script.batONguon);
+  const nutHien = script.buttons.filter((b) => b.visible);
+
+  return (
+    <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 7 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <CongTac
+          checked={checked}
+          disabled={!coVan}
+          nhanChu={script.ten}
+          onChange={(v) => void datTinhNang(row.packId, 'script', script.id, v, tick)}
+        />
+        <span style={{ ...phu, marginLeft: 'auto' }}>
+          {script.soKyTu.toLocaleString('vi-VN')} ký tự
+          {script.coTaiTuXa ? ' · nạp mã từ mạng' : ''}
+        </span>
+        <span
+          style={{
+            ...phu,
+            color:
+              dangChay?.trangThai === 'loi'
+                ? 'var(--hoi)'
+                : dangChay?.trangThai === 'dang_chay'
+                  ? 'var(--ngoc)'
+                  : 'var(--mo)',
+          }}
+        >
+          {dangChay === undefined ? 'chưa nạp' : (NHAN_TRANG_THAI[dangChay.trangThai] ?? '')}
+        </span>
+      </div>
+
+      {script.info !== '' && <p style={{ ...phu, margin: 0 }}>{script.info}</p>}
+
+      {dangChay !== undefined && nutHien.length > 0 && (
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+          {nutHien.map((b) => (
+            <button key={b.name} type="button" style={nut()} onClick={() => void bamNut(script.id, b.name)}>
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(dangChay?.loi.length ?? 0) > 0 && (
+        <div role="alert" style={{ display: 'grid', gap: 3 }}>
+          {(dangChay?.loi ?? []).slice(-3).map((l, i) => (
+            <span key={`${l}:${i}`} style={{ ...phu, color: 'var(--hoi)' }}>
+              {l}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {nhatKy.length > 0 && (
+        <details>
+          <summary style={{ ...phu, cursor: 'pointer' }}>Nhật ký ({nhatKy.length} dòng)</summary>
+          <pre
+            className="chu-so"
+            style={{ ...phu, margin: '6px 0 0', whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto' }}
+          >
+            {nhatKy
+              .slice(-30)
+              .map((d) => `[${d.muc}] ${d.dong}`)
+              .join('\n')}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

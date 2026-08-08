@@ -28,6 +28,7 @@ export async function ghiPack(db: ThienDienDb, row: PresetPackRow, raw: RawSourc
 /** Dựng bù các trường tương thích mới cho hàng được lưu bởi bản app cũ. */
 async function nangCapRowCu(db: ThienDienDb, row: PresetPackRow): Promise<PresetPackRow | null> {
   const daMoi =
+    Object.hasOwn(row, 'scripts') &&
     Object.hasOwn(row, 'scriptAdapters') &&
     Array.isArray(row.transformDefs) &&
     row.transformDefs.every((t) => Object.hasOwn(t, 'placement'));
@@ -57,7 +58,7 @@ async function nangCapRowCu(db: ThienDienDb, row: PresetPackRow): Promise<Preset
         variables: { ...ch.pack.variables, ...row.pack.variables },
       },
       transformDefs: ch.transformDefs,
-      quarantined: ch.quarantined,
+      scripts: ch.scripts,
       scriptAdapters: ch.scriptAdapters,
     });
   } catch {
