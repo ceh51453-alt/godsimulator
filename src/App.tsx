@@ -82,6 +82,7 @@ export function App() {
   const daVao = useGame((s) => s.state !== null);
   const branchId = useGame((s) => s.state?.world.branchId ?? '');
   const saveId = useGame((s) => s.state?.world.id ?? '');
+  const tangHienTai = useGame((s) => s.state?.world.playerState.mode ?? 'sang_the');
 
   const daNap = useAi((s) => s.daNap);
   const choPhepChoi = useAi((s) => s.cong().choPhepChoi);
@@ -91,6 +92,7 @@ export function App() {
   const doiMan = useUi((s) => s.doiMan);
   const napUi = useUi((s) => s.napTuDia);
   const napPreset = usePreset((s) => s.napTuDia);
+  const datTangPreset = usePreset((s) => s.datTangHienTai);
 
   /**
    * Sảnh Vào có hai trạng thái, và nó là state CỤC BỘ có chủ ý.
@@ -130,6 +132,12 @@ export function App() {
     void napPreset(branchId);
     void napUi(saveId, branchId);
   }, [branchId, saveId, napPreset, napUi]);
+
+  // Preset có phạm vi theo tầng. Đổi góc nhìn phải thay đồng thời prompt,
+  // regex, adapter, tham số sinh và các script đang chạy.
+  useEffect(() => {
+    void datTangPreset(tangHienTai);
+  }, [tangHienTai, datTangPreset]);
 
   // Vào được ván rồi thì Sảnh Vào phải quên trạng thái "đang tạo", nếu không
   // thoát ván sẽ rơi thẳng lại vào màn tạo thay vì về danh sách.

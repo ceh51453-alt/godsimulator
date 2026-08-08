@@ -19,7 +19,8 @@
  * Bậc "Imported prompt pack" nằm áp chót, và [BB] 65.3 nói rõ: role `system` là
  * role gửi API, **không** phải quyền sửa engine.
  */
-import type { ImportIssue } from '../contracts/primitives.js';
+import { VIEW_MODES } from '../contracts/primitives.js';
+import type { ImportIssue, ViewMode } from '../contracts/primitives.js';
 import { bam } from '../engine/hash.js';
 import { PresetActivationSchema } from './schema.js';
 import type { NormalizedPresetPack, PresetActivation, PresetPackRow, PromptModule } from './schema.js';
@@ -128,6 +129,7 @@ export type DauVaoKichHoat = {
   readonly row: PresetPackRow;
   readonly saveId: string;
   readonly branchId: string;
+  readonly viewModes?: readonly ViewMode[];
   readonly targets: readonly string[];
   readonly selectedModuleIds: readonly string[];
   readonly conflictResolutions: Readonly<Record<string, unknown>>;
@@ -151,13 +153,15 @@ export type KetQuaKichHoat =
 export function kichHoat(dv: DauVaoKichHoat): KetQuaKichHoat {
   const lint = lintTruocKhiBat(dv.row, dv);
   if (!lint.dat) return { ok: false, issues: lint.issues };
+  const viewModes = dv.viewModes ?? VIEW_MODES;
 
   const activation = PresetActivationSchema.parse({
-    id: `act.${bam(`${dv.row.packId}|${dv.row.version}|${dv.branchId}|${dv.activatedAt}`)}`,
+    id: `act.${bam(`${dv.row.packId}|${dv.row.version}|${dv.branchId}|${viewModes.join(',')}|${dv.activatedAt}`)}`,
     packId: dv.row.packId,
     packVersion: dv.row.version,
     saveId: dv.saveId,
     branchId: dv.branchId,
+    viewModes: [...viewModes],
     targets: [...dv.targets],
     selectedModuleIds: [...dv.selectedModuleIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     normalizedParams: undefined,

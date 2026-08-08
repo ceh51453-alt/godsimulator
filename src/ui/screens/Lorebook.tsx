@@ -26,7 +26,7 @@ import type { EntryCoNguon } from '../../core/lore/doiSoat.js';
 import { banDoDiBiet } from '../../core/lore/kyVong.js';
 import { duocNap } from '../../core/lore/tinCay.js';
 import { giaiDoanLore } from '../../core/lore/ejs.js';
-import type { NguonLorebook, TrangThaiKyVong } from '../../core/lore/schema.js';
+import type { LorebookEntry, NguonLorebook, TrangThaiKyVong } from '../../core/lore/schema.js';
 import { nut, nhanNho, the } from '../design/kieu.js';
 
 const NHAN_NGUON: Readonly<Record<NguonLorebook, string>> = Object.freeze({
@@ -78,11 +78,152 @@ function Khoi({ ten, phu, children }: { ten: string; phu?: string; children: Rea
   );
 }
 
+function TrinhSuaEntry({
+  entry,
+  luu,
+  boCheEntry,
+}: {
+  entry: LorebookEntry;
+  luu: (banSua: {
+    ten: string;
+    keys: string[];
+    noiDung: string;
+    lop: 'loi' | 'sau';
+    order: number;
+  }) => boolean;
+  boCheEntry: () => void;
+}): JSX.Element {
+  const [dangSua, setDangSua] = useState(false);
+  const [ten, setTen] = useState(entry.ten);
+  const [keys, setKeys] = useState(entry.keys.join(', '));
+  const [noiDung, setNoiDung] = useState(entry.noiDung);
+  const [lop, setLop] = useState<'loi' | 'sau'>(entry.lop);
+  const [order, setOrder] = useState(entry.order);
+
+  const huy = (): void => {
+    setTen(entry.ten);
+    setKeys(entry.keys.join(', '));
+    setNoiDung(entry.noiDung);
+    setLop(entry.lop);
+    setOrder(entry.order);
+    setDangSua(false);
+  };
+
+  return (
+    <li
+      style={{
+        borderTop: '1px solid var(--kinh-vien)',
+        padding: '9px 0 0',
+        display: 'grid',
+        gap: 8,
+      }}
+    >
+      {!dangSua ? (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 14 }}>{entry.ten}</strong>
+            <span style={nhanNho}>{entry.lop === 'loi' ? 'luôn bật' : 'theo từ khóa'}</span>
+            {entry.trangThai !== 'hoat_dong' && (
+              <span style={{ ...nhanNho, color: 'var(--hoi)' }}>
+                {entry.trangThai === 'bi_che' ? 'đang bị che' : 'đã xóa mềm'}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            {entry.trangThai === 'bi_che' && (
+              <button type="button" style={nut(false)} onClick={boCheEntry}>
+                Bỏ che
+              </button>
+            )}
+            <button
+              type="button"
+              style={nut(false, entry.trangThai === 'da_xoa')}
+              disabled={entry.trangThai === 'da_xoa'}
+              onClick={() => setDangSua(true)}
+            >
+              Sửa entry
+            </button>
+          </div>
+          <p style={{ margin: 0, color: 'var(--mo)', fontSize: 12 }}>
+            {entry.keys.length > 0 ? `Từ khóa: ${entry.keys.join(', ')} · ` : ''}order {entry.order} · tin cậy{' '}
+            {entry.doTinCay}%
+          </p>
+          <p style={{ margin: 0, color: 'var(--tro)', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+            {entry.noiDung.slice(0, 280)}
+            {entry.noiDung.length > 280 ? '…' : ''}
+          </p>
+          {entry.trangThai === 'bi_che' && entry.lyDoChe !== '' && (
+            <p style={{ margin: 0, color: 'var(--hoi)', fontSize: 12 }}>Lý do che: {entry.lyDoChe}</p>
+          )}
+        </>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--mo)' }}>
+            Tên entry
+            <input value={ten} onChange={(e) => setTen(e.currentTarget.value)} />
+          </label>
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--mo)' }}>
+            Từ khóa, cách nhau bằng dấu phẩy
+            <input value={keys} onChange={(e) => setKeys(e.currentTarget.value)} />
+          </label>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--mo)' }}>
+              Cách kích hoạt
+              <select value={lop} onChange={(e) => setLop(e.currentTarget.value as 'loi' | 'sau')}>
+                <option value="sau">Theo từ khóa</option>
+                <option value="loi">Luôn bật</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--mo)' }}>
+              Order
+              <input type="number" value={order} onChange={(e) => setOrder(e.currentTarget.valueAsNumber)} />
+            </label>
+          </div>
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--mo)' }}>
+            Nội dung
+            <textarea
+              rows={10}
+              value={noiDung}
+              onChange={(e) => setNoiDung(e.currentTarget.value)}
+              style={{ resize: 'vertical', minHeight: 180 }}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" style={nut(false)} onClick={huy}>
+              Hủy
+            </button>
+            <button
+              type="button"
+              style={nut(true)}
+              onClick={() => {
+                const ok = luu({
+                  ten,
+                  keys: keys
+                    .split(',')
+                    .map((k) => k.trim())
+                    .filter(Boolean),
+                  noiDung,
+                  lop,
+                  order,
+                });
+                if (ok) setDangSua(false);
+              }}
+            >
+              Lưu thay đổi
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function Lorebook(): JSX.Element {
   const state = useGame((s) => s.state);
   const stateHash = useGame((s) => s.stateHash);
   const nhap = useGame((s) => s.nhapLorebookTuChuoi);
   const bat = useGame((s) => s.batLorebook);
+  const suaEntry = useGame((s) => s.suaLorebookEntry);
+  const boCheEntry = useGame((s) => s.boCheLorebookEntry);
   const xoa = useGame((s) => s.xoaLorebook);
   const thuVien = useThuVienLorebook((s) => s.muc);
   const daNapThuVien = useThuVienLorebook((s) => s.daNap);
@@ -95,6 +236,7 @@ export function Lorebook(): JSX.Element {
   const oFile = useRef<HTMLInputElement>(null);
   const [tin, setTin] = useState('');
   const [dangThemDungSan, setDangThemDungSan] = useState('');
+  const [sachDangMo, setSachDangMo] = useState<ReadonlySet<string>>(() => new Set());
 
   /*
    * `WorldState` chứa Map và Event engine sửa Map tại chỗ. Theo dõi thêm hash
@@ -336,6 +478,10 @@ export function Lorebook(): JSX.Element {
           : điều nó đã thực sự trở thành. Mâu thuẫn thì Sử thắng — không phải vì Sử đúng hơn, mà vì không được
           nói dối về chuyện đã rồi.
         </p>
+        <p style={{ color: 'var(--mo)', margin: '8px 0 0', fontSize: 13 }}>
+          “Sử của thế giới” được tạo tự động cho mỗi ván. Các tác vụ hậu trường có đích ghi lorebook sẽ cập
+          nhật entry ở đó; nội dung trùng được hợp nhất thay vì thêm bản sao.
+        </p>
       </header>
 
       {khoiThuVien}
@@ -368,21 +514,23 @@ export function Lorebook(): JSX.Element {
                       />
                       {lb.bat ? 'đang bật' : 'đang tắt'}
                     </label>
-                    <button
-                      type="button"
-                      style={{ ...nut(false), color: 'var(--hoi)', padding: '5px 10px' }}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Xóa “${lb.ten}” khỏi ván này? Các nhân vật và địa danh đã xuất hiện sẽ vẫn là lịch sử.`,
-                          )
-                        ) {
-                          void xoa(lb.id);
-                        }
-                      }}
-                    >
-                      Xóa
-                    </button>
+                    {lb.nguon !== 'tu_sinh' && (
+                      <button
+                        type="button"
+                        style={{ ...nut(false), color: 'var(--hoi)', padding: '5px 10px' }}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Xóa “${lb.ten}” khỏi ván này? Các nhân vật và địa danh đã xuất hiện sẽ vẫn là lịch sử.`,
+                            )
+                          ) {
+                            void xoa(lb.id);
+                          }
+                        }}
+                      >
+                        Xóa
+                      </button>
+                    )}
                   </div>
                   {lb.moTa.trim() !== '' && (
                     <p style={{ margin: 0, color: 'var(--tro)', fontSize: 13 }}>{lb.moTa}</p>
@@ -408,6 +556,41 @@ export function Lorebook(): JSX.Element {
                       </span>
                     )}
                   </div>
+                  <details
+                    onToggle={(e) => {
+                      const dangMo = e.currentTarget.open;
+                      setSachDangMo((cu) => {
+                        const moi = new Set(cu);
+                        if (dangMo) moi.add(lb.id);
+                        else moi.delete(lb.id);
+                        return moi;
+                      });
+                    }}
+                  >
+                    <summary style={{ cursor: 'pointer', color: 'var(--tro)', fontSize: 13 }}>
+                      Xem và chỉnh sửa {lb.entries.length} entry trên nhánh này
+                    </summary>
+                    {sachDangMo.has(lb.id) && lb.entries.length === 0 ? (
+                      <p style={{ color: 'var(--mo)', fontSize: 13, margin: '10px 0 0' }}>
+                        Sách đang chờ lần workflow hậu trường tiếp theo tạo entry đầu tiên.
+                      </p>
+                    ) : sachDangMo.has(lb.id) ? (
+                      <ul
+                        style={{ listStyle: 'none', padding: 0, margin: '4px 0 0', display: 'grid', gap: 8 }}
+                      >
+                        {[...lb.entries]
+                          .sort((a, b) => a.order - b.order || a.ten.localeCompare(b.ten, 'vi'))
+                          .map((entry) => (
+                            <TrinhSuaEntry
+                              key={entry.id}
+                              entry={entry}
+                              luu={(banSua) => suaEntry(lb.id, entry.id, banSua)}
+                              boCheEntry={() => boCheEntry(lb.id, entry.id)}
+                            />
+                          ))}
+                      </ul>
+                    ) : null}
+                  </details>
                 </li>
               );
             })}

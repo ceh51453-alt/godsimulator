@@ -85,4 +85,65 @@ describe('thư viện Lorebook và công tắc trong ván', () => {
     expect(await layDb().lorebooks.get([world.branchId, book.id])).toBeUndefined();
     expect(await layDb().tombstones.get([world.branchId, 'lorebooks', book.id])).toBeDefined();
   });
+
+  it('cho người chơi sửa entry, ghi lịch sử và chặn nội dung trùng', async () => {
+    const world = WorldSchema.parse({
+      id: 'w_lore_edit',
+      branchId: 'br_lore_edit',
+      seed: 'lore-edit',
+      tick: 2,
+      eraId: 'era_0',
+      year: 0,
+      tuningProfileId: 'co_dien',
+      playerState: { setupCompleted: true },
+      version: 0,
+    });
+    const state = taoState(world);
+    const log = taoEventLog();
+    useGame.setState({ state, log, loi: [], stateHash: hashState(state) });
+    expect(await useGame.getState().nhapLorebookTuChuoi(RAW, 'Sách sửa')).toBe(true);
+    const book = [...(useGame.getState().state?.lorebooks.values() ?? [])][0];
+    expect(book).toBeDefined();
+    if (!book) return;
+
+    expect(
+      useGame.getState().suaLorebookEntry(book.id, 'entry.test', {
+        ten: 'Khởi nguyên đã sửa',
+        keys: ['khởi nguyên', 'mở đầu'],
+        noiDung: 'Một quy luật đã được người chơi viết lại.',
+        lop: 'sau',
+        order: 4,
+      }),
+    ).toBe(true);
+    const daSua = useGame.getState().state?.lorebooks.get(book.id)?.entries[0];
+    expect(daSua?.ten).toBe('Khởi nguyên đã sửa');
+    expect(daSua?.lichSu.at(-1)?.boiAi).toBe('nguoi_choi');
+    expect(log.tatCa().at(-1)?.loai).toBe('sua_lorebook_entry');
+
+    const rawTrung = JSON.stringify({
+      entries: [
+        {
+          uid: 'entry.trung',
+          comment: 'Bản trùng',
+          key: ['trùng'],
+          content: 'Một quy luật đã được người chơi viết lại.',
+        },
+      ],
+    });
+    expect(await useGame.getState().nhapLorebookTuChuoi(rawTrung, 'Sách trùng')).toBe(true);
+    const sachTrung = [...(useGame.getState().state?.lorebooks.values() ?? [])].find(
+      (x) => x.ten === 'Sách trùng',
+    );
+    expect(sachTrung).toBeDefined();
+    if (!sachTrung) return;
+    expect(
+      useGame.getState().suaLorebookEntry(sachTrung.id, 'entry.trung', {
+        ten: 'Bản trùng vẫn trùng',
+        keys: ['trùng'],
+        noiDung: 'Một quy luật đã được người chơi viết lại.',
+        lop: 'sau',
+        order: 5,
+      }),
+    ).toBe(false);
+  });
 });

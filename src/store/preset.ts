@@ -31,7 +31,7 @@ import { useAi } from './ai.js';
 import { wizardMoi, napKetQua, diToi, datChon, baoCaoNhap } from '../core/preset/wizard.js';
 import type { TrangThaiWizard, ManWizard, BaoCaoNhap } from '../core/preset/wizard.js';
 import { kichHoat, lintTruocKhiBat, hoanTac, versionKeTiep } from '../core/preset/kichHoat.js';
-import { PresetPackRowSchema } from '../core/preset/schema.js';
+import { PresetActivationSchema, PresetPackRowSchema } from '../core/preset/schema.js';
 import type { HelperScript, PresetPackRow, PresetActivation, TransformDef } from '../core/preset/schema.js';
 import type { PackDangBat } from '../core/preset/hopNhat.js';
 import type { BienPackDoi } from '../core/ai/mvu.js';
@@ -46,6 +46,8 @@ import {
 } from '../core/preset/adapterMerge.js';
 import type { CaptureRule, CapturedData, PromptMessageLike } from '../core/preset/adapterMerge.js';
 import type { ImportIssue } from '../core/contracts/primitives.js';
+import { VIEW_MODES } from '../core/contracts/primitives.js';
+import type { ViewMode } from '../core/contracts/primitives.js';
 import { docChiThiScene } from '../core/preset/scriptAdapter.js';
 import { giaiMacro } from '../core/preset/macro.js';
 import { catSuyLuanNoiBo } from '../core/ai/suyLuan.js';
@@ -87,13 +89,16 @@ export type TrangThaiPreset = {
   nhatKyScript: Readonly<Record<string, readonly { muc: string; dong: string }[]>>;
   /** Toast do script gọi `toastr.*`. Mới nhất ở cuối. */
   thongBao: readonly { readonly id: string; readonly muc: string; readonly text: string }[];
-  /** Preset sẽ tự bật trước lời kể đầu tiên của một ván mới. */
-  chonChoVanMoi: readonly string[];
+  /** Preset sẽ tự bật trước lời kể đầu tiên, tách riêng theo từng tầng. */
+  chonChoVanMoi: Readonly<Record<ViewMode, readonly string[]>>;
+  /** Tầng mà mọi lớp của preset (prompt, regex, script, tham số) đang phục vụ. */
+  tangHienTai: ViewMode;
   branchId: string;
   daNap: boolean;
 
   napTuDia(branchId: string): Promise<void>;
   doiNhanh(branchId: string): Promise<void>;
+  datTangHienTai(tang: ViewMode): Promise<void>;
 
   /** Chạy pipeline mười hai bước trên nội dung file. KHÔNG ghi đĩa. */
   doThu(ten: string, noiDung: string, tick: number): void;
@@ -103,14 +108,16 @@ export type TrangThaiPreset = {
   nhapVaoThuVien(): Promise<void>;
   dongWizard(): void;
 
-  bat(packId: string, saveId: string, tick: number): Promise<boolean>;
+  bat(packId: string, saveId: string, tick: number, viewModes?: readonly ViewMode[]): Promise<boolean>;
   tat(packId: string): Promise<void>;
+  /** Bật/tắt một preset ở riêng một tầng; bỏ tầng cuối cùng đồng nghĩa tắt preset. */
+  datTangApDung(packId: string, tang: ViewMode, chon: boolean, saveId: string, tick: number): Promise<void>;
   /** Hoàn tác về activation trước — 65.4, chỉ đổi con trỏ. */
   luiMotBuoc(packId: string): Promise<void>;
   xoaKhoiThuVien(packId: string): Promise<void>;
   /** Lưu trực tiếp một bản chuẩn hóa đã chỉnh; file nguồn bất biến vẫn được giữ để phục hồi. */
   luuChinhSua(row: PresetPackRow): Promise<boolean>;
-  datChonChoVanMoi(packId: string, chon: boolean): Promise<void>;
+  datChonChoVanMoi(packId: string, tang: ViewMode, chon: boolean): Promise<void>;
   /** Bật/tắt module, regex, script hoặc adapter trong cấu hình của đúng pack/nhánh. */
   datTinhNang(
     packId: string,
@@ -240,10 +247,14 @@ function rowsDangBat(
   thuVien: readonly PresetPackRow[],
   dangBat: Readonly<Record<string, PresetActivation>>,
   thuTuBat: readonly string[],
+  tang?: ViewMode,
 ): PresetPackRow[] {
   const viTri = new Map(thuTuBat.map((id, i) => [id, i]));
   return thuVien
-    .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+    .filter((row) => {
+      const act = dangBat[row.packId];
+      return act?.packVersion === row.version && (tang === undefined || act.viewModes.includes(tang));
+    })
     .sort((a, b) => {
       const va = viTri.get(a.packId) ?? Number.MAX_SAFE_INTEGER;
       const vb = viTri.get(b.packId) ?? Number.MAX_SAFE_INTEGER;
@@ -268,22 +279,49 @@ const KHOA_TINH_NANG = Object.freeze({
   adapter: '__adapter_enabled',
 } as const);
 
-const KHOA_PRESET_VAN_MOI = 'preset.new-game.v1';
+const KHOA_PRESET_VAN_MOI = 'preset.new-game.v2';
+const KHOA_PRESET_VAN_MOI_CU = 'preset.new-game.v1';
 
-function chuanHoaChonChoVanMoi(value: unknown): string[] {
+function chuanHoaDanhSachPack(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))];
 }
 
-async function docChonChoVanMoi(): Promise<string[]> {
-  if (!coIndexedDb()) return [];
-  const row = await layDb().settings.get(KHOA_PRESET_VAN_MOI);
-  return chuanHoaChonChoVanMoi(row?.value);
+function chonChoVanMoiRong(): Record<ViewMode, string[]> {
+  return { sang_the: [], than: [], pham_nhan: [] };
 }
 
-async function ghiChonChoVanMoi(packIds: readonly string[]): Promise<void> {
+function chuanHoaChonChoVanMoi(value: unknown): Record<ViewMode, string[]> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return chonChoVanMoiRong();
+  const o = value as Readonly<Record<string, unknown>>;
+  return {
+    sang_the: chuanHoaDanhSachPack(o['sang_the']),
+    than: chuanHoaDanhSachPack(o['than']),
+    pham_nhan: chuanHoaDanhSachPack(o['pham_nhan']),
+  };
+}
+
+async function docChonChoVanMoi(): Promise<Record<ViewMode, string[]>> {
+  if (!coIndexedDb()) return chonChoVanMoiRong();
+  const row = await layDb().settings.get(KHOA_PRESET_VAN_MOI);
+  if (row !== undefined) return chuanHoaChonChoVanMoi(row.value);
+
+  // Bản cũ chỉ có một danh sách dùng chung. Giữ nguyên hành vi bằng cách gán
+  // danh sách ấy cho cả ba tầng trong lần đọc đầu tiên.
+  const cu = chuanHoaDanhSachPack((await layDb().settings.get(KHOA_PRESET_VAN_MOI_CU))?.value);
+  return { sang_the: [...cu], than: [...cu], pham_nhan: [...cu] };
+}
+
+async function ghiChonChoVanMoi(chon: Readonly<Record<ViewMode, readonly string[]>>): Promise<void> {
   if (!coIndexedDb()) return;
-  await layDb().settings.put({ key: KHOA_PRESET_VAN_MOI, value: [...packIds] });
+  await layDb().settings.put({
+    key: KHOA_PRESET_VAN_MOI,
+    value: {
+      sang_the: [...chon.sang_the],
+      than: [...chon.than],
+      pham_nhan: [...chon.pham_nhan],
+    },
+  });
 }
 
 /** Trạng thái cấu hình theo nhánh; vắng override thì giữ đúng cờ của file nguồn. */
@@ -357,7 +395,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   scriptDangChay: [],
   nhatKyScript: {},
   thongBao: [],
-  chonChoVanMoi: [],
+  chonChoVanMoi: chonChoVanMoiRong(),
+  tangHienTai: 'sang_the',
   branchId: '',
   daNap: false,
 
@@ -392,7 +431,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         dangBat,
         thuTuBat,
         bien,
-        chonChoVanMoi: chonChoVanMoi.filter((id) => packCoSan.has(id)),
+        chonChoVanMoi: {
+          sang_the: chonChoVanMoi.sang_the.filter((id) => packCoSan.has(id)),
+          than: chonChoVanMoi.than.filter((id) => packCoSan.has(id)),
+          pham_nhan: chonChoVanMoi.pham_nhan.filter((id) => packCoSan.has(id)),
+        },
         branchId,
         daNap: true,
       });
@@ -408,6 +451,12 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     // Activation và biến đều theo nhánh, nên đổi nhánh là nạp lại từ đầu — KHÔNG
     // mang trạng thái cũ sang, đó là đường rò rỉ giữa hai nhánh.
     await get().napTuDia(branchId);
+  },
+
+  async datTangHienTai(tang) {
+    if (get().tangHienTai === tang) return;
+    set({ tangHienTai: tang });
+    await get().dongBoScript();
   },
 
   doThu(ten, noiDung, tick) {
@@ -510,9 +559,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     return true;
   },
 
-  async bat(packId, saveId, tick) {
+  async bat(packId, saveId, tick, viewModes = [get().tangHienTai]) {
     const row = get().thuVien.find((r) => r.packId === packId);
     if (row === undefined) return false;
+    const tangApDung = VIEW_MODES.filter((tang) => viewModes.includes(tang));
+    if (tangApDung.length === 0) return false;
 
     const w = get().wizard;
     /*
@@ -547,6 +598,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
       row,
       saveId,
       branchId: get().branchId,
+      viewModes: tangApDung,
       targets: ['narrator'],
       selectedModuleIds: chon,
       conflictResolutions: giai,
@@ -616,6 +668,38 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     await get().dongBoScript();
   },
 
+  async datTangApDung(packId, tang, chon, saveId, tick) {
+    const act = get().dangBat[packId];
+    const row = get().thuVien.find((r) => r.packId === packId);
+    if (row === undefined) return;
+
+    const hienTai = act?.viewModes ?? [];
+    const viewModes = chon
+      ? VIEW_MODES.filter((m) => m === tang || hienTai.includes(m))
+      : hienTai.filter((m) => m !== tang);
+
+    if (chon && (act === undefined || act.packVersion !== row.version)) {
+      await get().bat(packId, saveId, tick, viewModes);
+      return;
+    }
+    if (act === undefined) return;
+    if (viewModes.length === 0) {
+      await get().tat(packId);
+      return;
+    }
+
+    const activation: PresetActivation = { ...act, viewModes };
+    set({ dangBat: { ...get().dangBat, [packId]: activation }, loiBat: [] });
+    if (coIndexedDb()) {
+      try {
+        await ghiKichHoat(layDb(), activation);
+      } catch {
+        // Phạm vi trong phiên vẫn có hiệu lực nếu ghi đĩa thất bại.
+      }
+    }
+    await get().dongBoScript();
+  },
+
   async luiMotBuoc(packId) {
     const act = get().dangBat[packId];
     const ve = hoanTac(act ?? null);
@@ -630,8 +714,14 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
         await get().tat(packId);
         return;
       }
-      await ghiKichHoat(layDb(), { ...truoc, activatedAt: (act?.activatedAt ?? 0) + 1 });
-      const dangBat = { ...get().dangBat, [packId]: truoc };
+      const parsed = PresetActivationSchema.safeParse(truoc);
+      if (!parsed.success) {
+        await get().tat(packId);
+        return;
+      }
+      const activation = { ...parsed.data, activatedAt: (act?.activatedAt ?? 0) + 1 };
+      await ghiKichHoat(layDb(), activation);
+      const dangBat = { ...get().dangBat, [packId]: activation };
       const thuTuBat = [...get().thuTuBat.filter((id) => id !== packId), packId];
       set({ dangBat, thuTuBat });
     } catch {
@@ -653,7 +743,11 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     delete b[packId];
     const thuVien = get().thuVien.filter((r) => r.packId !== packId);
     const thuTuBat = get().thuTuBat.filter((id) => id !== packId);
-    const chonChoVanMoi = get().chonChoVanMoi.filter((id) => id !== packId);
+    const chonChoVanMoi = {
+      sang_the: get().chonChoVanMoi.sang_the.filter((id) => id !== packId),
+      than: get().chonChoVanMoi.than.filter((id) => id !== packId),
+      pham_nhan: get().chonChoVanMoi.pham_nhan.filter((id) => id !== packId),
+    };
     set({ thuVien, dangBat: con, thuTuBat, bien: b, chonChoVanMoi });
     await get().dongBoScript();
     try {
@@ -663,11 +757,12 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     }
   },
 
-  async datChonChoVanMoi(packId, chon) {
+  async datChonChoVanMoi(packId, tang, chon) {
     if (!get().thuVien.some((row) => row.packId === packId)) return;
-    const chonChoVanMoi = chon
-      ? [...new Set([...get().chonChoVanMoi, packId])]
-      : get().chonChoVanMoi.filter((id) => id !== packId);
+    const danhSach = chon
+      ? [...new Set([...get().chonChoVanMoi[tang], packId])]
+      : get().chonChoVanMoi[tang].filter((id) => id !== packId);
+    const chonChoVanMoi = { ...get().chonChoVanMoi, [tang]: danhSach };
     set({ chonChoVanMoi, loiBat: [] });
     try {
       await ghiChonChoVanMoi(chonChoVanMoi);
@@ -705,7 +800,9 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   },
 
   async datThamSoHieuLuc(thayDoi) {
-    const packId = [...get().thuTuBat].reverse().find((id) => get().dangBat[id] !== undefined);
+    const packId = [...get().thuTuBat]
+      .reverse()
+      .find((id) => get().dangBat[id]?.viewModes.includes(get().tangHienTai));
     if (packId === undefined) {
       const ep = useAi.getState().cfg.narrator;
       useAi.getState().suaEndpoint('narrator', { params: { ...ep.params, ...thayDoi } });
@@ -737,7 +834,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   packChoLuot() {
     const dangBat = get().dangBat;
     const ra: PackDangBat[] = [];
-    for (const row of rowsDangBat(get().thuVien, dangBat, get().thuTuBat)) {
+    for (const row of rowsDangBat(get().thuVien, dangBat, get().thuTuBat, get().tangHienTai)) {
       const act = dangBat[row.packId];
       if (act === undefined || act.packVersion !== row.version) continue;
       // Biến của nhánh ghi đè biến khai trong file: file cấp giá trị KHỞI ĐẦU,
@@ -761,7 +858,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   transformDangBat() {
     const ra: TransformDef[] = [];
-    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai)) {
       for (const t of row.transformDefs) {
         const bat = tinhNangPresetDangBat(get().bien[row.packId], 'regex', t.id, t.batONguon);
         /*
@@ -825,7 +922,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
 
   scriptDangBat() {
     const ra: HelperScript[] = [];
-    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai)) {
       for (const s of row.scripts ?? []) {
         if (tinhNangPresetDangBat(get().bien[row.packId], 'script', s.id, s.batONguon)) ra.push(s);
       }
@@ -859,8 +956,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   },
 
   lichSuChoPrompt(canh) {
-    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
-      adapterDangBat(row, get().bien[row.packId]).filter((a) => a.kind === 'prompt_merge'),
+    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai).flatMap(
+      (row) => adapterDangBat(row, get().bien[row.packId]).filter((a) => a.kind === 'prompt_merge'),
     );
     const cfg = adapters.at(-1)?.config ?? {};
     const h = cfg['chat_history'];
@@ -901,8 +998,8 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   },
 
   xuLyOutput(vanBan) {
-    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).flatMap((row) =>
-      adapterDangBat(row, get().bien[row.packId]),
+    const adapters = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai).flatMap(
+      (row) => adapterDangBat(row, get().bien[row.packId]),
     );
     let out = vanBan;
     if (adapters.some((a) => a.kind === 'cot_cleanup')) {
@@ -975,7 +1072,9 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   captureOutput(output, tick = 0) {
     // Lấy capture rules từ biến pack
     const bien = get().bien;
-    const packBat = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat).map((row) => row.packId);
+    const packBat = rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai).map(
+      (row) => row.packId,
+    );
     const rules: CaptureRule[] = [];
     for (const packId of packBat) {
       const packBien = bien[packId] ?? {};
@@ -1008,7 +1107,7 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
     if (Object.keys(chiThi).length === 0) return;
     const bienMoi: Record<string, Record<string, unknown>> = { ...get().bien };
     let daDoi = false;
-    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat)) {
+    for (const row of rowsDangBat(get().thuVien, get().dangBat, get().thuTuBat, get().tangHienTai)) {
       const adapters = adapterDangBat(row, get().bien[row.packId]).filter((a) => a.kind === 'scene_switch');
       if (adapters.length === 0) continue;
       const override: Record<string, unknown> = {
@@ -1044,7 +1143,9 @@ export const usePreset = create<TrangThaiPreset>((set, get) => ({
   async apBienPack(thayDoi, tick) {
     if (thayDoi.length === 0) return { soApDung: 0, soBiBo: 0, vi: '' };
 
-    const dangBat = Object.keys(get().dangBat);
+    const dangBat = Object.values(get().dangBat)
+      .filter((act) => act.viewModes.includes(get().tangHienTai))
+      .map((act) => act.packId);
     /*
      * Không có pack nào bật thì biến không có chỗ sống — và người chơi phải
      * BIẾT điều đó.

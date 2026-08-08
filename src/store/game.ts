@@ -32,6 +32,7 @@ import { apDungChuoi, apDungEvent } from '../core/engine/transaction.js';
 import { chieu } from '../core/project/chieu.js';
 import type { WorldView } from '../core/contracts/view.js';
 import type { PatchOp, Event as SuKien } from '../core/contracts/core.js';
+import { VIEW_MODES } from '../core/contracts/primitives.js';
 import type { ViewMode } from '../core/contracts/primitives.js';
 import { moTheGioiTrong, KhoiTaoWorldSchema } from '../core/world/khoiTao.js';
 import type { CuaVao } from '../core/world/khoiTao.js';
@@ -125,13 +126,25 @@ import { BranchSchema } from '../core/contracts/branch.js';
 import { chayDuongOng } from '../core/workflow/chay.js';
 import { bienSoanTacVu } from '../core/workflow/bienSoanTacVu.js';
 import { PRESET_WORKFLOW, kiemLanRanh } from '../core/workflow/dungSan.js';
+import { ghiLorebook } from '../core/workflow/dichGhi.js';
+import type { WorkflowPreset } from '../core/workflow/schema.js';
 import type { TrangThaiLich } from '../core/workflow/lich.js';
 import { goiTacVuWorkflow } from '../ai/client.js';
 import type { AiEndpoint } from '../core/ai/cauHinh.js';
-import { nhapLorebook } from '../core/lore/nhap.js';
+import { kiemEjs, nhapLorebook } from '../core/lore/nhap.js';
 import { capNhatKyVong, trichKyVong } from '../core/lore/kyVong.js';
 import { vatChatHoaLorebook } from '../core/lore/hienThuc.js';
 import { giaiDoanLore } from '../core/lore/ejs.js';
+import { boChe } from '../core/lore/doiSoat.js';
+import { daiCuaNguon, DAI_ORDER, LorebookEntrySchema } from '../core/lore/schema.js';
+import type { Lorebook, LorebookEntry } from '../core/lore/schema.js';
+import { tinhDoTinCay } from '../core/lore/tinCay.js';
+import {
+  hopNhatEntryTuSinh,
+  ID_LOREBOOK_SU_THE_GIOI,
+  khoaNoiDungLore,
+  taoLorebookSuTheGioi,
+} from '../core/lore/quanLy.js';
 import {
   CauHinhDienHoaSchema,
   CauHinhTuDienHoaSchema,
@@ -286,6 +299,20 @@ export type TrangThaiGame = {
   nhapLorebookTuChuoi(noiDung: string, ten: string): Promise<boolean>;
   /** Bật/tắt một lorebook. Đi qua Event như mọi thay đổi state khác. */
   batLorebook(id: string, bat: boolean): void;
+  /** Người chơi sửa một entry trên nhánh hiện tại; máy không dùng đường này. */
+  suaLorebookEntry(
+    lorebookId: string,
+    entryId: string,
+    banSua: {
+      readonly ten: string;
+      readonly keys: readonly string[];
+      readonly noiDung: string;
+      readonly lop: 'loi' | 'sau';
+      readonly order: number;
+    },
+  ): boolean;
+  /** Bỏ lớp che do đối soát tạo; giữ nguyên lịch sử vì sao entry từng bị che. */
+  boCheLorebookEntry(lorebookId: string, entryId: string): void;
   /** Xóa sách khỏi nhánh hiện tại; lịch sử đã hiện thực hóa vẫn được giữ. */
   xoaLorebook(id: string): Promise<void>;
 
@@ -2240,8 +2267,13 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           themDong(
             'he_thong',
             `Thế giới vừa tự chạy ${kq.soCall} lượt mô phỏng nhưng không rút ra được chuyện nào kể được. ` +
+              `${kq.soEntryLorebook > 0 ? `Đã cập nhật ${kq.soEntryLorebook} entry trong Sử của thế giới. ` : ''}` +
               'Xem Tự Chẩn Đoán để biết tác vụ nào im lặng.',
           );
+        }
+        if (kq.soEntryLorebook > 0) {
+          dongBo();
+          void get().luuVan();
         }
         return;
       }
@@ -2267,6 +2299,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       themDong(
         'he_thong',
         `Thế giới vừa tự chạy sau lưng bạn: ${kq.soCall} lượt gọi, ${ghi.length} chuyện mới. ` +
+          `${kq.soEntryLorebook > 0 ? `${kq.soEntryLorebook} entry Sử đã được cập nhật. ` : ''}` +
           'Chúng sẽ được kể dần ở những nhịp tới.',
       );
       dongBo();
@@ -2326,6 +2359,157 @@ export const useGame = create<TrangThaiGame>((set, get) => {
   };
 
   /**
+   * Bảo đảm nhánh có một lorebook `tu_sinh` làm đích ghi an toàn cho workflow.
+   * Ván cũ được nâng cấp lười ở lần mở/chạy đầu tiên; ván mới có sách ngay từ
+   * lúc khai thiên để người chơi nhìn thấy tính năng đang hoạt động.
+   */
+  const damBaoLorebookSuTheGioi = (s: WorldState, log: EventLog): Lorebook | null => {
+    const daCo = s.lorebooks.get(ID_LOREBOOK_SU_THE_GIOI);
+    if (daCo !== undefined) return daCo.nguon === 'tu_sinh' ? daCo : null;
+
+    demLore++;
+    const evId = `ev_tao_lore_su_${s.world.branchId}_${s.world.tick}_${demLore}`;
+    const lorebook = { ...taoLorebookSuTheGioi(s.world.branchId), tickBat: s.world.tick };
+    const ev = taoEvent({
+      id: evId,
+      branchId: s.world.branchId,
+      tick: s.world.tick,
+      loai: 'tao_lorebook_tu_sinh',
+      actorIds: [],
+      targetIds: [],
+      causeEventIds: [],
+      locationId: null,
+      patches: [
+        {
+          op: 'link',
+          target: { table: 'lorebooks', id: lorebook.id, path: '' },
+          value: lorebook,
+          sourceEventId: evId,
+        },
+      ],
+      visibility: 'engine',
+      source: 'engine',
+      payload: { lorebookId: lorebook.id },
+    });
+    const ok = apDungEvent(s, ev, log);
+    if (!ok.ok) {
+      set({ loi: [...get().loi, ...ok.errors].slice(-200) });
+      return null;
+    }
+    return s.lorebooks.get(lorebook.id) ?? null;
+  };
+
+  type KetQuaGhiDichLorebook = Readonly<{
+    soEntry: number;
+    loi: readonly StructuredError[];
+  }>;
+
+  /** Áp riêng các đích `ghi_lorebook`; mọi đích khác vẫn giữ lằn ranh cũ. */
+  const apDichGhiLorebook = (
+    s: WorldState,
+    log: EventLog,
+    preset: WorkflowPreset,
+    output: readonly { taskId: string; text: string }[],
+  ): KetQuaGhiDichLorebook => {
+    if (output.length === 0) return { soEntry: 0, loi: [] };
+
+    // Chụp nguồn TRƯỚC khi tạo sách đích để sự kiện "tạo cái sổ" không tự làm
+    // bằng chứng cho nội dung được viết vào sổ ấy.
+    const suKienChongLung = log
+      .tatCa()
+      .filter(
+        (e) =>
+          e.patches.length > 0 &&
+          e.loai !== 'tao_lorebook_tu_sinh' &&
+          !e.loai.includes('lorebook') &&
+          !e.loai.includes('lore_'),
+      )
+      .slice(-3)
+      .map((e) => e.id);
+
+    const sachSu = damBaoLorebookSuTheGioi(s, log);
+    if (sachSu === null) return { soEntry: 0, loi: [] };
+
+    const loiGom: StructuredError[] = [];
+    const sachMoi = new Map<string, Lorebook>();
+    let soEntry = 0;
+    const taskTheoId = new Map(preset.tasks.map((t) => [t.id, t]));
+    const eventMap = new Map(log.tatCa().map((e) => [e.id, e]));
+
+    for (const o of output) {
+      const task = taskTheoId.get(o.taskId);
+      if (task === undefined || o.text.trim() === '') continue;
+      const dich = [...task.dichGhi, ...preset.quyTacGhiLorebook].filter((d) => d.loai === 'ghi_lorebook');
+
+      for (const target of dich) {
+        const lorebookId =
+          target.lorebookNguon === 'chi_dinh' && target.lorebookId.trim() !== ''
+            ? target.lorebookId.trim()
+            : ID_LOREBOOK_SU_THE_GIOI;
+        const lb = sachMoi.get(lorebookId) ?? s.lorebooks.get(lorebookId);
+        if (lb === undefined) {
+          loiGom.push(
+            loi('schema', 'LOREBOOK_DICH_KHONG_TON_TAI', `Không có lorebook đích "${lorebookId}".`, {
+              path: o.taskId,
+              recoverable: true,
+            }),
+          );
+          continue;
+        }
+
+        const kq = ghiLorebook({
+          target,
+          noiDung: o.text.trim(),
+          tick: s.world.tick,
+          nguonDich: lb.nguon,
+          lorebookId: lb.id,
+          taskId: task.id,
+          suKienChongLung,
+        });
+        if (!kq.ok) {
+          loiGom.push(...kq.loi);
+          continue;
+        }
+
+        const entry: LorebookEntry = {
+          ...kq.entry,
+          doTinCay: tinhDoTinCay(kq.entry, eventMap),
+        };
+        const hop = hopNhatEntryTuSinh(lb, entry);
+        if (!hop.thayDoi) continue;
+        sachMoi.set(lb.id, hop.lorebook);
+        soEntry++;
+      }
+    }
+
+    if (sachMoi.size === 0) return { soEntry, loi: loiGom };
+    demLore++;
+    const evId = `ev_ghi_lore_tu_sinh_${s.world.branchId}_${s.world.tick}_${demLore}`;
+    const ev = taoEvent({
+      id: evId,
+      branchId: s.world.branchId,
+      tick: s.world.tick,
+      loai: 'ghi_lorebook_tu_sinh',
+      actorIds: [],
+      targetIds: [],
+      causeEventIds: suKienChongLung,
+      locationId: null,
+      patches: [...sachMoi.values()].map((lb) => ({
+        op: 'set' as const,
+        target: { table: 'lorebooks', id: lb.id, path: 'entries' },
+        value: lb.entries,
+        sourceEventId: evId,
+      })),
+      visibility: 'engine',
+      source: 'ai_validated',
+      payload: { soEntry, taskIds: [...new Set(output.map((o) => o.taskId))] },
+    });
+    const ok = apDungEvent(s, ev, log);
+    if (!ok.ok) return { soEntry: 0, loi: [...loiGom, ...ok.errors] };
+    return { soEntry, loi: loiGom };
+  };
+
+  /**
    * Dựng bộ chạy đường ống workflow — [BB] 50.2 – 50.10.
    *
    * Trả `null` khi không có gì để chạy, và ba lý do đều hợp lệ: preset trống,
@@ -2341,13 +2525,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
    * phải nằm im. Tường Thuật đã được kiểm tra kết nối, và đây vẫn là "một model
    * đọc một prompt rồi trả về văn bản".
    *
-   * ── Cái hàm này KHÔNG làm ──
-   *
-   * Nó không áp `dichGhi` của tác vụ vào thế giới. Output đi vào ngữ cảnh của
-   * giai đoạn sau và vào Sổ Hậu Trường, chấm hết. Lý do: [BB] 50.10 xếp "ghi vào
-   * lorebook người dùng" là hỏng NẶNG, và đường ghi an toàn cần một bộ định
-   * tuyến riêng qua `dichGhi.ts` với đủ kiểm lằn ranh. Nối một nửa đường ghi thì
-   * tệ hơn không nối: nó tạo ra ấn tượng rằng lằn ranh đã được kiểm.
+   * Đích `ghi_lorebook` được định tuyến riêng vào sách `tu_sinh`; mọi lần ghi
+   * đều qua `ghiLorebook()` để chặn ghi đè sách người dùng và chặn đệ quy.
    */
   const chuanBiDuongOng = (
     presetId: string,
@@ -2361,6 +2540,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       vet: TrangThaiGame['vetDuongOng'][number][];
       /** Output từng tác vụ — nguyên liệu của Sổ Hậu Trường. */
       output: { taskId: string; text: string }[];
+      /** Số entry tự sinh vừa thêm/cập nhật sau khi chống trùng. */
+      soEntryLorebook: number;
     }>;
   } | null => {
     const preset = PRESET_WORKFLOW[presetId];
@@ -2455,6 +2636,19 @@ export const useGame = create<TrangThaiGame>((set, get) => {
           });
         }
 
+        const output = kq.flatMap((gd) =>
+          gd.ketQua
+            .filter((t) => t.chay && t.output.trim() !== '')
+            .map((t) => ({ taskId: t.taskId, text: t.output })),
+        );
+        const logHienTai = get().log;
+        const vanHienTai = get().state;
+        const ghiLore =
+          logHienTai === null || vanHienTai?.world.branchId !== s.world.branchId
+            ? { soEntry: 0, loi: [] }
+            : apDichGhiLorebook(s, logHienTai, preset, output);
+        if (ghiLore.loi.length > 0) set({ loi: [...get().loi, ...ghiLore.loi].slice(-200) });
+
         return {
           soCall,
           vet: kq.flatMap((gd) =>
@@ -2468,11 +2662,8 @@ export const useGame = create<TrangThaiGame>((set, get) => {
               thatBai: t.thatBai.length,
             })),
           ),
-          output: kq.flatMap((gd) =>
-            gd.ketQua
-              .filter((t) => t.chay && t.output.trim() !== '')
-              .map((t) => ({ taskId: t.taskId, text: t.output })),
-          ),
+          output,
+          soEntryLorebook: ghiLore.soEntry,
         };
       },
     };
@@ -2542,6 +2733,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       rerollDuoc: false,
       cauLuotTruoc: null,
     });
+    damBaoLorebookSuTheGioi(state, log);
     dongBo();
 
     // Lorebook được chọn ở Sảnh phải có mặt và được bật trước lời kể đầu tiên.
@@ -2558,8 +2750,12 @@ export const useGame = create<TrangThaiGame>((set, get) => {
     // Preset được chọn ở Sảnh phải tác động ngay lời kể đầu tiên của ván mới.
     // Chỉ activation được tạo theo nhánh; thư viện và lựa chọn vẫn thuộc máy.
     await usePreset.getState().napTuDia(state.world.branchId);
-    for (const packId of usePreset.getState().chonChoVanMoi) {
-      await usePreset.getState().bat(packId, state.world.id, state.world.tick);
+    await usePreset.getState().datTangHienTai(state.world.playerState.mode);
+    const chonPreset = usePreset.getState().chonChoVanMoi;
+    const packIds = new Set(Object.values(chonPreset).flat());
+    for (const packId of packIds) {
+      const viewModes = VIEW_MODES.filter((tang) => chonPreset[tang].includes(packId));
+      await usePreset.getState().bat(packId, state.world.id, state.world.tick, viewModes);
     }
 
     // Không nhịp nền ở lượt khai thiên: thế giới chưa có gì để một năm trôi qua.
@@ -2723,6 +2919,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         return;
       }
       dongBo();
+      await usePreset.getState().datTangHienTai(mode);
       const ten = chon ? (get().view?.entities.get(chon)?.ten ?? chon) : null;
       // Ghi dòng hệ thống thay vì gọi keLuot — chuyển tầng không phải một lượt.
       themDong(
@@ -3302,6 +3499,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         cauLuotTruoc: null,
         tickDaLuu: state.world.tick,
       });
+      damBaoLorebookSuTheGioi(state, log);
       dongBo();
       return true;
     },
@@ -3418,6 +3616,7 @@ export const useGame = create<TrangThaiGame>((set, get) => {
         cauLuotTruoc: null,
         tickDaLuu: null,
       });
+      damBaoLorebookSuTheGioi(state, log);
       dongBo();
       // Nhập từ file rồi mới ghi xuống đĩa: trước lúc ấy nó chưa phải một ván
       // trên máy này, và nó không được xuất hiện trong danh sách "Tiếp tục".
@@ -3596,11 +3795,205 @@ export const useGame = create<TrangThaiGame>((set, get) => {
       void get().luuVan();
     },
 
+    suaLorebookEntry(lorebookId, entryId, banSua) {
+      const s = get().state;
+      const log = get().log;
+      const lb = s?.lorebooks.get(lorebookId);
+      const viTri = lb?.entries.findIndex((e) => e.id === entryId) ?? -1;
+      const cu = viTri >= 0 ? lb?.entries[viTri] : undefined;
+      if (!s || !log || !lb || !cu) return false;
+
+      const ten = banSua.ten.trim();
+      const noiDung = banSua.noiDung.trim();
+      const keys = [...new Set(banSua.keys.map((k) => k.trim()).filter((k) => k !== ''))];
+      if (ten === '' || noiDung === '') {
+        set({
+          loi: [
+            ...get().loi,
+            loi('schema', 'ENTRY_RONG', 'Tên và nội dung entry không được để trống.', { recoverable: true }),
+          ].slice(-200),
+        });
+        return false;
+      }
+      if (banSua.lop === 'sau' && keys.length === 0) {
+        set({
+          loi: [
+            ...get().loi,
+            loi('schema', 'KEYS_RONG', 'Entry theo từ khóa phải có ít nhất một từ khóa.', {
+              recoverable: true,
+            }),
+          ].slice(-200),
+        });
+        return false;
+      }
+      const loiEjs = kiemEjs(noiDung);
+      if (loiEjs !== null) {
+        set({
+          loi: [
+            ...get().loi,
+            loi('schema', 'EJS_HONG', `${loiEjs.thongDiep} ở dòng ${loiEjs.dong}.`, { recoverable: true }),
+          ].slice(-200),
+        });
+        return false;
+      }
+
+      const khoaMoi = khoaNoiDungLore(noiDung);
+      const trung = [...s.lorebooks.values()].flatMap((sach) =>
+        sach.entries
+          .filter(
+            (e) =>
+              !(sach.id === lorebookId && e.id === entryId) &&
+              e.trangThai !== 'da_xoa' &&
+              khoaMoi !== '' &&
+              khoaNoiDungLore(e.noiDung) === khoaMoi,
+          )
+          .map((e) => ({ sach, entry: e })),
+      )[0];
+      if (trung !== undefined) {
+        set({
+          loi: [
+            ...get().loi,
+            loi(
+              'schema',
+              'TRUNG_NOI_DUNG_LOREBOOK',
+              `Nội dung đã có ở entry "${trung.entry.ten}" của "${trung.sach.ten}"; không tạo thêm một bản trùng.`,
+              { recoverable: true },
+            ),
+          ].slice(-200),
+        });
+        return false;
+      }
+
+      const dai = DAI_ORDER[daiCuaNguon(lb.nguon)];
+      const orderTho = Number.isFinite(banSua.order) ? Math.round(banSua.order) : cu.order;
+      const order = Math.max(dai.tu, Math.min(dai.den, orderTho));
+      const moi = LorebookEntrySchema.safeParse({
+        ...cu,
+        ten,
+        keys,
+        noiDung,
+        lop: banSua.lop,
+        order,
+        uocLuongToken: uocLuong(noiDung, TY_LE_TOKEN),
+        lichSu: [
+          ...cu.lichSu.slice(-19),
+          {
+            tick: s.world.tick,
+            boiAi: 'nguoi_choi',
+            op: 'sua',
+            truoc: cu.noiDung,
+            sau: noiDung,
+            lyDo: 'người chơi sửa trong trình soạn Lorebook',
+          },
+        ],
+      });
+      if (!moi.success) {
+        set({
+          loi: [
+            ...get().loi,
+            loi('schema', 'ENTRY_KHONG_HOP_LE', moi.error.issues[0]?.message ?? 'Entry không hợp lệ.', {
+              recoverable: true,
+            }),
+          ].slice(-200),
+        });
+        return false;
+      }
+
+      const entries = [...lb.entries];
+      entries[viTri] = moi.data;
+      demLore++;
+      const evId = `ev_sua_lore_entry_${lorebookId}_${s.world.tick}_${demLore}`;
+      const ev = taoEvent({
+        id: evId,
+        branchId: s.world.branchId,
+        tick: s.world.tick,
+        loai: 'sua_lorebook_entry',
+        actorIds: [],
+        targetIds: [],
+        causeEventIds: [],
+        locationId: null,
+        patches: [
+          {
+            op: 'set',
+            target: { table: 'lorebooks', id: lorebookId, path: 'entries' },
+            value: entries,
+            sourceEventId: evId,
+          },
+        ],
+        visibility: 'engine',
+        source: 'player',
+        payload: { lorebookId, entryId },
+      });
+      const ok = apDungEvent(s, ev, log);
+      if (!ok.ok) {
+        set({ loi: [...get().loi, ...ok.errors].slice(-200) });
+        return false;
+      }
+      dongBo();
+      void get().luuVan();
+      return true;
+    },
+
+    boCheLorebookEntry(lorebookId, entryId) {
+      const s = get().state;
+      const log = get().log;
+      const lb = s?.lorebooks.get(lorebookId);
+      const viTri = lb?.entries.findIndex((e) => e.id === entryId) ?? -1;
+      const cu = viTri >= 0 ? lb?.entries[viTri] : undefined;
+      if (!s || !log || !lb || !cu || cu.trangThai !== 'bi_che') return;
+      const entries = [...lb.entries];
+      entries[viTri] = boChe(cu, s.world.tick);
+      demLore++;
+      const evId = `ev_bo_che_lore_${lorebookId}_${s.world.tick}_${demLore}`;
+      const ev = taoEvent({
+        id: evId,
+        branchId: s.world.branchId,
+        tick: s.world.tick,
+        loai: 'bo_che_lorebook_entry',
+        actorIds: [],
+        targetIds: [],
+        causeEventIds: [],
+        locationId: null,
+        patches: [
+          {
+            op: 'set',
+            target: { table: 'lorebooks', id: lorebookId, path: 'entries' },
+            value: entries,
+            sourceEventId: evId,
+          },
+        ],
+        visibility: 'engine',
+        source: 'player',
+        payload: { lorebookId, entryId },
+      });
+      const ok = apDungEvent(s, ev, log);
+      if (!ok.ok) {
+        set({ loi: [...get().loi, ...ok.errors].slice(-200) });
+        return;
+      }
+      dongBo();
+      void get().luuVan();
+    },
+
     async xoaLorebook(id) {
       const s = get().state;
       const log = get().log;
       const lb = s?.lorebooks.get(id);
       if (!s || !log || !lb) return;
+      if (lb.nguon === 'tu_sinh') {
+        set({
+          loi: [
+            ...get().loi,
+            loi(
+              'schema',
+              'KHONG_XOA_SO_THE_GIOI',
+              'Sử tự sinh là sổ theo nhánh nên không xóa; bạn có thể tắt sách để nó không đi vào lời kể.',
+              { recoverable: true },
+            ),
+          ].slice(-200),
+        });
+        return;
+      }
       demLore++;
       const evId = `ev_lore_xoa_${id}_${s.world.tick}_${demLore}`;
       const patches: PatchOp[] = [];

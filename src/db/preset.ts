@@ -11,7 +11,7 @@
  */
 import type { ThienDienDb } from './schema.js';
 import type { HangBienPack, HangUiState } from './schema.js';
-import { PresetPackRowSchema } from '../core/preset/schema.js';
+import { PresetActivationSchema, PresetPackRowSchema } from '../core/preset/schema.js';
 import type { PresetPackRow, RawSourceRow, PresetActivation } from '../core/preset/schema.js';
 import { chuanHoaSillyTavern } from '../core/preset/chuanHoa.js';
 import { locKhoaNguyHiem } from '../core/preset/anToan.js';
@@ -118,7 +118,10 @@ export async function ghiKichHoat(db: ThienDienDb, act: PresetActivation): Promi
  * đứng đầu chuỗi là đang chạy.
  */
 export async function docKichHoatDangChay(db: ThienDienDb, branchId: string): Promise<PresetActivation[]> {
-  const ds = await db.presetActivations.where('branchId').equals(branchId).toArray();
+  const ds = (await db.presetActivations.where('branchId').equals(branchId).toArray()).flatMap((row) => {
+    const parsed = PresetActivationSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
   const moiNhat = new Map<string, PresetActivation>();
   for (const a of ds) {
     const cu = moiNhat.get(a.packId);

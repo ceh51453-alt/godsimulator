@@ -1,17 +1,25 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { layDb } from '../db/instance.js';
-import type { PresetPackRow } from '../core/preset/schema.js';
+import { docKichHoatDangChay } from '../db/preset.js';
+import { PresetActivationSchema } from '../core/preset/schema.js';
+import type { PresetActivation, PresetPackRow } from '../core/preset/schema.js';
 import { chonNhatKyScript, tinhNangPresetDangBat, usePreset } from './preset.js';
 
 describe('quản lý tính năng Preset', () => {
   beforeEach(async () => {
     await layDb().presetVars.clear();
+    await layDb().presetActivations.clear();
     await layDb().settings.delete('preset.new-game.v1');
+    await layDb().settings.delete('preset.new-game.v2');
     usePreset.setState({
       branchId: 'br_preset_manager',
+      thuVien: [],
+      dangBat: {},
+      thuTuBat: [],
       bien: {},
-      chonChoVanMoi: [],
+      chonChoVanMoi: { sang_the: [], than: [], pham_nhan: [] },
+      tangHienTai: 'sang_the',
       daNap: true,
     });
   });
@@ -68,15 +76,77 @@ describe('quản lý tính năng Preset', () => {
     usePreset.setState({
       thuVien: [{ packId: 'pack.a', version: 1 } as PresetPackRow],
       branchId: '',
-      chonChoVanMoi: [],
+      chonChoVanMoi: { sang_the: [], than: [], pham_nhan: [] },
     });
 
-    await usePreset.getState().datChonChoVanMoi('pack.a', true);
-    expect(usePreset.getState().chonChoVanMoi).toEqual(['pack.a']);
-    expect((await layDb().settings.get('preset.new-game.v1'))?.value).toEqual(['pack.a']);
+    await usePreset.getState().datChonChoVanMoi('pack.a', 'than', true);
+    expect(usePreset.getState().chonChoVanMoi).toEqual({
+      sang_the: [],
+      than: ['pack.a'],
+      pham_nhan: [],
+    });
+    expect((await layDb().settings.get('preset.new-game.v2'))?.value).toEqual({
+      sang_the: [],
+      than: ['pack.a'],
+      pham_nhan: [],
+    });
 
-    await usePreset.getState().datChonChoVanMoi('pack.a', false);
-    expect(usePreset.getState().chonChoVanMoi).toEqual([]);
+    await usePreset.getState().datChonChoVanMoi('pack.a', 'than', false);
+    expect(usePreset.getState().chonChoVanMoi.than).toEqual([]);
+  });
+
+  it('chỉ đưa preset của tầng hiện tại vào lượt kể', async () => {
+    const row = {
+      packId: 'pack.a',
+      version: 1,
+      pack: { variables: {}, modules: [] },
+    } as unknown as PresetPackRow;
+    const activation = PresetActivationSchema.parse({
+      id: 'act.a',
+      packId: 'pack.a',
+      packVersion: 1,
+      saveId: 'save.a',
+      branchId: 'br_preset_manager',
+      viewModes: ['than'],
+      targets: ['narrator'],
+      selectedModuleIds: [],
+      conflictResolutions: {},
+      previousActivationId: null,
+      activatedAt: 1,
+    });
+    usePreset.setState({
+      thuVien: [row],
+      dangBat: { 'pack.a': activation },
+      thuTuBat: ['pack.a'],
+      tangHienTai: 'sang_the',
+    });
+
+    expect(usePreset.getState().packChoLuot()).toEqual([]);
+    await usePreset.getState().datTangHienTai('than');
+    expect(
+      usePreset
+        .getState()
+        .packChoLuot()
+        .map((p) => p.row.packId),
+    ).toEqual(['pack.a']);
+  });
+
+  it('preset đã bật từ bản cũ tiếp tục dùng ở cả ba tầng', async () => {
+    await layDb().presetActivations.put({
+      id: 'act.cu',
+      packId: 'pack.cu',
+      packVersion: 1,
+      saveId: 'save.cu',
+      branchId: 'br_cu',
+      targets: ['narrator'],
+      selectedModuleIds: [],
+      conflictResolutions: {},
+      previousActivationId: null,
+      activatedAt: 1,
+    } as unknown as PresetActivation);
+
+    const [act] = await docKichHoatDangChay(layDb(), 'br_cu');
+    expect(act?.viewModes).toEqual(['sang_the', 'than', 'pham_nhan']);
   });
 });
 

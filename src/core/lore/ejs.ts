@@ -195,8 +195,11 @@ const THU_TU_QUAN_HE: readonly QuanHeDaThan[] = Object.freeze(['song_song', 'dun
  * chặn.
  */
 function sachDangBat(s: WorldState, lorebook: Lorebook): readonly Lorebook[] {
-  const ds = [...s.lorebooks.values()].filter((lb) => lb.bat);
-  const day = ds.some((lb) => lb.id === lorebook.id) ? ds : [...ds, lorebook];
+  // Sử tự sinh là kết quả của thế giới, không phải một thần thoại đang giành
+  // trần kết tinh. Cho nó vào đây sẽ làm mọi sách nguồn bị hụt lực chỉ vì app
+  // vừa tạo một cuốn sổ để ghi điều đã xảy ra.
+  const ds = [...s.lorebooks.values()].filter((lb) => lb.bat && lb.nguon !== 'tu_sinh');
+  const day = lorebook.nguon === 'tu_sinh' || ds.some((lb) => lb.id === lorebook.id) ? ds : [...ds, lorebook];
   return day.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
@@ -320,12 +323,12 @@ export function taoNguCanhEjsLore(s: WorldState, lorebook: Lorebook, entry: Lore
   const bac = THANG_DIEN[tang] as (typeof THANG_DIEN)[number];
 
   const dangBat = sachDangBat(s, lorebook);
-  const phanCua = phanTran(dangBat, lorebook);
+  const phanCua = lorebook.nguon === 'tu_sinh' ? lorebook.lucHapDan : phanTran(dangBat, lorebook);
   const quanHe = quanHeCua(dangBat);
   // Sách id nhỏ nhất chủ trì. Bất kỳ quy tắc ổn định nào cũng được, miễn nó
   // KHÔNG phụ thuộc vào entry đang render — nếu không, cùng một thế giới sẽ có
   // lượt in giao ước và lượt không.
-  const chuTri = dangBat[0] as Lorebook;
+  const chuTri = dangBat[0] ?? lorebook;
   const doi = dangBat.length > 1;
   const tenNguoiChoi = chuThe?.ten ?? 'Người Chơi';
 

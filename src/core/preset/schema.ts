@@ -14,7 +14,7 @@
  * khai output schema và có test patch.
  */
 import { z } from 'zod';
-import { ImportIssueSchema } from '../contracts/primitives.js';
+import { ImportIssueSchema, VIEW_MODES, ViewModeSchema } from '../contracts/primitives.js';
 import { NormalizedGenParamsSchema } from '../schema/ai.js';
 
 // ─────────────────────────────────────────── vỏ nhập
@@ -415,6 +415,16 @@ export const PresetActivationSchema = z
     packVersion: z.number().int(),
     saveId: z.string(),
     branchId: z.string(),
+    /**
+     * Những tầng được phép dùng activation này.
+     *
+     * `prefault` giữ đúng hành vi của dữ liệu cũ: trước khi có phạm vi theo tầng,
+     * một preset đã bật luôn tác động lên cả ba góc nhìn.
+     */
+    viewModes: z
+      .array(ViewModeSchema)
+      .min(1)
+      .prefault([...VIEW_MODES]),
     targets: z.array(z.string()),
     selectedModuleIds: z.array(z.string()),
     normalizedParams: NormalizedGenParamsSchema.optional(),

@@ -826,6 +826,7 @@ describe('cổng 6 — tắt pack trả về prompt native đúng byte/hash', ()
       packVersion: 1,
       saveId: 's',
       branchId: 'b',
+      viewModes: ['sang_the', 'than', 'pham_nhan'],
       targets: ['narrator'],
       selectedModuleIds: row.pack.modules.filter((m) => m.enabled).map((m) => m.id),
       conflictResolutions: {},

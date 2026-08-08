@@ -355,12 +355,24 @@ function tangTruyHoi(ds: readonly { nguon: string; text: string; daBopMeo: boole
   if (ds.length === 0) return '';
   const dong: string[] = ['ĐIỀU CHỦ THỂ NHỚ HOẶC BIẾT (đã truy hồi theo tiêu điểm):'];
   for (const c of ds) {
-    const nguon = c.nguon === 'lorebook' ? '[THẦN THOẠI NGUỒN — điểm hút, chưa phải lịch sử đã xảy ra] ' : '';
+    const nguon =
+      c.nguon === 'lorebook'
+        ? '[THẦN THOẠI NGUỒN — điểm hút, chưa phải lịch sử đã xảy ra] '
+        : c.nguon === 'lorebook_su'
+          ? '[SỬ THẾ GIỚI — điều đã xảy ra, thắng mọi Nguồn trái với nó] '
+          : c.nguon === 'lorebook_di_san'
+            ? '[DI SẢN — ký ức từ vòng trước, thấp hơn Sử và cao hơn Nguồn] '
+            : '';
     dong.push(`- ${nguon}${c.text}${c.daBopMeo ? ' [nghe kể lại, đã sai đi ít nhiều]' : ''}`);
   }
   if (ds.some((c) => c.nguon === 'lorebook')) {
     dong.push(
       'Nếu một nhân vật, nơi chốn hoặc yếu tố từ THẦN THOẠI NGUỒN bước vào cảnh và chưa có trong Chân Lý Thế Giới, hãy tạo nó bằng <CapNhat>. Không được chỉ nhắc tên rồi để nó biến mất khỏi sổ.',
+    );
+  }
+  if (ds.some((c) => c.nguon === 'lorebook_su') && ds.some((c) => c.nguon === 'lorebook')) {
+    dong.push(
+      'Khi SỬ THẾ GIỚI và THẦN THOẠI NGUỒN nói khác nhau, giữ Sử và kể Nguồn như một truyền thống, lời tiên tri hoặc dị bản đã không thành. Không trộn hai mệnh đề thành một sự thật thứ ba.',
     );
   }
   return dong.join('\n');

@@ -28,6 +28,8 @@ import type { ViewMode } from '../contracts/primitives.js';
 /** Nguồn chunk — bảng 54.2. Mỗi nguồn có đơn vị chunk tự nhiên riêng. */
 export const NGUON_CHUNK = [
   'lorebook',
+  'lorebook_su',
+  'lorebook_di_san',
   'bien_nien',
   'ky_uc_thuc_the',
   'ky_uc_mach',

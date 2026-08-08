@@ -5,3 +5,4 @@ export * from './tinCay.js';
 export * from './doiSoat.js';
 export * from './ops.js';
 export * from './kyVong.js';
+export * from './quanLy.js';

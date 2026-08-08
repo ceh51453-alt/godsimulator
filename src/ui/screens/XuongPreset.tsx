@@ -22,6 +22,14 @@ import type {
 import { MODULE_LANES, OMIT_REASON_NHAN } from '../../core/preset/schema.js';
 import { kiemPatternHopLe } from '../../core/preset/chuanHoa.js';
 import { bam } from '../../core/engine/hash.js';
+import { VIEW_MODES } from '../../core/contracts/primitives.js';
+import type { ViewMode } from '../../core/contracts/primitives.js';
+
+const NHAN_TANG: Readonly<Record<ViewMode, string>> = {
+  sang_the: 'Sáng Thế Thần',
+  than: 'Thần',
+  pham_nhan: 'Phàm Nhân',
+};
 
 /**
  * Gộp lý do bị bỏ thành một câu nói đúng sự thật.
@@ -143,8 +151,7 @@ export function XuongPreset(): JSX.Element {
   const napTuDia = usePreset((s) => s.napTuDia);
   const doThu = usePreset((s) => s.doThu);
   const nhapVaoThuVien = usePreset((s) => s.nhapVaoThuVien);
-  const bat = usePreset((s) => s.bat);
-  const tat = usePreset((s) => s.tat);
+  const datTangApDung = usePreset((s) => s.datTangApDung);
   const xoaKhoiThuVien = usePreset((s) => s.xoaKhoiThuVien);
   const luuChinhSua = usePreset((s) => s.luuChinhSua);
   const datChonChoVanMoi = usePreset((s) => s.datChonChoVanMoi);
@@ -169,6 +176,7 @@ export function XuongPreset(): JSX.Element {
   const branchId = state?.world.branchId ?? '';
   const tick = state?.world.tick ?? 0;
   const saveId = state?.world.id ?? '';
+  const tangHienTai = state?.world.playerState.mode ?? 'sang_the';
 
   const oFile = useRef<HTMLInputElement>(null);
   const [dangDoc, setDangDoc] = useState(false);
@@ -222,7 +230,10 @@ export function XuongPreset(): JSX.Element {
   const loiNhap = wizard.ketQua?.issues.filter((i) => i.severity === 'error') ?? [];
   const paramsHieuLuc = thamSoHieuLuc(paramsNen);
   const tenPresetDangBat = packs
-    .filter((row) => dangBat[row.packId]?.packVersion === row.version)
+    .filter((row) => {
+      const act = dangBat[row.packId];
+      return act?.packVersion === row.version && act.viewModes.includes(tangHienTai);
+    })
     .map((row) => row.pack.envelope.sourceName);
 
   return (
@@ -315,7 +326,13 @@ export function XuongPreset(): JSX.Element {
             const daBat = act?.packVersion === row.version;
             const dangMo = moRong.has(row.packId);
             const bienPack = bien[row.packId] ?? {};
-            const daChonChoVanMoi = chonChoVanMoi.includes(row.packId);
+            const tangDaChon =
+              state === null
+                ? VIEW_MODES.filter((tang) => chonChoVanMoi[tang].includes(row.packId))
+                : daBat
+                  ? act.viewModes
+                  : [];
+            const dangDungOTangNay = tangDaChon.includes(tangHienTai);
             const soBan = thuVien.filter((x) => x.packId === row.packId).length;
             return (
               <article key={row.packId} className="kinh" style={{ padding: 16, display: 'grid', gap: 12 }}>
@@ -336,43 +353,24 @@ export function XuongPreset(): JSX.Element {
                   <span
                     style={{
                       ...so,
-                      color: daBat || (state === null && daChonChoVanMoi) ? 'var(--ngoc)' : 'var(--mo)',
+                      color: dangDungOTangNay ? 'var(--ngoc)' : 'var(--mo)',
                     }}
                   >
                     {state === null
-                      ? daChonChoVanMoi
-                        ? 'Sẽ bật trong ván mới'
+                      ? tangDaChon.length > 0
+                        ? `Sẽ bật ở ${tangDaChon.length} tầng`
                         : 'Chưa chọn cho ván mới'
-                      : daBat
-                        ? 'Đang dùng trong ván'
-                        : act
-                          ? `Đang dùng bản ${act.packVersion}`
-                          : 'Đang tắt'}
+                      : daBat && dangDungOTangNay
+                        ? `Đang dùng ở tầng ${NHAN_TANG[tangHienTai]}`
+                        : daBat
+                          ? 'Đã gán cho tầng khác'
+                          : act
+                            ? `Đang dùng bản ${act.packVersion}`
+                            : 'Đang tắt'}
                   </span>
                 </header>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {state === null ? (
-                    <button
-                      type="button"
-                      style={nut(!daChonChoVanMoi)}
-                      onClick={() => void datChonChoVanMoi(row.packId, !daChonChoVanMoi)}
-                    >
-                      {daChonChoVanMoi ? 'Bỏ khỏi ván mới' : 'Bật sẵn cho ván mới'}
-                    </button>
-                  ) : daBat ? (
-                    <button type="button" style={nut()} onClick={() => void tat(row.packId)}>
-                      Tắt preset
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      style={nut(true)}
-                      onClick={() => void bat(row.packId, saveId, tick)}
-                    >
-                      {act ? 'Dùng bản mới nhất' : 'Bật cho ván này'}
-                    </button>
-                  )}
                   <button
                     type="button"
                     style={nut()}
@@ -398,10 +396,28 @@ export function XuongPreset(): JSX.Element {
                   </button>
                 </div>
 
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={nhan}>{state === null ? 'Dùng trong ván mới' : 'Áp dụng cho'}</span>
+                  {VIEW_MODES.map((tang) => {
+                    const checked = tangDaChon.includes(tang);
+                    return (
+                      <CongTac
+                        key={tang}
+                        checked={checked}
+                        nhanChu={`${NHAN_TANG[tang]}${state !== null && tang === tangHienTai ? ' · đang ở đây' : ''}`}
+                        onChange={(chon) => {
+                          if (state === null) void datChonChoVanMoi(row.packId, tang, chon);
+                          else void datTangApDung(row.packId, tang, chon, saveId, tick);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+
                 {state === null && (
                   <p style={{ ...phu, margin: 0 }}>
-                    Preset đã chọn sẽ tự bật trước lời kể đầu tiên. Công tắc module, regex và script vẫn được
-                    giữ riêng cho từng ván.
+                    Preset sẽ chỉ tự bật ở những tầng được chọn trước lời kể đầu tiên. Công tắc module, regex
+                    và script vẫn được giữ riêng cho từng ván.
                   </p>
                 )}
 
@@ -488,7 +504,10 @@ export function XuongPreset(): JSX.Element {
                             </summary>
                             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
                               {row.scriptAdapters.map((a) => {
-                                const checked = tinhNangPresetDangBat(bienPack, 'adapter', a.id, a.batONguon);
+                                const checked =
+                                  state === null
+                                    ? a.batONguon
+                                    : tinhNangPresetDangBat(bienPack, 'adapter', a.id, a.batONguon);
                                 return (
                                   <div
                                     key={a.id}
@@ -503,9 +522,19 @@ export function XuongPreset(): JSX.Element {
                                   >
                                     <CongTac
                                       checked={checked}
-                                      disabled={state === null}
                                       nhanChu={a.ten}
-                                      onChange={(v) => void datTinhNang(row.packId, 'adapter', a.id, v, tick)}
+                                      onChange={(v) => {
+                                        if (state !== null) {
+                                          void datTinhNang(row.packId, 'adapter', a.id, v, tick);
+                                          return;
+                                        }
+                                        void luuChinhSua({
+                                          ...row,
+                                          scriptAdapters: row.scriptAdapters.map((x) =>
+                                            x.id === a.id ? { ...x, batONguon: v } : x,
+                                          ),
+                                        });
+                                      }}
                                     />
                                     <span style={{ ...phu, marginLeft: 'auto', color: 'var(--ngoc)' }}>
                                       {nhanAdapter(a.kind)}
@@ -611,7 +640,23 @@ function PromptDong({
   const [content, setContent] = useState(module.content);
   const [dangLuu, setDangLuu] = useState(false);
   const duocChay = !KHONG_CHAY_DUOC.has(module.activation);
-  const checked = tinhNangPresetDangBat(bienPack, 'module', module.sourceIdentifier, moduleMacDinh(module));
+  const checked = coVan
+    ? tinhNangPresetDangBat(bienPack, 'module', module.sourceIdentifier, moduleMacDinh(module))
+    : moduleMacDinh(module);
+
+  const datBat = (bat: boolean): void => {
+    if (coVan) {
+      void datTinhNang(row.packId, 'module', module.sourceIdentifier, bat, tick);
+      return;
+    }
+    void luuChinhSua({
+      ...row,
+      pack: {
+        ...row.pack,
+        modules: row.pack.modules.map((m) => (m.id === module.id ? { ...m, enabled: bat } : m)),
+      },
+    });
+  };
 
   const luu = async (): Promise<void> => {
     setDangLuu(true);
@@ -627,12 +672,7 @@ function PromptDong({
   return (
     <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 9 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <CongTac
-          checked={checked && duocChay}
-          disabled={!coVan || !duocChay}
-          nhanChu={module.name}
-          onChange={(v) => void datTinhNang(row.packId, 'module', module.sourceIdentifier, v, tick)}
-        />
+        <CongTac checked={checked && duocChay} disabled={!duocChay} nhanChu={module.name} onChange={datBat} />
         <span style={{ ...phu, marginLeft: 'auto' }}>
           {module.role} · {module.lane} · #{module.order}
         </span>
@@ -791,13 +831,26 @@ function RegexDong({
    * — đều không còn khoá công tắc này.
    */
   const chayDuoc = transform.activation !== 'needs_adapter';
-  const checked = tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon);
+  const checked = coVan
+    ? tinhNangPresetDangBat(bienPack, 'regex', transform.id, transform.batONguon)
+    : transform.batONguon;
   const [dangSua, setDangSua] = useState(false);
   const [ten, setTen] = useState(transform.ten);
   const [pattern, setPattern] = useState(transform.pattern);
   const [thayThe, setThayThe] = useState(transform.thayThe);
   const [co, setCo] = useState(transform.co);
   const [dangLuu, setDangLuu] = useState(false);
+
+  const datBat = (bat: boolean): void => {
+    if (coVan) {
+      void datTinhNang(row.packId, 'regex', transform.id, bat, tick);
+      return;
+    }
+    void luuChinhSua({
+      ...row,
+      transformDefs: row.transformDefs.map((t) => (t.id === transform.id ? { ...t, batONguon: bat } : t)),
+    });
+  };
 
   const luu = async (): Promise<void> => {
     setDangLuu(true);
@@ -826,9 +879,9 @@ function RegexDong({
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <CongTac
           checked={checked && chayDuoc}
-          disabled={!coVan || !chayDuoc}
+          disabled={!chayDuoc}
           nhanChu={transform.ten}
-          onChange={(v) => void datTinhNang(row.packId, 'regex', transform.id, v, tick)}
+          onChange={datBat}
         />
         <span style={{ ...phu, marginLeft: 'auto' }}>
           {transform.promptOnlyNguon
@@ -932,13 +985,26 @@ function ScriptDong({
   const dangChay = usePreset((s) => s.scriptDangChay.find((x) => x.id === script.id));
   const nhatKy = usePreset((s) => chonNhatKyScript(s, script.id));
   const bamNut = usePreset((s) => s.bamNutScript);
-  const checked = tinhNangPresetDangBat(bienPack, 'script', script.id, script.batONguon);
+  const checked = coVan
+    ? tinhNangPresetDangBat(bienPack, 'script', script.id, script.batONguon)
+    : script.batONguon;
   const nutHien = script.buttons.filter((b) => b.visible);
   const [dangSua, setDangSua] = useState(false);
   const [ten, setTen] = useState(script.ten);
   const [info, setInfo] = useState(script.info);
   const [noiDung, setNoiDung] = useState(script.noiDung);
   const [dangLuu, setDangLuu] = useState(false);
+
+  const datBat = (bat: boolean): void => {
+    if (coVan) {
+      void datTinhNang(row.packId, 'script', script.id, bat, tick);
+      return;
+    }
+    void luuChinhSua({
+      ...row,
+      scripts: (row.scripts ?? []).map((s) => (s.id === script.id ? { ...s, batONguon: bat } : s)),
+    });
+  };
 
   const luu = async (): Promise<void> => {
     setDangLuu(true);
@@ -961,12 +1027,7 @@ function ScriptDong({
   return (
     <div className="kinh--cap2" style={{ padding: '9px 11px', display: 'grid', gap: 7 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <CongTac
-          checked={checked}
-          disabled={!coVan}
-          nhanChu={script.ten}
-          onChange={(v) => void datTinhNang(row.packId, 'script', script.id, v, tick)}
-        />
+        <CongTac checked={checked} nhanChu={script.ten} onChange={datBat} />
         <span style={{ ...phu, marginLeft: 'auto' }}>
           {script.soKyTu.toLocaleString('vi-VN')} ký tự
           {script.coTaiTuXa ? ' · nạp mã từ mạng' : ''}

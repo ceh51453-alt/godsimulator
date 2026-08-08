@@ -19,6 +19,7 @@ import type { Entity } from '../schema/entity.js';
 import { ChunkSchema, cuaSoTruot } from './chunk.js';
 import type { Chunk } from './chunk.js';
 import { duocNap } from '../lore/tinCay.js';
+import { khoaNoiDungLore } from '../lore/quanLy.js';
 import { giaiDoanLore, renderEjsLore, taoNguCanhEjsLore } from '../lore/ejs.js';
 
 function doc<T>(e: Entity, ten: string): T | undefined {
@@ -89,9 +90,17 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
   // ── Lorebook người dùng: chỉ sách ĐANG BẬT và entry đủ tin cậy mới vào RAG ──
   // Nguồn này là điểm hút cho Narrator. Nó không tự biến thành Sử; khi một yếu
   // tố thật sự xuất hiện, Narrator/engine vẫn phải tạo entity/event tương ứng.
-  for (const lbId of [...s.lorebooks.keys()].sort((a, b) => (a < b ? -1 : 1))) {
-    const lb = s.lorebooks.get(lbId);
-    if (!lb?.bat) continue;
+  const uuTienNguon = { tu_sinh: 0, di_san: 1, nguoi_dung: 2 } as const;
+  const lorebooks = [...s.lorebooks.values()]
+    .filter((lb) => lb.bat)
+    .sort(
+      (a, b) =>
+        uuTienNguon[a.nguon] - uuTienNguon[b.nguon] ||
+        b.uuTien - a.uuTien ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  const noiDungLoreDaNap = new Set<string>();
+  for (const lb of lorebooks) {
     const giaiDoanHienTai = giaiDoanLore(lb, s.world.tick);
     const query = loreQuery.trim().toLowerCase();
     const entries = [...lb.entries].sort(
@@ -109,6 +118,11 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
       if (entry.lop !== 'loi' && entry.giaiDoanMo > giaiDoanHienTai && !duocGoiDichDanh) continue;
       const daRender = renderEjsLore(entry.noiDung, taoNguCanhEjsLore(s, lb, entry));
       if (daRender.text === '') continue;
+      const khoaNoiDung = khoaNoiDungLore(daRender.text);
+      // Sử được duyệt trước Nguồn. Một bản giống hệt chỉ vào prompt một lần;
+      // thứ tự nguồn ở trên quyết định bản nào được giữ một cách ổn định.
+      if (khoaNoiDung !== '' && noiDungLoreDaNap.has(khoaNoiDung)) continue;
+      if (khoaNoiDung !== '') noiDungLoreDaNap.add(khoaNoiDung);
       const entityIds = new Set(entry.chuDe.filter((id) => s.entities.has(id)));
       const ten = entry.ten.trim();
       for (const entity of s.entities.values()) {
@@ -125,10 +139,17 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
       }
       nhap.push({
         id: `ck_lore_${lb.id}_${entry.id}`,
-        nguon: 'lorebook',
+        nguon:
+          lb.nguon === 'tu_sinh' ? 'lorebook_su' : lb.nguon === 'di_san' ? 'lorebook_di_san' : 'lorebook',
         nguonId: entry.nhomKichHoat === '' ? `${lb.id}:${entry.id}` : `${lb.id}:nhom:${entry.nhomKichHoat}`,
         noiDung: [
-          `THẦN THOẠI NGUỒN · ${lb.ten} · ${entry.ten}`,
+          `${
+            lb.nguon === 'tu_sinh'
+              ? 'SỬ THẾ GIỚI'
+              : lb.nguon === 'di_san'
+                ? 'DI SẢN VÒNG TRƯỚC'
+                : 'THẦN THOẠI NGUỒN'
+          } · ${lb.ten} · ${entry.ten}`,
           keys.length > 0 ? `Từ khóa: ${keys.join(', ')}` : '',
           daRender.text,
         ]
@@ -140,6 +161,7 @@ export function dungChiMuc(s: WorldState, loreQuery = ''): readonly Chunk[] {
         tamNhin: { tangToiThieu: 'pham_nhan' },
         meta: {
           lorebookId: lb.id,
+          lorebookNguon: lb.nguon,
           entryId: entry.id,
           keys,
           lop: entry.lop,
